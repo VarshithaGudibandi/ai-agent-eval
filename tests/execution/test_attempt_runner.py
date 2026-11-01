@@ -9,6 +9,7 @@ from app.agents.contract import RunLimits
 from app.db import models
 from app.db.content import create_agent_config, create_dataset_version, load_task_file
 from app.db.experiments import create_experiment, start_attempt
+from app.db.scope import WorkspaceScope
 from app.environments.contract import TaskVersion
 from app.environments.registry import default_registry
 from app.evaluators.contract import EvalContext, Layer, Score
@@ -56,19 +57,17 @@ async def _run_one(
 ) -> tuple[models.EvaluationStatus, models.Attempt]:
     async with platform.sessionmaker.begin() as session:
         version = await create_dataset_version(
-            session, workspace_id, "support-retail", [load_task_file(TASK_FILE)]
+            WorkspaceScope(session, workspace_id), "support-retail", [load_task_file(TASK_FILE)]
         )
         config = await create_agent_config(
-            session,
-            workspace_id,
+            WorkspaceScope(session, workspace_id),
             "scripted",
             models.AdapterType.SCRIPTED,
             settings,
             limits or RunLimits(),
         )
         experiment = await create_experiment(
-            session,
-            workspace_id,
+            WorkspaceScope(session, workspace_id),
             version.id,
             [config.id],
             platform.evaluators,
@@ -78,7 +77,7 @@ async def _run_one(
             select(models.Run).where(models.Run.experiment_id == experiment.id)
         )
         assert run is not None
-        attempt = await start_attempt(session, workspace_id, run.id)
+        attempt = await start_attempt(WorkspaceScope(session, workspace_id), run.id)
     status = await run_attempt(platform, workspace_id, attempt.id)
     async with platform.sessionmaker() as session:
         return status, await session.get_one(models.Attempt, attempt.id)

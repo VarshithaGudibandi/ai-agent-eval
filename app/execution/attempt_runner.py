@@ -6,13 +6,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.contract import HARD_STOPS, AgentResult, RunLimits
 from app.agents.factory import build_adapter
 from app.db import models
+from app.db.attempts import load_attempt, trace_events
+from app.db.experiments import complete_if_done
 from app.db.ids import new_id
+from app.db.scope import WorkspaceScope
 from app.environments.contract import AgentTaskInput, TaskVersion
 from app.environments.registry import EnvironmentRegistry
 from app.environments.state_store import EnvStateStore
@@ -93,8 +95,11 @@ async def _execute(platform: Platform, loaded: _Loaded, started: float) -> model
             loaded.task.environment, EnvStateStore(session, loaded.workspace_id)
         )
         await env.setup(loaded.env_id, loaded.task.fixture)
-        await _save_snapshot(
-            session, loaded, models.SnapshotKind.INITIAL, await env.snapshot(loaded.env_id)
+        _save_snapshot(
+            WorkspaceScope(session, loaded.workspace_id),
+            loaded,
+            models.SnapshotKind.INITIAL,
+            await env.snapshot(loaded.env_id),
         )
         agent_input: AgentTaskInput = env.agent_view(loaded.task)
         schemas = public_schemas(env.tool_schemas(), None)
@@ -126,7 +131,12 @@ async def _execute(platform: Platform, loaded: _Loaded, started: float) -> model
             loaded.task.environment, EnvStateStore(session, loaded.workspace_id)
         )
         final_state = await env.snapshot(loaded.env_id)
-        await _save_snapshot(session, loaded, models.SnapshotKind.FINAL, final_state)
+        _save_snapshot(
+            WorkspaceScope(session, loaded.workspace_id),
+            loaded,
+            models.SnapshotKind.FINAL,
+            final_state,
+        )
         await env.teardown(loaded.env_id)
 
     scores = await _evaluate(platform, loaded, final_state, result.final_response)
@@ -157,14 +167,7 @@ async def _evaluate(
     platform: Platform, loaded: _Loaded, final_state: dict[str, Any], final_response: str
 ) -> list[Score]:
     async with platform.sessionmaker() as session:
-        rows = await session.scalars(
-            select(models.TraceEvent)
-            .where(
-                models.TraceEvent.workspace_id == loaded.workspace_id,
-                models.TraceEvent.attempt_id == loaded.attempt_id,
-            )
-            .order_by(models.TraceEvent.sequence_number)
-        )
+        rows = await trace_events(WorkspaceScope(session, loaded.workspace_id), loaded.attempt_id)
         trace = [
             TraceEvent(
                 id=r.id,
@@ -203,25 +206,15 @@ async def _evaluate(
 
 async def _load_and_mark_running(platform: Platform, workspace_id: str, attempt_id: str) -> _Loaded:
     async with platform.sessionmaker.begin() as session:
-        row = (
-            await session.execute(
-                select(models.Attempt, models.Run, models.TaskVersion, models.AgentConfig)
-                .join(models.Run, models.Run.id == models.Attempt.run_id)
-                .join(models.TaskVersion, models.TaskVersion.id == models.Run.task_version_id)
-                .join(models.AgentConfig, models.AgentConfig.id == models.Run.agent_config_id)
-                .where(models.Attempt.workspace_id == workspace_id, models.Attempt.id == attempt_id)
-            )
-        ).one_or_none()
-        if row is None:
-            raise LookupError(attempt_id)
-        attempt, run, task, config = row
+        rows = await load_attempt(WorkspaceScope(session, workspace_id), attempt_id)
+        attempt, run, task, config = rows.attempt, rows.run, rows.task, rows.config
         if attempt.execution_status != models.ExecutionStatus.QUEUED:
             raise RuntimeError(f"attempt {attempt_id} is {attempt.execution_status}, not queued")
         now = datetime.now(UTC)
         attempt.execution_status = models.ExecutionStatus.RUNNING
         attempt.started_at = now
         run.execution_status = models.ExecutionStatus.RUNNING
-        experiment = await session.get_one(models.Experiment, run.experiment_id)
+        experiment = rows.experiment
         if experiment.status == models.ExperimentStatus.QUEUED:
             experiment.status = models.ExperimentStatus.RUNNING
         return _Loaded(
@@ -248,10 +241,10 @@ async def _load_and_mark_running(platform: Platform, workspace_id: str, attempt_
         )
 
 
-async def _save_snapshot(
-    session: AsyncSession, loaded: _Loaded, kind: models.SnapshotKind, state: dict[str, Any]
+def _save_snapshot(
+    scope: WorkspaceScope, loaded: _Loaded, kind: models.SnapshotKind, state: dict[str, Any]
 ) -> None:
-    session.add(
+    scope.add(
         models.EnvSnapshot(
             id=new_id("snap"),
             workspace_id=loaded.workspace_id,
@@ -274,8 +267,9 @@ async def _finalize(
         result.stop_reason, models.ExecutionStatus.COMPLETED
     )
     async with platform.sessionmaker.begin() as session:
+        scope = WorkspaceScope(session, loaded.workspace_id)
         for score in scores:
-            session.add(
+            scope.add(
                 models.Score(
                     id=new_id("score"),
                     workspace_id=loaded.workspace_id,
@@ -291,40 +285,25 @@ async def _finalize(
                     evidence=score.evidence,
                 )
             )
-        attempt = await session.get_one(models.Attempt, loaded.attempt_id)
+        attempt = await scope.require(models.Attempt, loaded.attempt_id)
         attempt.execution_status = execution_status
         attempt.stop_reason = result.stop_reason
         attempt.final_response = result.final_response
         attempt.finished_at = datetime.now(UTC)
         attempt.duration_ms = round((time.monotonic() - started) * 1000)
-        run = await session.get_one(models.Run, loaded.run_id)
+        run = await scope.require(models.Run, loaded.run_id)
         run.execution_status = execution_status
         run.evaluation_status = status
-        await session.flush()
-        await _complete_experiment_if_done(session, loaded.experiment_id)
+        await scope.flush()
+        await complete_if_done(scope, loaded.experiment_id)
 
 
 async def _mark_infrastructure_error(platform: Platform, loaded: _Loaded, started: float) -> None:
     async with platform.sessionmaker.begin() as session:
-        attempt = await session.get_one(models.Attempt, loaded.attempt_id)
+        scope = WorkspaceScope(session, loaded.workspace_id)
+        attempt = await scope.require(models.Attempt, loaded.attempt_id)
         attempt.execution_status = models.ExecutionStatus.INFRASTRUCTURE_ERROR
         attempt.finished_at = datetime.now(UTC)
         attempt.duration_ms = round((time.monotonic() - started) * 1000)
-        run = await session.get_one(models.Run, loaded.run_id)
+        run = await scope.require(models.Run, loaded.run_id)
         run.execution_status = models.ExecutionStatus.INFRASTRUCTURE_ERROR
-
-
-async def _complete_experiment_if_done(session: AsyncSession, experiment_id: str) -> None:
-    unfinished = await session.scalar(
-        select(models.Run.id)
-        .where(
-            models.Run.experiment_id == experiment_id,
-            models.Run.execution_status.in_(
-                [models.ExecutionStatus.QUEUED, models.ExecutionStatus.RUNNING]
-            ),
-        )
-        .limit(1)
-    )
-    if unfinished is None:
-        experiment = await session.get_one(models.Experiment, experiment_id)
-        experiment.status = models.ExperimentStatus.COMPLETED

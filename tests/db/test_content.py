@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.agents.contract import RunLimits
 from app.db import models
 from app.db.content import create_agent_config, create_dataset_version, load_task_file
+from app.db.scope import WorkspaceScope
 
 TASK_FILE = (
     Path(__file__).parents[2] / "datasets/support_retail/tasks/refund_damaged_headphones.json"
@@ -36,9 +37,11 @@ async def test_versions_count_up_and_hash_follows_content(
     task = load_task_file(TASK_FILE)
     changed = task.model_copy(update={"scenario_family": "other"})
     async with sessionmaker.begin() as session:
-        first = await create_dataset_version(session, workspace_id, "d", [task])
-        same = await create_dataset_version(session, workspace_id, "d", [task])
-        different = await create_dataset_version(session, workspace_id, "d", [changed])
+        first = await create_dataset_version(WorkspaceScope(session, workspace_id), "d", [task])
+        same = await create_dataset_version(WorkspaceScope(session, workspace_id), "d", [task])
+        different = await create_dataset_version(
+            WorkspaceScope(session, workspace_id), "d", [changed]
+        )
         rows = list(
             await session.scalars(
                 select(models.TaskVersion).where(models.TaskVersion.dataset_version_id == first.id)
@@ -54,12 +57,24 @@ async def test_config_hash_ignores_name(
 ) -> None:
     async with sessionmaker.begin() as session:
         a = await create_agent_config(
-            session, workspace_id, "a", models.AdapterType.SCRIPTED, {"x": 1}, RunLimits()
+            WorkspaceScope(session, workspace_id),
+            "a",
+            models.AdapterType.SCRIPTED,
+            {"x": 1},
+            RunLimits(),
         )
         b = await create_agent_config(
-            session, workspace_id, "b", models.AdapterType.SCRIPTED, {"x": 1}, RunLimits()
+            WorkspaceScope(session, workspace_id),
+            "b",
+            models.AdapterType.SCRIPTED,
+            {"x": 1},
+            RunLimits(),
         )
         c = await create_agent_config(
-            session, workspace_id, "c", models.AdapterType.SCRIPTED, {"x": 2}, RunLimits()
+            WorkspaceScope(session, workspace_id),
+            "c",
+            models.AdapterType.SCRIPTED,
+            {"x": 2},
+            RunLimits(),
         )
     assert a.config_hash == b.config_hash != c.config_hash

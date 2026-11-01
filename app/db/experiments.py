@@ -1,16 +1,19 @@
 from collections.abc import Sequence
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import models
 from app.db.ids import new_id
+from app.db.scope import NotFoundError, WorkspaceScope
 from app.evaluators.contract import Evaluator
 
 
+class ExperimentRejectedError(ValueError):
+    pass
+
+
 async def create_experiment(
-    session: AsyncSession,
-    workspace_id: str,
+    scope: WorkspaceScope,
     dataset_version_id: str,
     agent_config_ids: Sequence[str],
     evaluators: Sequence[Evaluator],
@@ -21,48 +24,37 @@ async def create_experiment(
 ) -> models.Experiment:
     """Create the experiment and all its runs together, or return the one already made."""
     if idempotency_key is not None:
-        existing = await session.scalar(
-            select(models.Experiment).where(
-                models.Experiment.workspace_id == workspace_id,
-                models.Experiment.idempotency_key == idempotency_key,
+        existing = await scope.first(
+            scope.query(models.Experiment).where(
+                models.Experiment.idempotency_key == idempotency_key
             )
         )
         if existing is not None:
             return existing
-    version = await session.scalar(
-        select(models.DatasetVersion).where(
-            models.DatasetVersion.workspace_id == workspace_id,
-            models.DatasetVersion.id == dataset_version_id,
-        )
-    )
-    if version is None:
-        raise LookupError(dataset_version_id)
-    tasks = list(
-        await session.scalars(
-            select(models.TaskVersion)
-            .where(
-                models.TaskVersion.workspace_id == workspace_id,
-                models.TaskVersion.dataset_version_id == dataset_version_id,
-            )
-            .order_by(models.TaskVersion.task_key)
-        )
+    version = await scope.require(models.DatasetVersion, dataset_version_id)
+    tasks = await scope.all(
+        scope.query(models.TaskVersion)
+        .where(models.TaskVersion.dataset_version_id == version.id)
+        .order_by(models.TaskVersion.task_key)
     )
     configs = {
         c.id: c
-        for c in await session.scalars(
-            select(models.AgentConfig).where(
-                models.AgentConfig.workspace_id == workspace_id,
-                models.AgentConfig.id.in_(agent_config_ids),
-            )
+        for c in await scope.all(
+            scope.query(models.AgentConfig).where(models.AgentConfig.id.in_(agent_config_ids))
         )
     }
-    missing = set(agent_config_ids) - set(configs)
+    missing = sorted(set(agent_config_ids) - set(configs))
     if missing:
-        raise LookupError(sorted(missing))
+        raise NotFoundError(f"agent_configs:{','.join(missing)}")
+    scripted = [c.id for c in configs.values() if c.adapter_type == models.AdapterType.SCRIPTED]
+    if scripted and mode == models.ExperimentMode.REAL:
+        # Scripted agents are canned answers. Letting them into a real experiment would
+        # produce numbers that look like a real result.
+        raise ExperimentRejectedError("scripted agents can only run in demo experiments")
     experiment = models.Experiment(
         id=new_id("exp"),
-        workspace_id=workspace_id,
-        dataset_version_id=dataset_version_id,
+        workspace_id=scope.workspace_id,
+        dataset_version_id=version.id,
         mode=mode,
         status=models.ExperimentStatus.QUEUED,
         repetitions=repetitions,
@@ -80,15 +72,15 @@ async def create_experiment(
             "repetitions": repetitions,
         },
     )
-    session.add(experiment)
-    await session.flush()
+    scope.add(experiment)
+    await scope.flush()
     for repetition in range(1, repetitions + 1):
         for task in tasks:
             for config_id in agent_config_ids:
-                session.add(
+                scope.add(
                     models.Run(
                         id=new_id("run"),
-                        workspace_id=workspace_id,
+                        workspace_id=scope.workspace_id,
                         experiment_id=experiment.id,
                         agent_config_id=config_id,
                         task_version_id=task.id,
@@ -97,25 +89,40 @@ async def create_experiment(
                         evaluation_status=models.EvaluationStatus.PENDING,
                     )
                 )
-    await session.flush()
+    await scope.flush()
     return experiment
 
 
-async def start_attempt(session: AsyncSession, workspace_id: str, run_id: str) -> models.Attempt:
+async def start_attempt(scope: WorkspaceScope, run_id: str) -> models.Attempt:
     """Create the next attempt for a run. Each attempt gets a fresh environment."""
-    latest = await session.scalar(
+    run = await scope.require(models.Run, run_id)
+    latest = await scope.session.scalar(
         select(func.max(models.Attempt.attempt_number)).where(
-            models.Attempt.workspace_id == workspace_id, models.Attempt.run_id == run_id
+            models.Attempt.workspace_id == scope.workspace_id, models.Attempt.run_id == run.id
         )
     )
     attempt = models.Attempt(
         id=new_id("att"),
-        workspace_id=workspace_id,
-        run_id=run_id,
+        workspace_id=scope.workspace_id,
+        run_id=run.id,
         attempt_number=(latest or 0) + 1,
         env_id=new_id("env"),
         execution_status=models.ExecutionStatus.QUEUED,
     )
-    session.add(attempt)
-    await session.flush()
+    scope.add(attempt)
+    await scope.flush()
     return attempt
+
+
+async def complete_if_done(scope: WorkspaceScope, experiment_id: str) -> None:
+    unfinished = await scope.first(
+        scope.query(models.Run).where(
+            models.Run.experiment_id == experiment_id,
+            models.Run.execution_status.in_(
+                [models.ExecutionStatus.QUEUED, models.ExecutionStatus.RUNNING]
+            ),
+        )
+    )
+    if unfinished is None:
+        experiment = await scope.require(models.Experiment, experiment_id)
+        experiment.status = models.ExperimentStatus.COMPLETED

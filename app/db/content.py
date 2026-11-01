@@ -4,12 +4,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.contract import RunLimits
 from app.db import models
 from app.db.hashing import content_hash
 from app.db.ids import new_id
+from app.db.scope import WorkspaceScope
 from app.environments.contract import AgentTaskInput
 
 
@@ -33,20 +33,20 @@ def load_task_file(path: Path) -> TaskDefinition:
 
 
 async def create_dataset_version(
-    session: AsyncSession, workspace_id: str, dataset_name: str, tasks: list[TaskDefinition]
+    scope: WorkspaceScope, dataset_name: str, tasks: list[TaskDefinition]
 ) -> models.DatasetVersion:
-    dataset = await session.scalar(
-        select(models.Dataset).where(
-            models.Dataset.workspace_id == workspace_id, models.Dataset.name == dataset_name
-        )
+    workspace_id = scope.workspace_id
+    dataset = await scope.first(
+        scope.query(models.Dataset).where(models.Dataset.name == dataset_name)
     )
     if dataset is None:
         dataset = models.Dataset(id=new_id("ds"), workspace_id=workspace_id, name=dataset_name)
-        session.add(dataset)
-        await session.flush()
-    latest = await session.scalar(
+        scope.add(dataset)
+        await scope.flush()
+    latest = await scope.session.scalar(
         select(func.max(models.DatasetVersion.version)).where(
-            models.DatasetVersion.dataset_id == dataset.id
+            models.DatasetVersion.workspace_id == workspace_id,
+            models.DatasetVersion.dataset_id == dataset.id,
         )
     )
     hashes = {t.task_key: content_hash(t.model_dump(mode="json")) for t in tasks}
@@ -57,10 +57,10 @@ async def create_dataset_version(
         version=(latest or 0) + 1,
         content_hash=content_hash(hashes),
     )
-    session.add(version)
-    await session.flush()
+    scope.add(version)
+    await scope.flush()
     for task in tasks:
-        session.add(
+        scope.add(
             models.TaskVersion(
                 id=new_id("task"),
                 workspace_id=workspace_id,
@@ -76,13 +76,12 @@ async def create_dataset_version(
                 content_hash=hashes[task.task_key],
             )
         )
-    await session.flush()
+    await scope.flush()
     return version
 
 
 async def create_agent_config(
-    session: AsyncSession,
-    workspace_id: str,
+    scope: WorkspaceScope,
     name: str,
     adapter_type: models.AdapterType,
     settings: dict[str, Any],
@@ -91,13 +90,13 @@ async def create_agent_config(
     body = {"adapter_type": adapter_type, "settings": settings, "limits": limits.model_dump()}
     config = models.AgentConfig(
         id=new_id("cfg"),
-        workspace_id=workspace_id,
+        workspace_id=scope.workspace_id,
         name=name,
         adapter_type=adapter_type,
         settings=settings,
         limits=limits.model_dump(),
         config_hash=content_hash(body),
     )
-    session.add(config)
-    await session.flush()
+    scope.add(config)
+    await scope.flush()
     return config
