@@ -94,6 +94,17 @@ class ToolCallStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class Role(StrEnum):
+    OWNER = "owner"
+    MEMBER = "member"
+    VIEWER = "viewer"
+
+
+class ActorType(StrEnum):
+    USER = "user"
+    TOKEN = "token"  # noqa: S105
+
+
 class SnapshotKind(StrEnum):
     INITIAL = "initial"
     FINAL = "final"
@@ -120,6 +131,102 @@ class Workspace(Base):
 
 class WorkspaceScoped:
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"))
+
+
+class User(Base):
+    """A person. The only table without a workspace, since one person can join many."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(unique=True)
+    password_hash: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Membership(WorkspaceScoped, Base):
+    __tablename__ = "memberships"
+    __table_args__ = (
+        PrimaryKeyConstraint("workspace_id", "user_id"),
+        one_of("role", Role),
+    )
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    role: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class UserSession(WorkspaceScoped, Base):
+    __tablename__ = "sessions"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        # Removing someone from a workspace ends their sessions in it at once.
+        ForeignKeyConstraint(
+            ["workspace_id", "user_id"],
+            ["memberships.workspace_id", "memberships.user_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    user_id: Mapped[str]
+    token_hash: Mapped[str] = mapped_column(unique=True)
+    csrf_hash: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    expires_at: Mapped[datetime]
+    revoked_at: Mapped[datetime | None]
+
+
+class ApiToken(WorkspaceScoped, Base):
+    __tablename__ = "api_tokens"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        one_of("role", Role),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    role: Mapped[str]
+    token_hash: Mapped[str] = mapped_column(unique=True)
+    token_prefix: Mapped[str]
+    created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    last_used_at: Mapped[datetime | None]
+    revoked_at: Mapped[datetime | None]
+
+
+class Invite(WorkspaceScoped, Base):
+    __tablename__ = "invites"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        one_of("role", Role),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    role: Mapped[str]
+    token_hash: Mapped[str] = mapped_column(unique=True)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    expires_at: Mapped[datetime]
+    accepted_at: Mapped[datetime | None]
+    accepted_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+
+
+class AuditEntry(WorkspaceScoped, Base):
+    __tablename__ = "audit_log"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        one_of("actor_type", ActorType),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    actor_type: Mapped[str]
+    actor_id: Mapped[str]
+    action: Mapped[str]
+    target_type: Mapped[str]
+    target_id: Mapped[str | None]
+    details: Mapped[dict[str, Any]]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
 class Dataset(WorkspaceScoped, Base):

@@ -1,7 +1,17 @@
+import asyncio
+import os
+import sys
+import uuid
 from collections.abc import AsyncIterator
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy import make_url, text
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.db import models
 from app.db.engine import create_engine, create_sessionmaker
@@ -125,3 +135,33 @@ async def attempt(
         await session.flush()
         session.add(attempt)
     return attempt
+
+
+@pytest.fixture
+async def fresh_sessionmaker(settings: Settings) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """A brand-new, migrated database, for tests that need an install with no users yet."""
+    name = f"test_{uuid.uuid4().hex[:12]}"
+    admin = create_async_engine(settings.database_url, isolation_level="AUTOCOMMIT")
+    async with admin.connect() as connection:
+        await connection.execute(text(f'CREATE DATABASE "{name}"'))
+    url = make_url(settings.database_url).set(database=name).render_as_string(hide_password=False)
+    migrate = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "alembic",
+        "upgrade",
+        "head",
+        env={**os.environ, "DATABASE_URL": url},
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, errors = await migrate.communicate()
+    assert migrate.returncode == 0, errors.decode()
+    engine = create_engine(settings.model_copy(update={"database_url": url}))
+    try:
+        yield create_sessionmaker(engine)
+    finally:
+        await engine.dispose()
+        async with admin.connect() as connection:
+            await connection.execute(text(f'DROP DATABASE "{name}" WITH (FORCE)'))
+        await admin.dispose()

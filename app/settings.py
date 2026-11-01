@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     log_format: Literal["json", "text"] = "json"
     db_connect_timeout_seconds: float = Field(default=5.0, gt=0)
     worker_idle_seconds: float = Field(default=5.0, gt=0)
+    session_ttl_hours: float = Field(default=12, gt=0)
+    session_cookie_secure: bool = False
+    invite_ttl_hours: float = Field(default=72, gt=0)
 
 
 @lru_cache
