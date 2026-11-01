@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agent_eval
+          POSTGRES_PASSWORD: agent_eval
+          POSTGRES_DB: agent_eval
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent_eval"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgresql+asyncpg://agent_eval:agent_eval@localhost:5432/agent_eval
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.11.32"
+      - run: uv sync --locked
+      - run: make lint
+      - run: make typecheck
+      - run: uv run alembic upgrade head
+      - run: uv run pytest
+
+  stack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: make up
+      - run: curl --fail --silent --show-error http://127.0.0.1:8000/health/ready
+      - if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down --volumes
