@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    LargeBinary,
     MetaData,
     PrimaryKeyConstraint,
     Text,
@@ -103,6 +104,10 @@ class Role(StrEnum):
 class ActorType(StrEnum):
     USER = "user"
     TOKEN = "token"  # noqa: S105
+
+
+class KeyedProvider(StrEnum):
+    GEMINI = "gemini"
 
 
 class SnapshotKind(StrEnum):
@@ -471,3 +476,23 @@ class Score(WorkspaceScoped, Base):
     reason_code: Mapped[str | None]
     evidence: Mapped[dict[str, Any]]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class ProviderCredential(WorkspaceScoped, Base):
+    """A provider API key, encrypted. Only its last four characters are ever shown."""
+
+    __tablename__ = "provider_credentials"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        one_of("provider", KeyedProvider),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    provider: Mapped[str]
+    label: Mapped[str]
+    nonce: Mapped[bytes] = mapped_column(LargeBinary)
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary)
+    key_last4: Mapped[str]
+    created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    revoked_at: Mapped[datetime | None]

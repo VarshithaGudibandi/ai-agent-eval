@@ -10,6 +10,7 @@ from app.api import (
     datasets,
     experiments,
     health,
+    provider_credentials,
     runs,
     workspaces,
 )
@@ -41,6 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_error_handlers(app)
     for module in (
         health,
+        provider_credentials,
         auth,
         workspaces,
         api_tokens,

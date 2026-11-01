@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import os
+import secrets
 import sys
 import uuid
 from collections.abc import AsyncIterator
@@ -21,7 +23,8 @@ from app.settings import Settings
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(log_format="text")
+    master_key = base64.b64encode(secrets.token_bytes(32)).decode()
+    return Settings(log_format="text", app_master_key=master_key)
 
 
 @pytest.fixture

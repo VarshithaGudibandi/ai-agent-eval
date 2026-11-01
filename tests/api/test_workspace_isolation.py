@@ -33,6 +33,7 @@ class World:
     a: Seeded
     b: Seeded
     b_token_id: str
+    b_credential_id: str
 
 
 @pytest.fixture
@@ -42,7 +43,11 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
     a_token = await token_caller(a_person, clients(), role="owner")
     b_token = await token_caller(b_person, clients(), role="owner")
     b_token_id = (await b_person.get("/api/v1/api-tokens")).json()[0]["id"]
-    return World(a_person, a_token, b_person, b_token, a, b, b_token_id)
+    credential = await b_person.post(
+        "/api/v1/provider-credentials",
+        json={"provider": "gemini", "label": "b", "api_key": "AIzaB-secret-key-0000"},
+    )
+    return World(a_person, a_token, b_person, b_token, a, b, b_token_id, credential.json()["id"])
 
 
 def _foreign_id_attacks(w: World) -> list[tuple[str, str, Any]]:
@@ -82,6 +87,7 @@ def _foreign_id_attacks(w: World) -> list[tuple[str, str, Any]]:
         ),
         ("POST", f"/api/v1/workspaces/{w.b_person.workspace_id}/invites", {"role": "owner"}),
         ("DELETE", f"/api/v1/api-tokens/{w.b_token_id}", None),
+        ("DELETE", f"/api/v1/provider-credentials/{w.b_credential_id}", None),
     ]
 
 
@@ -117,6 +123,7 @@ async def _b_view(w: World) -> dict[str, Any]:
     view = {p: (await w.b_person.get(p)).json() for p in paths}
     tokens = (await w.b_person.get("/api/v1/api-tokens")).json()
     view["tokens"] = [{k: t[k] for k in ("id", "revoked")} for t in tokens]
+    view["keys"] = (await w.b_person.get("/api/v1/provider-credentials")).json()
     return view
 
 
@@ -188,6 +195,7 @@ FOREIGN_ID_ROUTES = {
     ("POST", "/api/v1/experiments"),
     ("POST", "/api/v1/workspaces/{workspace_id}/invites"),
     ("DELETE", "/api/v1/api-tokens/{token_id}"),
+    ("DELETE", "/api/v1/provider-credentials/{credential_id}"),
 }
 LIST_ROUTES = [
     "/api/v1/workspaces",
@@ -195,11 +203,13 @@ LIST_ROUTES = [
     "/api/v1/agent-configs",
     "/api/v1/experiments",
     "/api/v1/api-tokens",
+    "/api/v1/provider-credentials",
 ]
 BODY_ROUTES = {
     ("POST", "/api/v1/datasets/import"),
     ("POST", "/api/v1/agent-configs"),
     ("POST", "/api/v1/api-tokens"),
+    ("POST", "/api/v1/provider-credentials"),
 }
 # These take no workspace input at all: the workspace comes from the caller or is new.
 NO_WORKSPACE_INPUT = {

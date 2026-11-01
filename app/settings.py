@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     session_ttl_hours: float = Field(default=12, gt=0)
     session_cookie_secure: bool = False
     invite_ttl_hours: float = Field(default=72, gt=0)
+    app_master_key: SecretStr | None = None
 
 
 @lru_cache

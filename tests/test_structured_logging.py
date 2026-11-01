@@ -14,3 +14,18 @@ def test_json_logs_include_extra_fields(capsys: pytest.CaptureFixture[str]) -> N
     assert line["level"] == "info"
     assert line["job_id"] == "job_1"
     assert line["time"].endswith("+00:00")
+
+
+@pytest.mark.parametrize("fmt", ["json", "text"])
+def test_secrets_are_masked_in_every_format(fmt: str, capsys: pytest.CaptureFixture[str]) -> None:
+    configure_logging("INFO", fmt)
+    logging.getLogger("example").warning(
+        "calling with AIzaSyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvW and "
+        "Bearer aet_abcdefghijklmnopqrstuvwxyz",
+        extra={"token": "ses_abcdefghijklmnopqrstuvwxyz0123"},
+    )
+    out = capsys.readouterr().out
+    assert "AIza" not in out
+    assert "aet_abc" not in out
+    assert "ses_abc" not in out
+    assert out.count("[redacted]") == (3 if fmt == "json" else 2)
