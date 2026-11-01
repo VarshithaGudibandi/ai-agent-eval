@@ -51,6 +51,12 @@ def _allowed(path: Path) -> bool:
     return any(relative == m or relative.startswith(m + "/") for m in QUERY_MODULES)
 
 
+def _is_session(node: ast.expr) -> bool:
+    return (isinstance(node, ast.Name) and node.id == "session") or (
+        isinstance(node, ast.Attribute) and node.attr == "session"
+    )
+
+
 def _violations(path: Path) -> list[str]:
     tree = ast.parse(path.read_text())
     found = []
@@ -61,8 +67,7 @@ def _violations(path: Path) -> list[str]:
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr in RAW_SESSION_CALLS
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "session"
+            and _is_session(node.func.value)
         ):
             found.append(f"calls session.{node.func.attr}")
     return found
@@ -81,7 +86,12 @@ def test_guard_spots_raw_queries(tmp_path: Path) -> None:
     sample = tmp_path / "sample.py"
     sample.write_text(
         "from sqlalchemy import select\n"
-        "async def f(session):\n"
+        "async def f(session, scope):\n"
+        "    await scope.session.execute(1)\n"
         "    return await session.get_one(object, 1)\n"
     )
-    assert _violations(sample) == ["imports select", "calls session.get_one"]
+    assert sorted(_violations(sample)) == [
+        "calls session.execute",
+        "calls session.get_one",
+        "imports select",
+    ]
