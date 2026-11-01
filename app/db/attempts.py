@@ -31,3 +31,19 @@ async def trace_events(scope: WorkspaceScope, attempt_id: str) -> list[models.Tr
         .where(models.TraceEvent.attempt_id == attempt_id)
         .order_by(models.TraceEvent.sequence_number)
     )
+
+
+async def attempts_for_run(scope: WorkspaceScope, run_id: str) -> list[models.Attempt]:
+    return await scope.all(
+        scope.query(models.Attempt)
+        .where(models.Attempt.run_id == run_id)
+        .order_by(models.Attempt.attempt_number)
+    )
+
+
+async def scores_for_attempt(scope: WorkspaceScope, attempt_id: str) -> list[models.Score]:
+    return await scope.all(
+        scope.query(models.Score)
+        .where(models.Score.attempt_id == attempt_id)
+        .order_by(models.Score.evaluator_name, models.Score.dimension)
+    )

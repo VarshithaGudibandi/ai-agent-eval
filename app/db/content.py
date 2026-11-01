@@ -100,3 +100,27 @@ async def create_agent_config(
     scope.add(config)
     await scope.flush()
     return config
+
+
+async def list_datasets(
+    scope: WorkspaceScope,
+) -> list[tuple[models.Dataset, list[tuple[models.DatasetVersion, int]]]]:
+    datasets = await scope.all(scope.query(models.Dataset).order_by(models.Dataset.name))
+    versions = await scope.all(
+        scope.query(models.DatasetVersion).order_by(models.DatasetVersion.version)
+    )
+    rows = await scope.session.execute(
+        select(models.TaskVersion.dataset_version_id, func.count())
+        .where(models.TaskVersion.workspace_id == scope.workspace_id)
+        .group_by(models.TaskVersion.dataset_version_id)
+    )
+    counts = {version_id: count for version_id, count in rows}
+    return [
+        (d, [(v, counts.get(v.id, 0)) for v in versions if v.dataset_id == d.id]) for d in datasets
+    ]
+
+
+async def list_agent_configs(scope: WorkspaceScope) -> list[models.AgentConfig]:
+    return await scope.all(
+        scope.query(models.AgentConfig).order_by(models.AgentConfig.created_at.desc())
+    )

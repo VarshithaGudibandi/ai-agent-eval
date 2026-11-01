@@ -1,6 +1,8 @@
+import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -12,7 +14,10 @@ from app.api.dependencies import CSRF_HEADER
 from app.api.main import create_app
 from app.auth.users import create_user
 from app.auth.workspaces import create_workspace
+from app.db.experiments import start_attempt
 from app.db.ids import new_id
+from app.db.scope import WorkspaceScope
+from app.execution.attempt_runner import Platform, run_attempt
 from app.settings import Settings
 
 PASSWORD = "a long enough password"
@@ -103,4 +108,66 @@ async def token_caller(owner: Caller, client: httpx.AsyncClient, role: str = "me
         client=client,
         workspace_id=owner.workspace_id,
         headers={"authorization": f"Bearer {response.json()['token']}"},
+    )
+
+
+TASK = json.loads(
+    (
+        Path(__file__).parents[2] / "datasets/support_retail/tasks/refund_damaged_headphones.json"
+    ).read_text()
+)
+SCRIPT = {
+    "script": {
+        "steps": [
+            {"tool": "get_order", "arguments": {"order_id": "ord_1001"}},
+            {
+                "tool": "issue_refund",
+                "arguments": {"order_id": "ord_1001", "amount_minor": 24999, "reason": "damaged"},
+            },
+        ],
+        "final_response": "Refunded in full.",
+    }
+}
+
+
+@dataclass
+class Seeded:
+    dataset_version_id: str
+    agent_config_id: str
+    experiment_id: str
+    run_id: str
+    attempt_id: str
+
+
+async def seed_and_run(caller: Caller, app: FastAPI) -> Seeded:
+    """Create a dataset, a config and a demo experiment through the API, then run it."""
+    imported = await caller.post(
+        "/api/v1/datasets/import", json={"name": "retail", "tasks": [TASK]}
+    )
+    assert imported.status_code == 201, imported.text
+    config = await caller.post(
+        "/api/v1/agent-configs",
+        json={"name": "scripted", "adapter_type": "scripted", "settings": SCRIPT},
+    )
+    assert config.status_code == 201, config.text
+    experiment = await caller.post(
+        "/api/v1/experiments",
+        json={
+            "dataset_version_id": imported.json()["dataset_version_id"],
+            "agent_config_ids": [config.json()["id"]],
+            "mode": "demo",
+        },
+    )
+    assert experiment.status_code == 201, experiment.text
+    [run] = (await caller.get(f"/api/v1/experiments/{experiment.json()['id']}/runs")).json()
+    platform = Platform(app.state.sessionmaker, app.state.environments, app.state.evaluators)
+    async with app.state.sessionmaker.begin() as session:
+        attempt = await start_attempt(WorkspaceScope(session, caller.workspace_id), run["id"])
+    await run_attempt(platform, caller.workspace_id, attempt.id)
+    return Seeded(
+        dataset_version_id=imported.json()["dataset_version_id"],
+        agent_config_id=config.json()["id"],
+        experiment_id=experiment.json()["id"],
+        run_id=run["id"],
+        attempt_id=attempt.id,
     )

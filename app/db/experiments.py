@@ -126,3 +126,53 @@ async def complete_if_done(scope: WorkspaceScope, experiment_id: str) -> None:
     if unfinished is None:
         experiment = await scope.require(models.Experiment, experiment_id)
         experiment.status = models.ExperimentStatus.COMPLETED
+
+
+async def find_by_idempotency_key(scope: WorkspaceScope, key: str) -> models.Experiment | None:
+    return await scope.first(
+        scope.query(models.Experiment).where(models.Experiment.idempotency_key == key)
+    )
+
+
+async def list_experiments(scope: WorkspaceScope) -> list[models.Experiment]:
+    return await scope.all(
+        scope.query(models.Experiment).order_by(
+            models.Experiment.created_at.desc(), models.Experiment.id
+        )
+    )
+
+
+async def run_counts(
+    scope: WorkspaceScope, experiment_ids: Sequence[str]
+) -> dict[str, dict[str, int]]:
+    rows = await scope.session.execute(
+        select(models.Run.experiment_id, models.Run.evaluation_status, func.count())
+        .where(
+            models.Run.workspace_id == scope.workspace_id,
+            models.Run.experiment_id.in_(experiment_ids),
+        )
+        .group_by(models.Run.experiment_id, models.Run.evaluation_status)
+    )
+    counts: dict[str, dict[str, int]] = {}
+    for experiment_id, status, count in rows:
+        counts.setdefault(experiment_id, {})[status] = count
+    return counts
+
+
+async def list_runs(
+    scope: WorkspaceScope,
+    experiment_id: str,
+    *,
+    evaluation_status: str | None,
+    limit: int,
+    offset: int,
+) -> list[models.Run]:
+    experiment = await scope.require(models.Experiment, experiment_id)
+    query = scope.query(models.Run).where(models.Run.experiment_id == experiment.id)
+    if evaluation_status is not None:
+        query = query.where(models.Run.evaluation_status == evaluation_status)
+    return await scope.all(
+        query.order_by(models.Run.repetition, models.Run.task_version_id, models.Run.id)
+        .limit(limit)
+        .offset(offset)
+    )

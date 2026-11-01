@@ -3,7 +3,16 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import api_tokens, auth, health, workspaces
+from app.api import (
+    agent_configs,
+    api_tokens,
+    auth,
+    datasets,
+    experiments,
+    health,
+    runs,
+    workspaces,
+)
 from app.api.errors import register_error_handlers
 from app.db.engine import create_engine, create_sessionmaker
 from app.environments.registry import default_registry
@@ -30,6 +39,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.environments = default_registry()
     app.state.evaluators = default_evaluators()
     register_error_handlers(app)
-    for module in (health, auth, workspaces, api_tokens):
+    for module in (
+        health,
+        auth,
+        workspaces,
+        api_tokens,
+        datasets,
+        agent_configs,
+        experiments,
+        runs,
+    ):
         app.include_router(module.router)
     return app
