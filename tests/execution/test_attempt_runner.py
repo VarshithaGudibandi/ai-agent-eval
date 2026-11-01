@@ -103,10 +103,8 @@ async def test_correct_script_passes(platform: Platform, workspace_id: str) -> N
     assert status == models.EvaluationStatus.PASS
     assert (attempt.execution_status, attempt.stop_reason) == ("completed", "model_final")
     scores = await _scores(platform.sessionmaker, attempt.id)
-    assert {d: s.status for d, s in scores.items()} == {
-        "refund_amount": "pass",
-        "unexpected_refunds": "pass",
-    }
+    assert (scores["refund_amount"].status, scores["refund_approval"].status) == ("pass", "pass")
+    assert {s.status for s in scores.values()} <= {"pass", "not_applicable"}
     async with platform.sessionmaker() as session:
         run = await session.get_one(models.Run, attempt.run_id)
         experiment = await session.get_one(models.Experiment, run.experiment_id)

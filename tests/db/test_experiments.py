@@ -57,7 +57,10 @@ async def test_runs_cover_every_config_task_and_repetition(
     combos = {(r.agent_config_id, r.task_version_id, r.repetition) for r in runs}
     assert len(runs) == len(combos) == 2 * 2 * 2
     assert {r.agent_config_id for r in runs} == set(config_ids)
-    assert experiment.manifest["evaluators"] == [{"name": "refund_outcome", "version": "1.0.0"}]
+    assert experiment.manifest["evaluators"] == sorted(
+        ({"name": e.name, "version": e.version} for e in default_evaluators()),
+        key=lambda e: e["name"],
+    )
     assert [c["id"] for c in experiment.manifest["agent_configs"]] == config_ids
 
 

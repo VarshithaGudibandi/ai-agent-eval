@@ -9,10 +9,8 @@ async def test_run_detail_and_trace_link_up(new_owner: SignIn, app: FastAPI) -> 
     run = (await owner.get(f"/api/v1/runs/{seeded.run_id}")).json()
     assert run["evaluation_status"] == "pass"
     assert [a["id"] for a in run["attempts"]] == [seeded.attempt_id]
-    assert {s["dimension"]: s["status"] for s in run["scores"]} == {
-        "refund_amount": "pass",
-        "unexpected_refunds": "pass",
-    }
+    assert {s["layer"] for s in run["scores"]} == {"outcome", "policy", "trajectory", "response"}
+    assert {s["status"] for s in run["scores"]} <= {"pass", "not_applicable"}
     events = (await owner.get(f"/api/v1/attempts/{seeded.attempt_id}/events")).json()
     assert [e["sequence_number"] for e in events] == list(range(1, len(events) + 1))
     assert events[-1]["event_type"] == "agent_finished"

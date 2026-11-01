@@ -15,6 +15,35 @@ class TraceEvent(BaseModel):
     payload: dict[str, Any]
 
 
+class ToolCallView(BaseModel):
+    """One tool call as the trace recorded it: what was asked and what really happened."""
+
+    tool_call_id: str
+    tool: str
+    arguments: dict[str, Any]
+    request_event_id: str
+    result_event_id: str | None = None
+    # ok, error or rejected. A call with no result event never finished.
+    status: str = "error"
+    error_code: str | None = None
+    output: dict[str, Any] = Field(default_factory=dict)
+    state_changes: list[dict[str, Any]] = Field(default_factory=list)
+    fault: dict[str, Any] | None = None
+    replayed: bool = False
+
+    @property
+    def event_id(self) -> str:
+        return self.result_event_id or self.request_event_id
+
+    def inserted(self, collection: str) -> list[dict[str, Any]]:
+        """Records this call really created, even if a fault hid them from the agent."""
+        return [
+            c["data"]
+            for c in self.state_changes
+            if c["collection"] == collection and c["operation"] == "insert"
+        ]
+
+
 class EvalContext(BaseModel):
     """Everything an evaluator may read. The agent never saw the fixture or the spec."""
 
@@ -31,6 +60,38 @@ class EvalContext(BaseModel):
             ):
                 return event
         return None
+
+    def tool_calls(self) -> list[ToolCallView]:
+        """Every tool call in the order it was asked for."""
+        calls: dict[str, ToolCallView] = {}
+        for event in self.trace:
+            payload = event.payload
+            if event.event_type == "tool_call_requested":
+                calls[payload["tool_call_id"]] = ToolCallView(
+                    tool_call_id=payload["tool_call_id"],
+                    tool=payload["tool"],
+                    arguments=payload["arguments"],
+                    request_event_id=event.id,
+                )
+            elif event.event_type == "tool_call_completed":
+                call = calls.get(payload["tool_call_id"])
+                if call is None:
+                    continue
+                call.result_event_id = event.id
+                call.status = payload["status"]
+                call.error_code = payload.get("error_code")
+                call.output = payload.get("output") or {}
+                call.state_changes = payload.get("state_changes") or []
+                call.fault = payload.get("fault")
+                call.replayed = bool(payload.get("replayed"))
+        return list(calls.values())
+
+    def finish_event_id(self) -> str | None:
+        """Where the agent stopped, for failures that have no single call to point at."""
+        finished = [e.id for e in self.trace if e.event_type == "agent_finished"]
+        if finished:
+            return finished[-1]
+        return self.trace[-1].id if self.trace else None
 
 
 class Score(BaseModel):
