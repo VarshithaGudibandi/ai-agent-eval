@@ -1,9 +1,11 @@
 from collections.abc import AsyncIterator
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.db import models
 from app.db.engine import create_engine
+from app.db.ids import new_id
 from app.settings import Settings
 
 
@@ -28,3 +30,17 @@ async def engine(settings: Settings) -> AsyncIterator[AsyncEngine]:
     engine = create_engine(settings)
     yield engine
     await engine.dispose()
+
+
+@pytest.fixture
+def sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(engine, expire_on_commit=False)
+
+
+@pytest.fixture
+async def workspace_id(sessionmaker: async_sessionmaker[AsyncSession]) -> str:
+    # Each test gets its own workspace, so tests never see each other's rows.
+    workspace = models.Workspace(id=new_id("ws"), name="test")
+    async with sessionmaker.begin() as session:
+        session.add(workspace)
+    return workspace.id

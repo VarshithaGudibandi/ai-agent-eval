@@ -32,6 +32,7 @@ jobs:
       - run: make lint
       - run: make typecheck
       - run: uv run alembic upgrade head
+      - run: uv run alembic check
       - run: uv run pytest
 
   stack:

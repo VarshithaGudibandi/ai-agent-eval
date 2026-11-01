@@ -1,0 +1,366 @@
+from datetime import datetime
+from enum import StrEnum
+from typing import Any, ClassVar
+
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    MetaData,
+    PrimaryKeyConstraint,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_N_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_N_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
+
+class Base(DeclarativeBase):
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
+    type_annotation_map: ClassVar[dict[Any, Any]] = {
+        dict[str, Any]: JSONB,
+        datetime: DateTime(timezone=True),
+        str: Text,
+    }
+
+
+class ExperimentMode(StrEnum):
+    REAL = "real"
+    DEMO = "demo"
+
+
+class ExperimentStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    PAUSED_BUDGET = "paused_budget"
+    PAUSED_USER = "paused_user"
+    COMPLETED = "completed"
+    CLOSED_PARTIAL = "closed_partial"
+    CANCELLED = "cancelled"
+
+
+class ExecutionStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    TIMED_OUT = "timed_out"
+    BUDGET_EXCEEDED = "budget_exceeded"
+    INFRASTRUCTURE_ERROR = "infrastructure_error"
+    INTERRUPTED = "interrupted"
+    CANCELLED = "cancelled"
+
+
+class EvaluationStatus(StrEnum):
+    PENDING = "pending"
+    PASS = "pass"  # noqa: S105
+    FAIL = "fail"
+    PARTIAL = "partial"
+    NOT_APPLICABLE = "not_applicable"
+    EVALUATION_ERROR = "evaluation_error"
+
+
+class Split(StrEnum):
+    DEV = "dev"
+    VALIDATION = "validation"
+    HELD_OUT = "held_out"
+
+
+class AdapterType(StrEnum):
+    SCRIPTED = "scripted"
+    TOOL_LOOP = "tool_loop"
+    HTTP = "http"
+
+
+class EvaluatorLayer(StrEnum):
+    OUTCOME = "outcome"
+    POLICY = "policy"
+    TRAJECTORY = "trajectory"
+    RESPONSE = "response"
+
+
+class ToolCallStatus(StrEnum):
+    OK = "ok"
+    ERROR = "error"
+    REJECTED = "rejected"
+
+
+class SnapshotKind(StrEnum):
+    INITIAL = "initial"
+    FINAL = "final"
+
+
+def one_of(column: str, values: type[StrEnum]) -> CheckConstraint:
+    allowed = ", ".join(f"'{v.value}'" for v in values)
+    return CheckConstraint(f"{column} IN ({allowed})", name=column)
+
+
+def workspace_fk(column: str, table: str) -> ForeignKeyConstraint:
+    # Every child row names its parent together with the workspace, so the database
+    # itself refuses a row that points into another workspace.
+    return ForeignKeyConstraint(["workspace_id", column], [f"{table}.workspace_id", f"{table}.id"])
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class WorkspaceScoped:
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"))
+
+
+class Dataset(WorkspaceScoped, Base):
+    __tablename__ = "datasets"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("workspace_id", "name"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class DatasetVersion(WorkspaceScoped, Base):
+    __tablename__ = "dataset_versions"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("dataset_id", "version"),
+        workspace_fk("dataset_id", "datasets"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    dataset_id: Mapped[str]
+    version: Mapped[int]
+    content_hash: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class TaskVersion(WorkspaceScoped, Base):
+    __tablename__ = "task_versions"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("dataset_version_id", "task_key"),
+        workspace_fk("dataset_version_id", "dataset_versions"),
+        one_of("split", Split),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    dataset_version_id: Mapped[str]
+    task_key: Mapped[str]
+    environment: Mapped[str]
+    scenario_family: Mapped[str]
+    split: Mapped[str]
+    agent_input: Mapped[dict[str, Any]]
+    fixture: Mapped[dict[str, Any]]
+    evaluator_spec: Mapped[dict[str, Any]]
+    limits: Mapped[dict[str, Any]]
+    content_hash: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class AgentConfig(WorkspaceScoped, Base):
+    __tablename__ = "agent_configs"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        one_of("adapter_type", AdapterType),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    adapter_type: Mapped[str]
+    settings: Mapped[dict[str, Any]]
+    limits: Mapped[dict[str, Any]]
+    config_hash: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Experiment(WorkspaceScoped, Base):
+    __tablename__ = "experiments"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("workspace_id", "idempotency_key"),
+        workspace_fk("dataset_version_id", "dataset_versions"),
+        one_of("mode", ExperimentMode),
+        one_of("status", ExperimentStatus),
+        CheckConstraint("repetitions >= 1", name="repetitions"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    dataset_version_id: Mapped[str]
+    mode: Mapped[str]
+    status: Mapped[str]
+    repetitions: Mapped[int]
+    idempotency_key: Mapped[str | None]
+    manifest: Mapped[dict[str, Any]]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Run(WorkspaceScoped, Base):
+    __tablename__ = "runs"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint(
+            "experiment_id",
+            "agent_config_id",
+            "task_version_id",
+            "repetition",
+            name="uq_runs_experiment_config_task_repetition",
+        ),
+        workspace_fk("experiment_id", "experiments"),
+        workspace_fk("agent_config_id", "agent_configs"),
+        workspace_fk("task_version_id", "task_versions"),
+        one_of("execution_status", ExecutionStatus),
+        one_of("evaluation_status", EvaluationStatus),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    experiment_id: Mapped[str]
+    agent_config_id: Mapped[str]
+    task_version_id: Mapped[str]
+    repetition: Mapped[int]
+    execution_status: Mapped[str]
+    evaluation_status: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Attempt(WorkspaceScoped, Base):
+    __tablename__ = "attempts"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("workspace_id", "env_id"),
+        UniqueConstraint("run_id", "attempt_number"),
+        UniqueConstraint("env_id"),
+        workspace_fk("run_id", "runs"),
+        one_of("execution_status", ExecutionStatus),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    run_id: Mapped[str]
+    attempt_number: Mapped[int]
+    env_id: Mapped[str]
+    execution_status: Mapped[str]
+    stop_reason: Mapped[str | None]
+    final_response: Mapped[str | None]
+    last_event_sequence: Mapped[int] = mapped_column(default=0, server_default="0")
+    started_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
+    duration_ms: Mapped[int | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class TraceEvent(WorkspaceScoped, Base):
+    __tablename__ = "trace_events"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("attempt_id", "sequence_number"),
+        workspace_fk("attempt_id", "attempts"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    attempt_id: Mapped[str]
+    sequence_number: Mapped[int]
+    event_type: Mapped[str]
+    payload: Mapped[dict[str, Any]]
+    occurred_at: Mapped[datetime]
+    elapsed_ms: Mapped[int]
+
+
+class ToolCall(WorkspaceScoped, Base):
+    __tablename__ = "tool_calls"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        workspace_fk("attempt_id", "attempts"),
+        workspace_fk("request_event_id", "trace_events"),
+        workspace_fk("result_event_id", "trace_events"),
+        one_of("status", ToolCallStatus),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    attempt_id: Mapped[str]
+    request_event_id: Mapped[str]
+    result_event_id: Mapped[str]
+    tool_name: Mapped[str]
+    arguments: Mapped[dict[str, Any]]
+    status: Mapped[str]
+    error_code: Mapped[str | None]
+    output: Mapped[dict[str, Any]]
+    duration_ms: Mapped[int]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class EnvRecord(WorkspaceScoped, Base):
+    """One record of an environment's live state, such as an order or a refund."""
+
+    __tablename__ = "env_records"
+    __table_args__ = (
+        PrimaryKeyConstraint("env_id", "collection", "record_id"),
+        ForeignKeyConstraint(
+            ["workspace_id", "env_id"], ["attempts.workspace_id", "attempts.env_id"]
+        ),
+    )
+
+    env_id: Mapped[str]
+    collection: Mapped[str]
+    record_id: Mapped[str]
+    data: Mapped[dict[str, Any]]
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class EnvSnapshot(WorkspaceScoped, Base):
+    __tablename__ = "env_snapshots"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("attempt_id", "kind"),
+        workspace_fk("attempt_id", "attempts"),
+        one_of("kind", SnapshotKind),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    attempt_id: Mapped[str]
+    kind: Mapped[str]
+    state: Mapped[dict[str, Any]]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Score(WorkspaceScoped, Base):
+    __tablename__ = "scores"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint(
+            "attempt_id",
+            "evaluator_name",
+            "evaluator_version",
+            "dimension",
+            name="uq_scores_attempt_evaluator_dimension",
+        ),
+        workspace_fk("attempt_id", "attempts"),
+        one_of("layer", EvaluatorLayer),
+        one_of("status", EvaluationStatus),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    attempt_id: Mapped[str]
+    evaluator_name: Mapped[str]
+    evaluator_version: Mapped[str]
+    layer: Mapped[str]
+    dimension: Mapped[str]
+    applicable: Mapped[bool]
+    status: Mapped[str]
+    score: Mapped[float | None]
+    reason_code: Mapped[str | None]
+    evidence: Mapped[dict[str, Any]]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())

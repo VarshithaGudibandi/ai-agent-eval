@@ -20,6 +20,7 @@ db:
 
 test: db
 	uv run alembic upgrade head
+	uv run alembic check
 	uv run pytest
 
 lint:

@@ -4,10 +4,10 @@ from alembic import context
 from sqlalchemy import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.db.models import Base
 from app.settings import get_settings
 
-# Phase 1 sets this to the models' MetaData so autogenerate can diff against it.
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def _run(connection: Connection) -> None:
