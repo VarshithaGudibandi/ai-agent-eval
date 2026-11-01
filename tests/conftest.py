@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.db import models
-from app.db.engine import create_engine
+from app.db.engine import create_engine, create_sessionmaker
 from app.db.ids import new_id
 from app.settings import Settings
 
@@ -34,7 +34,7 @@ async def engine(settings: Settings) -> AsyncIterator[AsyncEngine]:
 
 @pytest.fixture
 def sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    return async_sessionmaker(engine, expire_on_commit=False)
+    return create_sessionmaker(engine)
 
 
 @pytest.fixture
