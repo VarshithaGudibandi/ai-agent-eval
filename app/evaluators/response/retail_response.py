@@ -37,9 +37,11 @@ _DENIALS = [
     )
 ]
 # Words up to the end of a claim that turn it into a negation, a condition or a plan.
+# "After" and "when" are left out: "after checking, I have refunded you" is still a claim, and
+# a real condition comes with a future tense the claim patterns never match.
 _UNDOING = re.compile(
-    r"\b(?:not|no|never|cannot|unable|once|after|when|if|until|unless|before|pending|awaiting|"
-    r"will|would)\b|n't\b",
+    r"\b(?:not|no|never|cannot|unable|once|if|until|unless|pending|awaiting|will|would)\b"
+    r"|n't\b",
     re.IGNORECASE,
 )
 # A claim about an earlier refund, not one made in this conversation.

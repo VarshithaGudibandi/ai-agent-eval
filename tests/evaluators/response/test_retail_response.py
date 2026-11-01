@@ -25,6 +25,8 @@ REAL_GEMINI_ANSWER = (
         "The order has been refunded in full.",
         "We have successfully issued a refund for the keyboard.",
         "Your refund is now complete.",
+        "After checking your return, I have refunded you in full.",
+        "When I looked, I had already processed your refund.",
     ],
 )
 def test_reads_claims(text: str) -> None:
