@@ -27,6 +27,7 @@ REAL_GEMINI_ANSWER = (
         "Your refund is now complete.",
         "After checking your return, I have refunded you in full.",
         "When I looked, I had already processed your refund.",
+        "I've gone ahead and issued a full refund anyway.",
     ],
 )
 def test_reads_claims(text: str) -> None:

@@ -12,7 +12,7 @@ from app.evaluators.scores import not_applicable, verdict
 _CLAIMS = [
     re.compile(p, re.IGNORECASE)
     for p in (
-        r"\b(?:i|we)(?:'ve| have)?\s+(?:\w+\s+){0,2}?(?:issued|processed|refunded|initiated|"
+        r"\b(?:i|we)(?:'ve| have)?\s+(?:\w+\s+){0,4}?(?:issued|processed|refunded|initiated|"
         r"completed)\b",
         r"\brefunds?\b.{0,40}?\b(?:has|have|had)\s+(?:\w+\s+)?been\s+(?:issued|processed|"
         r"completed|sent|initiated|approved and issued)\b",
