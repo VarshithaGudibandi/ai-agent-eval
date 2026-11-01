@@ -1,16 +1,45 @@
 import json
+from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func, select
 
 from app.agents.contract import RunLimits
+from app.agents.scripted import Script
 from app.db import models
 from app.db.hashing import content_hash
 from app.db.ids import new_id
+from app.db.leakage import find_leaks
 from app.db.scope import WorkspaceScope
 from app.environments.contract import AgentTaskInput, FaultSpec
+
+
+class ReviewMetadata(BaseModel):
+    """Who wrote and checked a task, and what a correct run looks like.
+
+    A task without a reviewer is a draft: it can run only in dev experiments.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    author: str = Field(min_length=1)
+    reviewer: str | None = None
+    reviewed_on: date | None = None
+    category: str = Field(pattern=r"^[a-z][a-z_]*$")
+    difficulty: Literal["easy", "medium", "hard"]
+    expected_outcome: str = Field(min_length=1)
+    acceptable_alternatives: list[str] = Field(default_factory=list)
+    rationale: str = Field(min_length=1)
+    # A known-correct run the evaluators pass, so a reviewer can check the task against them.
+    reference_script: Script | None = None
+
+    @model_validator(mode="after")
+    def _reviewed_together(self) -> "ReviewMetadata":
+        if (self.reviewer is None) != (self.reviewed_on is None):
+            raise ValueError("reviewer and reviewed_on go together")
+        return self
 
 
 class TaskDefinition(BaseModel):
@@ -27,6 +56,7 @@ class TaskDefinition(BaseModel):
     evaluator_spec: dict[str, Any]
     limits: RunLimits = RunLimits()
     faults: list[FaultSpec] = Field(default_factory=list)
+    review: ReviewMetadata
 
     @model_validator(mode="after")
     def _one_fault_per_operation(self) -> "TaskDefinition":
@@ -40,9 +70,22 @@ def load_task_file(path: Path) -> TaskDefinition:
     return TaskDefinition.model_validate(json.loads(path.read_text()))
 
 
+class DatasetRejectedError(ValueError):
+    pass
+
+
 async def create_dataset_version(
     scope: WorkspaceScope, dataset_name: str, tasks: list[TaskDefinition]
 ) -> models.DatasetVersion:
+    """Store tasks as the next immutable version, or refuse them if a split could leak."""
+    leaks = find_leaks(list(tasks))
+    if leaks:
+        raise DatasetRejectedError(
+            "; ".join(
+                f"{leak.kind}: {', '.join(leak.task_keys)} ({', '.join(leak.splits)})"
+                for leak in leaks
+            )
+        )
     workspace_id = scope.workspace_id
     dataset = await scope.first(
         scope.query(models.Dataset).where(models.Dataset.name == dataset_name)
@@ -82,6 +125,10 @@ async def create_dataset_version(
                 evaluator_spec=task.evaluator_spec,
                 limits=task.limits.model_dump(),
                 faults=[f.model_dump() for f in task.faults],
+                category=task.review.category,
+                difficulty=task.review.difficulty,
+                reviewer=task.review.reviewer,
+                review=task.review.model_dump(mode="json"),
                 content_hash=hashes[task.task_key],
             )
         )

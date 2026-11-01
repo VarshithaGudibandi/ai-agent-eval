@@ -109,6 +109,24 @@ The reviewer is a simulator. Each task says which order and maximum amount it ma
 
 Money in the retail store is in minor units (cents or paise), stored as integers.
 
+## Datasets
+
+A dataset is a set of tasks, one JSON file each in `datasets/`. Importing it creates a new version that never changes afterwards. Each task has:
+
+| Part | Seen by the agent | What it holds |
+| --- | --- | --- |
+| `agent_input` | Yes | The customer's message and context, such as who is signed in and their ticket id |
+| `fixture` | No | The store's starting state and how the simulated reviewer answers |
+| `evaluator_spec` | No | Expected refunds and ticket status, required calls, forbidden calls, facts the reply must state |
+| `faults` | No | Failures to inject, as described above |
+| `review` | No | Author, reviewer, review date, category, difficulty, expected outcome, valid alternatives, rationale and a reference script that passes every evaluator |
+
+Every task belongs to a scenario family and a split: `dev` (about 60%), `validation` (20%) or `held_out` (20%). Splits are kept honest in three ways:
+
+- Import refuses a dataset when a family sits in more than one split, when two tasks in different splits share the same world under renamed ids, or when their requests read almost the same.
+- An experiment runs one split, `dev` by default. Held-out tasks run only in experiments created with `final: true`.
+- A task with no reviewer is a draft. Drafts run only in `dev`.
+
 ## Quick start
 
 You need Docker and [uv](https://docs.astral.sh/uv/).
@@ -197,7 +215,7 @@ Creating a workspace, inviting, joining, creating or revoking a token, importing
 | `GET`, `POST /api/v1/api-tokens`, `DELETE /api/v1/api-tokens/{id}` | Manage API tokens | owner |
 | `POST /api/v1/datasets/import`, `GET /api/v1/datasets` | Import tasks as a new dataset version, list datasets | member, viewer |
 | `POST /api/v1/agent-configs`, `GET /api/v1/agent-configs` | Register an agent config, list them | member, viewer |
-| `POST /api/v1/experiments`, `GET /api/v1/experiments`, `GET /api/v1/experiments/{id}` | Create an experiment (send `Idempotency-Key` to make retries safe), list, view | member, viewer |
+| `POST /api/v1/experiments`, `GET /api/v1/experiments`, `GET /api/v1/experiments/{id}` | Create an experiment on one `split`, with `final` for held-out runs (send `Idempotency-Key` to make retries safe), list, view | member, viewer |
 | `GET /api/v1/experiments/{id}/runs` | Runs of an experiment, filtered by `evaluation_status`, paginated | viewer |
 | `POST /api/v1/experiments/{id}/pause`, `/resume`, `/close` | Pause, resume, or close a paused experiment as partial | member |
 | `PATCH /api/v1/experiments/{id}/budget` | Change the caps. Never below what is used | owner |

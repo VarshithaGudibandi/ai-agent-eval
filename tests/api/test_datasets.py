@@ -21,3 +21,14 @@ async def test_import_rejects_unknown_environments_and_duplicate_keys(new_owner:
     )
     assert unknown.status_code == duplicate.status_code == 422
     assert (await owner.get("/api/v1/datasets")).json() == []
+
+
+async def test_import_refuses_a_dataset_that_leaks_across_splits(new_owner: SignIn) -> None:
+    owner = await new_owner()
+    copy = {**TASK, "task_key": "copy", "split": "held_out"}
+    response = await owner.post(
+        "/api/v1/datasets/import", json={"name": "leaky", "tasks": [TASK, copy]}
+    )
+    assert (response.status_code, response.json()["error"]) == (422, "dataset_rejected")
+    assert "family_spans_splits" in response.json()["message"]
+    assert (await owner.get("/api/v1/datasets")).json() == []

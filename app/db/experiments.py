@@ -21,12 +21,18 @@ async def create_experiment(
     evaluators: Sequence[Evaluator],
     *,
     mode: models.ExperimentMode,
+    split: models.Split = models.Split.DEV,
+    final: bool = False,
     repetitions: int = 1,
     idempotency_key: str | None = None,
     budget: BudgetLimits | None = None,
     prices: dict[str, Any] | None = None,
 ) -> models.Experiment:
-    """Create the experiment, its budget and its runs together, or return the existing one."""
+    """Create the experiment, its budget and its runs together, or return the existing one.
+
+    It runs the tasks of one split. Held-out tasks run only in final experiments, and only
+    reviewed tasks run outside dev.
+    """
     if idempotency_key is not None:
         existing = await scope.first(
             scope.query(models.Experiment).where(
@@ -36,11 +42,24 @@ async def create_experiment(
         if existing is not None:
             return existing
     version = await scope.require(models.DatasetVersion, dataset_version_id)
+    if split == models.Split.HELD_OUT and not final:
+        raise ExperimentRejectedError("held-out tasks run only in final experiments")
     tasks = await scope.all(
         scope.query(models.TaskVersion)
-        .where(models.TaskVersion.dataset_version_id == version.id)
+        .where(
+            models.TaskVersion.dataset_version_id == version.id,
+            models.TaskVersion.split == split,
+        )
         .order_by(models.TaskVersion.task_key)
     )
+    if not tasks:
+        raise ExperimentRejectedError(f"the dataset version has no {split} tasks")
+    unreviewed = [t.task_key for t in tasks if t.reviewer is None]
+    if split != models.Split.DEV and unreviewed:
+        raise ExperimentRejectedError(
+            f"unreviewed tasks run only in dev: {', '.join(unreviewed[:10])}"
+            + (f" and {len(unreviewed) - 10} more" if len(unreviewed) > 10 else "")
+        )
     configs = {
         c.id: c
         for c in await scope.all(
@@ -63,11 +82,16 @@ async def create_experiment(
         workspace_id=scope.workspace_id,
         dataset_version_id=version.id,
         mode=mode,
+        split=split,
+        final=final,
         status=models.ExperimentStatus.QUEUED,
         repetitions=repetitions,
         idempotency_key=idempotency_key,
         manifest={
             "dataset_version": {"id": version.id, "content_hash": version.content_hash},
+            "split": split,
+            "final": final,
+            "task_count": len(tasks),
             "environments": sorted({t.environment for t in tasks}),
             "agent_configs": [
                 {"id": c_id, "config_hash": configs[c_id].config_hash} for c_id in agent_config_ids

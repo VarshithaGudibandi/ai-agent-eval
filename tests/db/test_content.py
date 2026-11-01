@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.agents.contract import RunLimits
 from app.db import models
 from app.db.content import (
+    DatasetRejectedError,
     TaskDefinition,
     create_agent_config,
     create_dataset_version,
@@ -92,3 +93,38 @@ async def test_config_hash_ignores_name(
             RunLimits(),
         )
     assert a.config_hash == b.config_hash != c.config_hash
+
+
+def test_reviewer_and_review_date_go_together() -> None:
+    body = json.loads(TASK_FILE.read_text())
+    body["review"]["reviewer"] = "Someone"
+    with pytest.raises(ValidationError, match="go together"):
+        TaskDefinition.model_validate(body)
+
+
+async def test_review_metadata_is_stored_with_the_task(
+    sessionmaker: async_sessionmaker[AsyncSession], workspace_id: str
+) -> None:
+    async with sessionmaker.begin() as session:
+        scope = WorkspaceScope(session, workspace_id)
+        version = await create_dataset_version(scope, "d", [load_task_file(TASK_FILE)])
+        [task] = await scope.all(
+            scope.query(models.TaskVersion).where(
+                models.TaskVersion.dataset_version_id == version.id
+            )
+        )
+    assert (task.category, task.difficulty, task.reviewer) == ("eligible_refund", "easy", None)
+    assert task.review["reference_script"]["steps"][0]["tool"] == "get_order"
+
+
+async def test_a_leaky_dataset_is_refused_and_nothing_is_stored(
+    sessionmaker: async_sessionmaker[AsyncSession], workspace_id: str
+) -> None:
+    task = load_task_file(TASK_FILE)
+    leaked = task.model_copy(update={"task_key": "copy", "split": models.Split.HELD_OUT})
+    with pytest.raises(DatasetRejectedError, match="family_spans_splits"):
+        async with sessionmaker.begin() as session:
+            await create_dataset_version(WorkspaceScope(session, workspace_id), "d", [task, leaked])
+    async with sessionmaker() as session:
+        scope = WorkspaceScope(session, workspace_id)
+        assert await scope.all(scope.query(models.Dataset)) == []

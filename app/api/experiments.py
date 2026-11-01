@@ -28,6 +28,8 @@ class NewExperimentRequest(BaseModel):
     agent_config_ids: list[str] = Field(min_length=1, max_length=20)
     repetitions: int = Field(default=1, ge=1, le=100)
     mode: models.ExperimentMode
+    split: models.Split = models.Split.DEV
+    final: bool = False
     budget: BudgetLimits = BudgetLimits()
 
 
@@ -59,6 +61,8 @@ class ExperimentOut(BaseModel):
     id: str
     dataset_version_id: str
     mode: models.ExperimentMode
+    split: models.Split
+    final: bool
     status: models.ExperimentStatus
     repetitions: int
     created_at: datetime
@@ -94,6 +98,8 @@ async def _out(scope: WorkspaceScope, rows: list[models.Experiment]) -> list[Exp
             id=r.id,
             dataset_version_id=r.dataset_version_id,
             mode=models.ExperimentMode(r.mode),
+            split=models.Split(r.split),
+            final=r.final,
             status=models.ExperimentStatus(r.status),
             repetitions=r.repetitions,
             created_at=r.created_at,
@@ -112,6 +118,8 @@ def _same_request(existing: models.Experiment, body: NewExperimentRequest) -> bo
         and configs == body.agent_config_ids
         and existing.repetitions == body.repetitions
         and existing.mode == body.mode
+        and existing.split == body.split
+        and existing.final == body.final
     )
 
 
@@ -147,6 +155,8 @@ async def new_experiment(
         body.agent_config_ids,
         request.app.state.evaluators,
         mode=body.mode,
+        split=body.split,
+        final=body.final,
         repetitions=body.repetitions,
         idempotency_key=idempotency_key,
         budget=body.budget,
@@ -159,7 +169,7 @@ async def new_experiment(
         "experiment.created",
         "experiment",
         experiment.id,
-        {"mode": body.mode},
+        {"mode": body.mode, "split": body.split, "final": body.final},
     )
     await session.refresh(experiment)
     return (await _out(scope, [experiment]))[0]

@@ -149,3 +149,14 @@ async def test_tool_loop_rules_at_config_and_launch(new_owner: SignIn) -> None:
         "/api/v1/experiments", json={**body, "mode": "real", "budget": {"requests": 20}}
     )
     assert uncapped.status_code == 201
+
+
+async def test_split_is_chosen_at_launch_and_held_out_needs_final(new_owner: SignIn) -> None:
+    owner = await new_owner()
+    version, config = await _ids(owner)
+    body = {"dataset_version_id": version, "agent_config_ids": [config], "mode": "demo"}
+    dev = await owner.post("/api/v1/experiments", json=body)
+    held_out = await owner.post("/api/v1/experiments", json={**body, "split": "held_out"})
+    assert (dev.status_code, dev.json()["split"], dev.json()["final"]) == (201, "dev", False)
+    assert held_out.status_code == 422
+    assert "final" in held_out.json()["message"]

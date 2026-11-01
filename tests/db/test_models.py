@@ -28,6 +28,8 @@ def _experiment(
         "workspace_id": workspace_id,
         "dataset_version_id": dataset_version_id,
         "mode": "real",
+        "split": "dev",
+        "final": False,
         "status": "queued",
         "repetitions": 1,
         "manifest": {},
@@ -112,6 +114,9 @@ async def _chain(session: AsyncSession, workspace_id: str) -> Chain:
         fixture={},
         evaluator_spec={},
         limits={},
+        category="c",
+        difficulty="easy",
+        review={},
         content_hash="h",
     )
     config = models.AgentConfig(

@@ -297,6 +297,11 @@ class TaskVersion(WorkspaceScoped, Base):
     evaluator_spec: Mapped[dict[str, Any]]
     limits: Mapped[dict[str, Any]]
     faults: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, server_default=text("'[]'"))
+    category: Mapped[str]
+    difficulty: Mapped[str]
+    # Null until a person has reviewed the task. Unreviewed tasks run only in dev.
+    reviewer: Mapped[str | None]
+    review: Mapped[dict[str, Any]]
     content_hash: Mapped[str]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
@@ -325,12 +330,16 @@ class Experiment(WorkspaceScoped, Base):
         workspace_fk("dataset_version_id", "dataset_versions"),
         one_of("mode", ExperimentMode),
         one_of("status", ExperimentStatus),
+        one_of("split", Split),
         CheckConstraint("repetitions >= 1", name="repetitions"),
     )
 
     id: Mapped[str] = mapped_column(primary_key=True)
     dataset_version_id: Mapped[str]
     mode: Mapped[str]
+    split: Mapped[str]
+    # Only a final experiment may run held-out tasks.
+    final: Mapped[bool]
     status: Mapped[str]
     repetitions: Mapped[int]
     idempotency_key: Mapped[str | None]

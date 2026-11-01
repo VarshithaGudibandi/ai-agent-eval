@@ -85,5 +85,50 @@
     "max_turns": 10,
     "max_tool_calls": 10,
     "timeout_seconds": 60
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "eligible_refund",
+    "difficulty": "easy",
+    "expected_outcome": "One refund of the full 249.99 USD on ord_1001, with an approval, after checking the order and the return.",
+    "acceptable_alternatives": [
+      "Check the return before the order."
+    ],
+    "rationale": "The simplest eligible refund: the return arrived and passed inspection, and the reviewer permits the full amount.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_1001"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_1001"
+          }
+        },
+        {
+          "tool": "request_refund_approval",
+          "arguments": {
+            "order_id": "ord_1001",
+            "amount_minor": 24999,
+            "reason": "Headband arrived cracked; return received and passed inspection."
+          }
+        },
+        {
+          "tool": "issue_refund",
+          "arguments": {
+            "order_id": "ord_1001",
+            "amount_minor": 24999,
+            "approval_id": "apr_0001"
+          }
+        }
+      ],
+      "final_response": "Your return arrived and passed inspection, so I have refunded the full $249.99 to your original payment method. It usually arrives within 5 to 7 business days."
+    }
   }
 }

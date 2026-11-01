@@ -103,6 +103,9 @@ async def attempt(
                 fixture={},
                 evaluator_spec={},
                 limits={},
+                category="c",
+                difficulty="easy",
+                review={},
                 content_hash="h",
             )
         )
@@ -123,6 +126,8 @@ async def attempt(
                 workspace_id=workspace_id,
                 dataset_version_id=ids["dsv"],
                 mode="real",
+                split="dev",
+                final=False,
                 status="queued",
                 repetitions=1,
                 manifest={},

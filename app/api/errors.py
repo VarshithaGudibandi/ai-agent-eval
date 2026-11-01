@@ -10,6 +10,7 @@ from app.auth.errors import (
     UserRequiredError,
 )
 from app.db.budgets import LimitBelowUsageError
+from app.db.content import DatasetRejectedError
 from app.db.experiments import ExperimentRejectedError, InvalidTransitionError
 from app.db.scope import NotFoundError
 from app.execution.launch import PriceUnknownError, ProviderKeyRequiredError
@@ -25,6 +26,7 @@ _ERRORS: dict[type[Exception], tuple[int, str]] = {
     SetupAlreadyDoneError: (409, "setup_already_done"),
     InviteInvalidError: (400, "invite_invalid"),
     ExperimentRejectedError: (422, "experiment_rejected"),
+    DatasetRejectedError: (422, "dataset_rejected"),
     ProviderKeyRequiredError: (409, "provider_key_required"),
     PriceUnknownError: (422, "price_unknown"),
     UnknownProviderError: (422, "provider_unknown"),
@@ -33,6 +35,7 @@ _ERRORS: dict[type[Exception], tuple[int, str]] = {
 }
 _SHOW_MESSAGE = (
     ExperimentRejectedError,
+    DatasetRejectedError,
     ProviderKeyRequiredError,
     PriceUnknownError,
     InvalidTransitionError,
