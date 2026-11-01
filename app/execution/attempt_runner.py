@@ -17,7 +17,7 @@ from app.db.budgets import budget_for_experiment
 from app.db.experiments import complete_if_done
 from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
-from app.environments.contract import AgentTaskInput, TaskVersion
+from app.environments.contract import AgentTaskInput, FaultSpec, TaskVersion
 from app.environments.registry import EnvironmentRegistry
 from app.environments.state_store import EnvStateStore
 from app.evaluators.contract import EvalContext, Evaluator, Score, TraceEvent
@@ -142,6 +142,7 @@ async def _execute(platform: Platform, loaded: _Loaded, started: float) -> model
         env_id=loaded.env_id,
         environment=loaded.task.environment,
         task_context=agent_input.context,
+        faults=loaded.task.faults,
     )
     tools = InProcessToolSession(platform.gateway, ctx, recorder, schemas)
     model_unavailable: str | None = None
@@ -301,6 +302,7 @@ async def _load_and_mark_running(platform: Platform, workspace_id: str, attempt_
                 agent_input=AgentTaskInput.model_validate(task.agent_input),
                 fixture=task.fixture,
                 evaluator_spec=task.evaluator_spec,
+                faults=tuple(FaultSpec.model_validate(f) for f in task.faults),
             ),
             agent_config_id=config.id,
             adapter_type=config.adapter_type,

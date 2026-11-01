@@ -23,9 +23,13 @@ Every agent changes state only through the tool gateway. Evaluators read the hid
 
 1. The runner creates fresh state for the task's environment from the task's hidden fixture, and saves an initial snapshot.
 2. The agent gets only the agent-visible part of the task: the customer's message and who is signed in.
-3. Every tool call goes through the gateway. It checks the tool is allowed, validates the arguments strictly, takes the customer's identity from the server (never from the agent), runs the tool, and records the call and its effect in the trace.
+3. Every tool call goes through the gateway. It checks the tool is allowed, validates the arguments strictly, takes the customer's identity from the server (never from the agent), applies any fault the task injects, runs the tool, and records the call and its effect in the trace.
 4. When the agent stops, the runner saves a final snapshot and removes the live state.
 5. Evaluators compare the final state with what the task expects. Each failure names a reason code and points at the trace events that caused it.
+
+Faults are part of a task. Each one targets the nth call of a tool, such as the first `issue_refund`, so two agents that take different paths still meet the same failures. A fault is a `timeout` or a `service_error`, and it hits either before the tool runs (nothing happens) or after (the effect is real, but the agent only sees the error).
+
+A tool that changes state is idempotent. Calling it again with the same arguments in the same attempt returns the first successful result instead of acting twice. Refused calls are not remembered, because they changed nothing.
 
 A run passes only if every applicable check passes and the agent did not hit a hard limit (turns, tool calls or time).
 
@@ -37,7 +41,7 @@ Some runs are left unscored instead of failed, because the agent did nothing wro
 | --- | --- |
 | `attempt_started` | The agent gets its input. Holds what the agent saw, its tools and its limits |
 | `tool_call_requested` | The agent asked for a tool. Recorded before anything runs |
-| `tool_call_completed` | The gateway answered. Holds the outcome and any state change |
+| `tool_call_completed` | The gateway answered. Holds the outcome, any state change, any injected fault and whether the result was replayed |
 | `model_call` | One request to a model, including each retry. Holds the reply, tool calls, token usage and cost |
 | `agent_finished` | The agent stopped. Holds the final message and why it stopped |
 

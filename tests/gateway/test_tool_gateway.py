@@ -5,13 +5,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db import models
-from app.environments.contract import CallContext, ToolArgs, ToolResult
+from app.environments.contract import CallContext, FaultSpec, ToolArgs, ToolResult
 from app.environments.registry import EnvironmentRegistry, default_registry
 from app.environments.state_store import EnvStateStore
 from app.environments.support_retail.environment import SupportRetail
-from app.environments.support_retail.tools import TOOLS
+from app.environments.support_retail.tools import TOOLS, IssueRefundArgs
 from app.execution.trace_recorder import TraceRecorder
-from app.gateway.tool_gateway import AttemptContext, ToolGateway, public_schemas
+from app.gateway.tool_gateway import (
+    AttemptContext,
+    ToolGateway,
+    idempotency_key,
+    public_schemas,
+)
 from tests.environments.support_retail.fixtures import FIXTURE
 
 
@@ -178,3 +183,116 @@ def test_public_schemas_respect_the_allowlist() -> None:
     [schema] = public_schemas(TOOLS, frozenset({"get_order"}))
     assert schema.name == "get_order"
     assert schema.parameters["additionalProperties"] is False
+
+
+APPROVAL = {"order_id": "ord_1001", "amount_minor": 24999, "reason": "damaged"}
+
+
+def _with_faults(ctx: AttemptContext, *faults: FaultSpec) -> AttemptContext:
+    return ctx.model_copy(update={"faults": faults})
+
+
+async def _completed(
+    sessionmaker: async_sessionmaker[AsyncSession], attempt_id: str, tool_call_id: str
+) -> dict[str, Any]:
+    events = await _trace(sessionmaker, attempt_id)
+    return next(
+        e.payload
+        for e in events
+        if e.event_type == "tool_call_completed" and e.payload["tool_call_id"] == tool_call_id
+    )
+
+
+async def test_fault_before_the_effect_changes_nothing_and_the_retry_works(
+    gateway: ToolGateway,
+    ctx: AttemptContext,
+    recorder: TraceRecorder,
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    faulty = _with_faults(ctx, FaultSpec(tool="issue_refund", kind="timeout"))
+    await gateway.call(faulty, recorder, "request_refund_approval", APPROVAL)
+    first = await gateway.call(faulty, recorder, "issue_refund", REFUND)
+    assert (first.status, first.error_code) == ("error", "TIMEOUT")
+    assert await _refunds(sessionmaker, ctx) == []
+    payload = await _completed(sessionmaker, ctx.attempt_id, first.tool_call_id)
+    assert payload["fault"]["when"] == "before_effect"
+    assert payload["state_changes"] == []
+    second = await gateway.call(faulty, recorder, "issue_refund", REFUND)
+    assert second.status == "ok"
+    assert len(await _refunds(sessionmaker, ctx)) == 1
+
+
+async def test_fault_after_the_effect_hides_a_real_refund_and_the_retry_replays_it(
+    gateway: ToolGateway,
+    ctx: AttemptContext,
+    recorder: TraceRecorder,
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    faulty = _with_faults(
+        ctx, FaultSpec(tool="issue_refund", kind="service_error", when="after_effect")
+    )
+    await gateway.call(faulty, recorder, "request_refund_approval", APPROVAL)
+    first = await gateway.call(faulty, recorder, "issue_refund", REFUND)
+    assert (first.status, first.error_code, first.output) == (
+        "error",
+        "SERVICE_UNAVAILABLE",
+        {"message": "The service is temporarily unavailable."},
+    )
+    [refund] = await _refunds(sessionmaker, ctx)
+    payload = await _completed(sessionmaker, ctx.attempt_id, first.tool_call_id)
+    assert payload["state_changes"][0]["record_id"] == refund["refund_id"]
+    retry = await gateway.call(faulty, recorder, "issue_refund", REFUND)
+    assert (retry.status, retry.output["refund_id"]) == ("ok", refund["refund_id"])
+    retried = await _completed(sessionmaker, ctx.attempt_id, retry.tool_call_id)
+    assert (retried["replayed"], retried["state_changes"]) == (True, [])
+    assert len(await _refunds(sessionmaker, ctx)) == 1
+
+
+async def test_repeating_a_successful_refund_never_pays_twice(
+    gateway: ToolGateway,
+    ctx: AttemptContext,
+    recorder: TraceRecorder,
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    await gateway.call(ctx, recorder, "request_refund_approval", APPROVAL)
+    first = await gateway.call(ctx, recorder, "issue_refund", REFUND)
+    second = await gateway.call(ctx, recorder, "issue_refund", REFUND)
+    assert first.output == second.output
+    assert len(await _refunds(sessionmaker, ctx)) == 1
+
+
+async def test_refused_calls_are_not_replayed(
+    gateway: ToolGateway,
+    ctx: AttemptContext,
+    recorder: TraceRecorder,
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    early = await gateway.call(ctx, recorder, "issue_refund", REFUND)
+    assert early.error_code == "APPROVAL_NOT_FOUND"
+    await gateway.call(ctx, recorder, "request_refund_approval", APPROVAL)
+    later = await gateway.call(ctx, recorder, "issue_refund", REFUND)
+    assert later.status == "ok"
+
+
+async def test_faults_follow_the_nth_valid_call_of_a_tool(
+    gateway: ToolGateway, ctx: AttemptContext, recorder: TraceRecorder
+) -> None:
+    faulty = _with_faults(ctx, FaultSpec(tool="get_order", occurrence=2, kind="service_error"))
+    order = {"order_id": "ord_1001"}
+    statuses = [
+        (await gateway.call(faulty, recorder, "get_order", order)).status,
+        # A rejected call is not an operation, so it does not move the count.
+        (await gateway.call(faulty, recorder, "get_order", {"order": "x"})).status,
+        (await gateway.call(faulty, recorder, "get_order", order)).status,
+        (await gateway.call(faulty, recorder, "get_order", order)).status,
+    ]
+    assert statuses == ["ok", "rejected", "error", "ok"]
+
+
+def test_idempotency_key_depends_on_attempt_tool_and_arguments() -> None:
+    args = IssueRefundArgs.model_validate(REFUND)
+    other = IssueRefundArgs.model_validate({**REFUND, "amount_minor": 1})
+    key = idempotency_key("att_1", "issue_refund", args)
+    assert key == idempotency_key("att_1", "issue_refund", IssueRefundArgs.model_validate(REFUND))
+    assert key != idempotency_key("att_2", "issue_refund", args)
+    assert key != idempotency_key("att_1", "issue_refund", other)

@@ -13,6 +13,23 @@ class AgentTaskInput(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
 
 
+class FaultSpec(BaseModel):
+    """A failure injected into one logical operation, such as the second issue_refund.
+
+    Keying faults to the nth call of a tool, not to a global call number, gives two agents
+    that take different paths the same failures.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tool: str
+    occurrence: int = Field(default=1, ge=1)
+    kind: Literal["timeout", "service_error"]
+    # after_effect runs the tool and then hides its result, so the effect is real but the
+    # agent cannot know whether it happened.
+    when: Literal["before_effect", "after_effect"] = "before_effect"
+
+
 class TaskVersion(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -24,6 +41,7 @@ class TaskVersion(BaseModel):
     agent_input: AgentTaskInput
     fixture: dict[str, Any]
     evaluator_spec: dict[str, Any]
+    faults: tuple[FaultSpec, ...] = ()
 
 
 class ToolArgs(BaseModel):
@@ -54,6 +72,8 @@ class CallContext(BaseModel):
     env_id: str
     tool_call_id: str
     task_context: dict[str, Any]
+    # Same attempt, tool and arguments give the same key, so a retry can be recognized.
+    idempotency_key: str
 
 
 class StateChange(BaseModel):

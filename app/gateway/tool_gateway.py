@@ -1,13 +1,17 @@
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db import models
+from app.db.hashing import content_hash
 from app.db.ids import new_id
-from app.environments.contract import CallContext, ToolResult, ToolSchema
+from app.db.scope import WorkspaceScope
+from app.db.tool_calls import count_tool_calls
+from app.environments.contract import CallContext, FaultSpec, ToolArgs, ToolResult, ToolSchema
 from app.environments.registry import EnvironmentRegistry
 from app.environments.state_store import EnvStateStore
 from app.execution.trace_recorder import TraceRecorder
@@ -27,6 +31,31 @@ class AttemptContext(BaseModel):
     environment: str
     task_context: dict[str, Any]
     allowed_tools: frozenset[str] | None = None
+    faults: tuple[FaultSpec, ...] = ()
+
+
+# Successful results of state-changing calls, kept with the attempt's environment state so
+# a retry returns the first result instead of applying the effect again.
+REPLAYS = "_replays"
+
+_FAULT_ERRORS = {
+    "timeout": ("TIMEOUT", "The service did not answer in time."),
+    "service_error": ("SERVICE_UNAVAILABLE", "The service is temporarily unavailable."),
+}
+
+
+def idempotency_key(attempt_id: str, tool: str, args: ToolArgs) -> str:
+    return content_hash(
+        {"attempt_id": attempt_id, "tool": tool, "arguments": args.model_dump(mode="json")}
+    )
+
+
+@dataclass
+class _Executed:
+    outcome: ToolCallOutcome
+    changes: list[dict[str, Any]] = field(default_factory=list)
+    fault: FaultSpec | None = None
+    replayed: bool = False
 
 
 def allowed_tools(
@@ -44,11 +73,19 @@ def public_schemas(
     ]
 
 
-def _rejected(tool_call_id: str, code: str, detail: Any) -> tuple[ToolCallOutcome, list[Any]]:
-    outcome = ToolCallOutcome(
-        tool_call_id=tool_call_id, status="rejected", error_code=code, output={"detail": detail}
+def _rejected(tool_call_id: str, code: str, detail: Any) -> _Executed:
+    return _Executed(
+        ToolCallOutcome(
+            tool_call_id=tool_call_id, status="rejected", error_code=code, output={"detail": detail}
+        )
     )
-    return outcome, []
+
+
+def _fault_outcome(tool_call_id: str, fault: FaultSpec) -> ToolCallOutcome:
+    code, message = _FAULT_ERRORS[fault.kind]
+    return ToolCallOutcome(
+        tool_call_id=tool_call_id, status="error", error_code=code, output={"message": message}
+    )
 
 
 class ToolGateway:
@@ -74,17 +111,9 @@ class ToolGateway:
         started = time.monotonic()
         try:
             async with self._sessionmaker.begin() as session:
-                outcome, changes = await self._execute(session, ctx, tool_call_id, tool, arguments)
+                executed = await self._execute(session, ctx, tool_call_id, tool, arguments)
                 await self._record_result(
-                    session,
-                    ctx,
-                    recorder,
-                    request_event_id,
-                    tool,
-                    arguments,
-                    outcome,
-                    changes,
-                    started,
+                    session, ctx, recorder, request_event_id, tool, arguments, executed, started
                 )
         except Exception:
             logger.exception("tool execution failed", extra={"tool": tool})
@@ -94,19 +123,12 @@ class ToolGateway:
                 error_code="TOOL_FAILED",
                 output={"message": "The tool failed. No changes were made."},
             )
+            executed = _Executed(outcome)
             async with self._sessionmaker.begin() as session:
                 await self._record_result(
-                    session,
-                    ctx,
-                    recorder,
-                    request_event_id,
-                    tool,
-                    arguments,
-                    outcome,
-                    [],
-                    started,
+                    session, ctx, recorder, request_event_id, tool, arguments, executed, started
                 )
-        return outcome
+        return executed.outcome
 
     async def _execute(
         self,
@@ -115,8 +137,9 @@ class ToolGateway:
         tool_call_id: str,
         tool: str,
         arguments: dict[str, Any],
-    ) -> tuple[ToolCallOutcome, list[Any]]:
-        env = self._environments.create(ctx.environment, EnvStateStore(session, ctx.workspace_id))
+    ) -> _Executed:
+        store = EnvStateStore(session, ctx.workspace_id)
+        env = self._environments.create(ctx.environment, store)
         schema = allowed_tools(env.tool_schemas(), ctx.allowed_tools).get(tool)
         if schema is None:
             return _rejected(tool_call_id, "TOOL_NOT_ALLOWED", f"No tool named {tool!r}.")
@@ -128,21 +151,45 @@ class ToolGateway:
                 "INVALID_ARGUMENTS",
                 exc.errors(include_url=False, include_input=False, include_context=False),
             )
-        call_ctx = CallContext(
-            attempt_id=ctx.attempt_id,
-            workspace_id=ctx.workspace_id,
-            env_id=ctx.env_id,
-            tool_call_id=tool_call_id,
-            task_context=ctx.task_context,
-        )
-        result: ToolResult = await env.execute(ctx.env_id, tool, args, call_ctx)
+        scope = WorkspaceScope(session, ctx.workspace_id)
+        occurrence = await count_tool_calls(scope, ctx.attempt_id, tool) + 1
+        fault = next((f for f in ctx.faults if f.tool == tool and f.occurrence == occurrence), None)
+        if fault is not None and fault.when == "before_effect":
+            return _Executed(_fault_outcome(tool_call_id, fault), fault=fault)
+        key = idempotency_key(ctx.attempt_id, tool, args)
+        stored = await store.get(ctx.env_id, REPLAYS, key) if schema.effectful else None
+        if stored is not None:
+            result = ToolResult.model_validate(stored)
+        else:
+            call_ctx = CallContext(
+                attempt_id=ctx.attempt_id,
+                workspace_id=ctx.workspace_id,
+                env_id=ctx.env_id,
+                tool_call_id=tool_call_id,
+                task_context=ctx.task_context,
+                idempotency_key=key,
+            )
+            result = await env.execute(ctx.env_id, tool, args, call_ctx)
+            # Only successes are kept: a refused call changed nothing, and the same call may
+            # succeed later, for example once its approval exists.
+            if schema.effectful and result.status == "ok":
+                await store.put(
+                    ctx.env_id, REPLAYS, key, result.model_dump(exclude={"state_changes"})
+                )
         outcome = ToolCallOutcome(
             tool_call_id=tool_call_id,
             status=result.status,
             output=result.output,
             error_code=result.error_code,
         )
-        return outcome, [c.model_dump() for c in result.state_changes]
+        if fault is not None:
+            outcome = _fault_outcome(tool_call_id, fault)
+        return _Executed(
+            outcome,
+            [c.model_dump() for c in result.state_changes],
+            fault=fault,
+            replayed=stored is not None,
+        )
 
     async def _record_result(
         self,
@@ -152,18 +199,22 @@ class ToolGateway:
         request_event_id: str,
         tool: str,
         arguments: dict[str, Any],
-        outcome: ToolCallOutcome,
-        changes: list[Any],
+        executed: _Executed,
         started: float,
     ) -> None:
+        outcome = executed.outcome
         duration_ms = round((time.monotonic() - started) * 1000)
+        # The fault and the real state change go in the trace for the evaluators. The agent
+        # only ever sees the outcome.
         result_event_id = await recorder.record_in(
             session,
             "tool_call_completed",
             {
                 **outcome.model_dump(),
                 "tool": tool,
-                "state_changes": changes,
+                "state_changes": executed.changes,
+                "fault": executed.fault.model_dump() if executed.fault else None,
+                "replayed": executed.replayed,
                 "duration_ms": duration_ms,
             },
         )

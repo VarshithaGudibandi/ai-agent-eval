@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func, select
 
 from app.agents.contract import RunLimits
@@ -10,7 +10,7 @@ from app.db import models
 from app.db.hashing import content_hash
 from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
-from app.environments.contract import AgentTaskInput
+from app.environments.contract import AgentTaskInput, FaultSpec
 
 
 class TaskDefinition(BaseModel):
@@ -26,6 +26,14 @@ class TaskDefinition(BaseModel):
     fixture: dict[str, Any]
     evaluator_spec: dict[str, Any]
     limits: RunLimits = RunLimits()
+    faults: list[FaultSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _one_fault_per_operation(self) -> "TaskDefinition":
+        operations = [(f.tool, f.occurrence) for f in self.faults]
+        if len(operations) != len(set(operations)):
+            raise ValueError("a tool call can have at most one fault")
+        return self
 
 
 def load_task_file(path: Path) -> TaskDefinition:
@@ -73,6 +81,7 @@ async def create_dataset_version(
                 fixture=task.fixture,
                 evaluator_spec=task.evaluator_spec,
                 limits=task.limits.model_dump(),
+                faults=[f.model_dump() for f in task.faults],
                 content_hash=hashes[task.task_key],
             )
         )

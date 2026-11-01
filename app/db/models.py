@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -295,6 +296,7 @@ class TaskVersion(WorkspaceScoped, Base):
     fixture: Mapped[dict[str, Any]]
     evaluator_spec: Mapped[dict[str, Any]]
     limits: Mapped[dict[str, Any]]
+    faults: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, server_default=text("'[]'"))
     content_hash: Mapped[str]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 

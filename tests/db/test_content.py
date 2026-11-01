@@ -8,7 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.contract import RunLimits
 from app.db import models
-from app.db.content import create_agent_config, create_dataset_version, load_task_file
+from app.db.content import (
+    TaskDefinition,
+    create_agent_config,
+    create_dataset_version,
+    load_task_file,
+)
 from app.db.scope import WorkspaceScope
 
 TASK_FILE = (
@@ -29,6 +34,15 @@ def test_unknown_task_fields_are_rejected(tmp_path: Path) -> None:
     path.write_text(json.dumps(body))
     with pytest.raises(ValidationError):
         load_task_file(path)
+
+
+def test_a_tool_call_gets_at_most_one_fault() -> None:
+    body = json.loads(TASK_FILE.read_text())
+    fault = {"tool": "issue_refund", "occurrence": 1, "kind": "timeout"}
+    with pytest.raises(ValidationError, match="at most one fault"):
+        TaskDefinition.model_validate(
+            {**body, "faults": [fault, {**fault, "kind": "service_error"}]}
+        )
 
 
 async def test_versions_count_up_and_hash_follows_content(

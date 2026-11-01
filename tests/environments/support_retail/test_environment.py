@@ -35,6 +35,7 @@ class World:
             env_id=self.attempt.env_id,
             tool_call_id=f"tc_{self.calls}",
             task_context=context,
+            idempotency_key=f"key_{self.calls}",
         )
         async with self.sessionmaker.begin() as session:
             env = SupportRetail(EnvStateStore(session, self.attempt.workspace_id))
