@@ -2,7 +2,7 @@
 
 Runs an AI agent many times inside controlled environments, grades the resulting state, and compares configurations task by task.
 
-Status: real model agents run end to end, with costs tracked and capped. A scripted agent or a model (Gemini, or a local Ollama model) handles a refund task in the mock retail store, every model call and tool call is traced, and the result is graded from the store's final state. People sign in, work in separate workspaces, and use API tokens for scripts. The job queue that runs experiments in the background, and the web pages, come next.
+Status: real model agents run end to end, with costs tracked and capped. A scripted agent or a model (Gemini, or a local Ollama model) works on 50 support tasks in a mock electronics store with seven tools and six business rules. Every model call and tool call is traced, faults can be injected, and each run is graded on outcome, policy, trajectory and response from the store's real state. People sign in, work in separate workspaces, and use API tokens for scripts. The job queue that runs experiments in the background, and the web pages, come next.
 
 ## How a run flows
 
@@ -76,6 +76,7 @@ A few things worth knowing:
 - Looking up an order that turns out not to be the customer's is fine. That is how an agent finds out. Data coming back for it, or any action on it, is not.
 - Investigation can happen in any order. `get_order` and `get_return_status` only both have to come before `issue_refund`.
 - A required call is matched to one observed call, so repeating a correct call cannot count twice.
+- The evaluators are tested against golden traces: reference runs recorded through the real store, then broken in exactly one way (wrong amount, missing approval, another customer's order, a duplicate refund, skipped investigation, a false success message, an ignored error and more). Each break must be caught by its named evaluator, and no other verdict may change. Valid alternatives, such as checking the return first, must change nothing. This suite runs in CI.
 - The response checks are plain patterns. They catch "refund issued" when none was, or a wrong amount. Tone and nuance are left to an optional judge, which is not built yet.
 
 If an evaluator crashes, its score is `evaluation_error`. That never counts as a pass or as an agent failure.
@@ -164,7 +165,7 @@ Then sign in with `POST /api/v1/auth/login`, or create an API token for scripts.
 
 Experiments can be created through the API, but nothing runs them in the background yet. The job queue and worker that do arrive in a later step. Until then, experiments run from the tests, including the real Gemini test below.
 
-To see the end-to-end refund path run, use `make test`. The tests run a correct script and a script that refunds the wrong amount, and check that the second one fails with `WRONG_REFUND_AMOUNT` pointing at the refund call.
+To see the end-to-end path run, use `make test`. It runs every task's reference script through the store, gateway and evaluators, runs a script that refunds the wrong amount and checks it fails with `WRONG_REFUND_AMOUNT` pointing at the refund call, and runs the trace-mutation suite.
 
 Demo mode with scripted agents and no provider key is not built yet.
 
