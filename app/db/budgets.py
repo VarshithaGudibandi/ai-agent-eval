@@ -173,3 +173,12 @@ async def raise_limits(scope: WorkspaceScope, budget: models.Budget, limits: Bud
     budget.tokens_limit = limits.tokens
     budget.requests_limit = limits.requests
     budget.warned_at = None
+
+
+def has_headroom(budget: models.Budget) -> bool:
+    pairs = [
+        (budget.money_used_micros, budget.money_limit_micros),
+        (budget.tokens_used, budget.tokens_limit),
+        (budget.requests_used, budget.requests_limit),
+    ]
+    return all(limit is None or used < limit for used, limit in pairs)

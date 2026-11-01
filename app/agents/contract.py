@@ -10,8 +10,9 @@ StopReason = Literal[
     "model_final", "max_turns", "max_tool_calls", "timeout", "budget", "agent_error"
 ]
 
-# Stopping for any of these means the run is unsuccessful, whatever the final state.
-HARD_STOPS: frozenset[str] = frozenset({"max_turns", "max_tool_calls", "timeout", "budget"})
+# Stopping for any of these means the run is unsuccessful, whatever the final state. A budget
+# stop is not one: the platform stopped the run, not the agent, so it stays unscored.
+HARD_STOPS: frozenset[str] = frozenset({"max_turns", "max_tool_calls", "timeout"})
 
 
 class RunLimits(BaseModel):

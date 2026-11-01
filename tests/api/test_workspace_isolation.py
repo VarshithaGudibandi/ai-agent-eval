@@ -110,6 +110,10 @@ def _foreign_id_attacks(w: World) -> list[tuple[str, str, Any]]:
         ("POST", f"/api/v1/workspaces/{w.b_person.workspace_id}/invites", {"role": "owner"}),
         ("DELETE", f"/api/v1/api-tokens/{w.b_token_id}", None),
         ("DELETE", f"/api/v1/provider-credentials/{w.b_credential_id}", None),
+        ("POST", f"/api/v1/experiments/{b.experiment_id}/pause", None),
+        ("POST", f"/api/v1/experiments/{b.experiment_id}/resume", None),
+        ("POST", f"/api/v1/experiments/{b.experiment_id}/close", None),
+        ("PATCH", f"/api/v1/experiments/{b.experiment_id}/budget", {"requests": 1}),
     ]
 
 
@@ -118,6 +122,8 @@ async def _send(caller: Caller, method: str, path: str, body: Any) -> httpx.Resp
         return await caller.get(path)
     if method == "DELETE":
         return await caller.delete(path)
+    if method == "PATCH":
+        return await caller.client.patch(path, json=body, headers=caller.headers)
     return await caller.post(path, json=body)
 
 
@@ -219,6 +225,10 @@ FOREIGN_ID_ROUTES = {
     ("POST", "/api/v1/workspaces/{workspace_id}/invites"),
     ("DELETE", "/api/v1/api-tokens/{token_id}"),
     ("DELETE", "/api/v1/provider-credentials/{credential_id}"),
+    ("POST", "/api/v1/experiments/{experiment_id}/pause"),
+    ("POST", "/api/v1/experiments/{experiment_id}/resume"),
+    ("POST", "/api/v1/experiments/{experiment_id}/close"),
+    ("PATCH", "/api/v1/experiments/{experiment_id}/budget"),
 }
 LIST_ROUTES = [
     "/api/v1/workspaces",

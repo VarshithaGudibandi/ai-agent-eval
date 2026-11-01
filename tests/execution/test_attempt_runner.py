@@ -6,7 +6,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.contract import RunLimits
+from app.budget.pricing import create_price_version
 from app.db import models
+from app.db.budgets import BudgetLimits
 from app.db.content import create_agent_config, create_dataset_version, load_task_file
 from app.db.experiments import create_experiment, start_attempt
 from app.db.scope import WorkspaceScope
@@ -15,6 +17,10 @@ from app.environments.registry import default_registry
 from app.evaluators.contract import EvalContext, Layer, Score
 from app.evaluators.registry import default_evaluators
 from app.execution.attempt_runner import Platform, run_attempt
+from app.execution.experiment_runner import run_experiment
+from app.providers.contract import Retryable
+from app.settings import Settings
+from tests.execution.conftest import PRICE, scripted_providers
 
 TASK_FILE = (
     Path(__file__).parents[2] / "datasets/support_retail/tasks/refund_damaged_headphones.json"
@@ -214,3 +220,44 @@ async def test_an_attempt_runs_only_once(platform: Platform, workspace_id: str) 
     _, attempt = await _run_one(platform, workspace_id, CORRECT)
     with pytest.raises(RuntimeError, match="not queued"):
         await run_attempt(platform, workspace_id, attempt.id)
+
+
+async def test_unreachable_model_leaves_the_run_unscored(
+    sessionmaker: async_sessionmaker[AsyncSession], workspace_id: str, settings: Settings
+) -> None:
+    flaky = scripted_providers(lambda: [Retryable("503")] * 10)
+    no_retries = settings.model_copy(update={"model_call_max_retries": 0})
+    platform = Platform(
+        sessionmaker, default_registry(), default_evaluators(), providers=flaky, settings=no_retries
+    )
+    async with sessionmaker.begin() as session:
+        scope = WorkspaceScope(session, workspace_id)
+        await create_price_version(scope, "scripted", "m", PRICE)
+        version = await create_dataset_version(scope, "d", [load_task_file(TASK_FILE)])
+        config = await create_agent_config(
+            scope,
+            "loop",
+            models.AdapterType.TOOL_LOOP,
+            {"provider": "scripted", "model": "m"},
+            RunLimits(),
+        )
+        experiment = await create_experiment(
+            scope,
+            version.id,
+            [config.id],
+            platform.evaluators,
+            mode=models.ExperimentMode.REAL,
+            budget=BudgetLimits(),
+        )
+    await run_experiment(platform, workspace_id, experiment.id)
+    async with sessionmaker() as session:
+        run = await session.scalar(
+            select(models.Run).where(models.Run.experiment_id == experiment.id)
+        )
+        assert run is not None
+        attempt_id = await session.scalar(
+            select(models.Attempt.id).where(models.Attempt.run_id == run.id)
+        )
+    assert (run.execution_status, run.evaluation_status) == ("infrastructure_error", "pending")
+    assert attempt_id is not None
+    assert await _scores(sessionmaker, attempt_id) == {}

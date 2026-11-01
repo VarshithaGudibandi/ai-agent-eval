@@ -10,8 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.contract import HARD_STOPS, AgentResult, RunLimits
 from app.agents.factory import build_adapter
+from app.budget.reservations import BudgetExhaustedError
 from app.db import models
 from app.db.attempts import load_attempt, trace_events
+from app.db.budgets import budget_for_experiment
 from app.db.experiments import complete_if_done
 from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
@@ -19,6 +21,8 @@ from app.environments.contract import AgentTaskInput, TaskVersion
 from app.environments.registry import EnvironmentRegistry
 from app.environments.state_store import EnvStateStore
 from app.evaluators.contract import EvalContext, Evaluator, Score, TraceEvent
+from app.execution.launch import ProviderKeyRequiredError
+from app.execution.model_access import AttemptModels
 from app.execution.trace_recorder import TraceRecorder
 from app.gateway.tool_gateway import (
     AttemptContext,
@@ -26,13 +30,24 @@ from app.gateway.tool_gateway import (
     ToolGateway,
     public_schemas,
 )
+from app.providers.contract import ContentBlocked, ProviderError
+from app.providers.key_vault import KeyUnreadableError, MasterKeyMissingError
+from app.providers.registry import ProviderRegistry, UnknownProviderError, default_providers
+from app.settings import Settings
 
 logger = logging.getLogger(__name__)
 
-EXECUTION_STATUS_BY_STOP = {
-    "timeout": models.ExecutionStatus.TIMED_OUT,
-    "budget": models.ExecutionStatus.BUDGET_EXCEEDED,
-}
+# The model could not be reached or used at all. That says nothing about the agent, so the
+# run is left unscored instead of failed.
+_MODEL_UNAVAILABLE = (
+    ProviderError,
+    ProviderKeyRequiredError,
+    KeyUnreadableError,
+    MasterKeyMissingError,
+    UnknownProviderError,
+)
+
+EXECUTION_STATUS_BY_STOP = {"timeout": models.ExecutionStatus.TIMED_OUT}
 
 
 @dataclass(frozen=True)
@@ -40,6 +55,8 @@ class Platform:
     sessionmaker: async_sessionmaker[AsyncSession]
     environments: EnvironmentRegistry
     evaluators: Sequence[Evaluator]
+    providers: ProviderRegistry = field(default_factory=default_providers)
+    settings: Settings = field(default_factory=Settings)
     gateway: ToolGateway = field(init=False)
 
     def __post_init__(self) -> None:
@@ -53,10 +70,17 @@ class _Loaded:
     run_id: str
     experiment_id: str
     env_id: str
+    budget_id: str
     task: TaskVersion
+    agent_config_id: str
     adapter_type: str
     adapter_settings: dict[str, Any]
     limits: RunLimits
+    price: dict[str, Any] | None
+
+
+class _ModelUnavailableError(Exception):
+    pass
 
 
 def overall_status(scores: Sequence[Score], stop_reason: str) -> models.EvaluationStatus:
@@ -120,10 +144,19 @@ async def _execute(platform: Platform, loaded: _Loaded, started: float) -> model
         task_context=agent_input.context,
     )
     tools = InProcessToolSession(platform.gateway, ctx, recorder, schemas)
-    result = await _run_agent(loaded, agent_input, tools, recorder)
+    model_unavailable: str | None = None
+    try:
+        result = await _run_agent(platform, loaded, agent_input, tools, recorder)
+    except _ModelUnavailableError as exc:
+        model_unavailable = str(exc)
+        result = AgentResult("", "agent_error", {"model_unavailable": model_unavailable})
     await recorder.record(
         "agent_finished",
-        {"final_response": result.final_response, "stop_reason": result.stop_reason},
+        {
+            "final_response": result.final_response,
+            "stop_reason": result.stop_reason,
+            "model_unavailable": model_unavailable,
+        },
     )
 
     async with platform.sessionmaker.begin() as session:
@@ -139,28 +172,62 @@ async def _execute(platform: Platform, loaded: _Loaded, started: float) -> model
         )
         await env.teardown(loaded.env_id)
 
+    if model_unavailable is not None or result.stop_reason == "budget":
+        # Neither is the agent's doing, so nothing is graded. A budget stop is retried when
+        # the experiment resumes.
+        execution = (
+            models.ExecutionStatus.INFRASTRUCTURE_ERROR
+            if model_unavailable is not None
+            else models.ExecutionStatus.BUDGET_EXCEEDED
+        )
+        await _finalize(
+            platform, loaded, result, [], models.EvaluationStatus.PENDING, execution, started
+        )
+        return models.EvaluationStatus.PENDING
     scores = await _evaluate(platform, loaded, final_state, result.final_response)
     status = overall_status(scores, result.stop_reason)
-    await _finalize(platform, loaded, result, scores, status, started)
+    execution = EXECUTION_STATUS_BY_STOP.get(result.stop_reason, models.ExecutionStatus.COMPLETED)
+    await _finalize(platform, loaded, result, scores, status, execution, started)
     return status
 
 
 async def _run_agent(
+    platform: Platform,
     loaded: _Loaded,
     agent_input: AgentTaskInput,
     tools: InProcessToolSession,
     recorder: TraceRecorder,
 ) -> AgentResult:
-    adapter = build_adapter(loaded.adapter_type, loaded.adapter_settings)
-    try:
-        async with asyncio.timeout(loaded.limits.timeout_seconds):
-            return await adapter.run(agent_input, tools, recorder, loaded.limits)
-    except TimeoutError:
-        return AgentResult("", "timeout")
-    except Exception as exc:
-        # The agent's own failure is a result to grade, not a platform error.
-        logger.warning("agent raised", exc_info=True, extra={"attempt_id": loaded.attempt_id})
-        return AgentResult("", "agent_error", {"error": type(exc).__name__})
+    models_for_attempt = AttemptModels(
+        sessionmaker=platform.sessionmaker,
+        providers=platform.providers,
+        settings=platform.settings,
+        workspace_id=loaded.workspace_id,
+        experiment_id=loaded.experiment_id,
+        budget_id=loaded.budget_id,
+        attempt_id=loaded.attempt_id,
+        price=loaded.price,
+        recorder=recorder,
+    )
+    async with models_for_attempt:
+        adapter = build_adapter(loaded.adapter_type, loaded.adapter_settings, models_for_attempt)
+        try:
+            async with asyncio.timeout(loaded.limits.timeout_seconds):
+                return await adapter.run(agent_input, tools, recorder, loaded.limits)
+        except TimeoutError:
+            return AgentResult("", "timeout")
+        except BudgetExhaustedError:
+            return AgentResult("", "budget")
+        except ContentBlocked as exc:
+            # The model refused to answer. That is the agent's behavior, so it is graded.
+            return AgentResult("", "agent_error", {"error": "content_blocked", "detail": str(exc)})
+        except _MODEL_UNAVAILABLE as exc:
+            logger.warning("model unavailable", extra={"attempt_id": loaded.attempt_id})
+            raise _ModelUnavailableError(f"{type(exc).__name__}: {exc}"[:300]) from exc
+        except Exception as exc:
+            # The agent's own failure is a result to grade, not a platform error.
+            logger.warning("agent raised", exc_info=True, extra={"attempt_id": loaded.attempt_id})
+            return AgentResult("", "agent_error", {"error": type(exc).__name__})
 
 
 async def _evaluate(
@@ -217,12 +284,14 @@ async def _load_and_mark_running(platform: Platform, workspace_id: str, attempt_
         experiment = rows.experiment
         if experiment.status == models.ExperimentStatus.QUEUED:
             experiment.status = models.ExperimentStatus.RUNNING
+        budget = await budget_for_experiment(WorkspaceScope(session, workspace_id), experiment.id)
         return _Loaded(
             attempt_id=attempt.id,
             workspace_id=workspace_id,
             run_id=run.id,
             experiment_id=run.experiment_id,
             env_id=attempt.env_id,
+            budget_id=budget.id,
             task=TaskVersion(
                 id=task.id,
                 task_key=task.task_key,
@@ -233,11 +302,13 @@ async def _load_and_mark_running(platform: Platform, workspace_id: str, attempt_
                 fixture=task.fixture,
                 evaluator_spec=task.evaluator_spec,
             ),
+            agent_config_id=config.id,
             adapter_type=config.adapter_type,
             adapter_settings=config.settings,
             limits=RunLimits.model_validate(config.limits).tighter(
                 RunLimits.model_validate(task.limits)
             ),
+            price=experiment.manifest.get("prices", {}).get(config.id),
         )
 
 
@@ -261,11 +332,9 @@ async def _finalize(
     result: AgentResult,
     scores: list[Score],
     status: models.EvaluationStatus,
+    execution_status: models.ExecutionStatus,
     started: float,
 ) -> None:
-    execution_status = EXECUTION_STATUS_BY_STOP.get(
-        result.stop_reason, models.ExecutionStatus.COMPLETED
-    )
     async with platform.sessionmaker.begin() as session:
         scope = WorkspaceScope(session, loaded.workspace_id)
         for score in scores:

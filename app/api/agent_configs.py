@@ -1,11 +1,12 @@
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field, ValidationError
 
 from app.agents.contract import RunLimits
-from app.agents.factory import UnsupportedAdapterError, build_adapter
+from app.agents.factory import UnsupportedAdapterError, validate_settings
+from app.agents.tool_loop import ToolLoopSettings
 from app.api.dependencies import Db, Member, Viewer, scope_for
 from app.db import models
 from app.db.audit import record_audit
@@ -44,10 +45,12 @@ class ConfigOut(BaseModel):
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def new_config(body: NewConfigRequest, principal: Member, session: Db) -> ConfigOut:
+async def new_config(
+    body: NewConfigRequest, request: Request, principal: Member, session: Db
+) -> ConfigOut:
     """Register an immutable agent config. Settings are checked by building the adapter."""
     try:
-        build_adapter(body.adapter_type, body.settings)
+        validate_settings(body.adapter_type, body.settings)
     except UnsupportedAdapterError:
         raise HTTPException(
             status_code=422,
@@ -60,6 +63,8 @@ async def new_config(body: NewConfigRequest, principal: Member, session: Db) -> 
         raise HTTPException(
             status_code=422, detail={"error": "settings_invalid", "message": str(exc)}
         ) from None
+    if body.adapter_type == models.AdapterType.TOOL_LOOP:
+        request.app.state.providers.get(ToolLoopSettings.model_validate(body.settings).provider)
     scope = scope_for(session, principal)
     row = await create_agent_config(scope, body.name, body.adapter_type, body.settings, body.limits)
     record_audit(

@@ -19,6 +19,7 @@ from app.api.errors import register_error_handlers
 from app.db.engine import create_engine, create_sessionmaker
 from app.environments.registry import default_registry
 from app.evaluators.registry import default_evaluators
+from app.providers.registry import default_providers
 from app.settings import Settings, get_settings
 from app.structured_logging import configure_logging
 
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.environments = default_registry()
     app.state.evaluators = default_evaluators()
+    app.state.providers = default_providers()
     register_error_handlers(app)
     for module in (
         health,

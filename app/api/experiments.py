@@ -4,18 +4,21 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import Db, Member, Viewer, scope_for
+from app.api.dependencies import Db, Member, Owner, Viewer, scope_for
 from app.db import models
 from app.db.audit import record_audit
-from app.db.budgets import BudgetLimits, budget_for_experiment
+from app.db.budgets import BudgetLimits, budget_for_experiment, has_headroom, raise_limits
 from app.db.experiments import (
     create_experiment,
     find_by_idempotency_key,
     list_experiments,
     list_runs,
+    requeue_budget_stopped_runs,
     run_counts,
+    transition,
 )
 from app.db.scope import WorkspaceScope
+from app.execution.launch import launch_prices
 
 router = APIRouter(prefix="/api/v1/experiments", tags=["experiments"])
 
@@ -135,6 +138,9 @@ async def new_experiment(
                 raise HTTPException(status_code=409, detail={"error": "idempotency_key_reused"})
             response.status_code = status.HTTP_200_OK
             return (await _out(scope, [existing]))[0]
+    prices = await launch_prices(
+        scope, body.agent_config_ids, request.app.state.providers, body.budget, body.mode
+    )
     experiment = await create_experiment(
         scope,
         body.dataset_version_id,
@@ -144,6 +150,7 @@ async def new_experiment(
         repetitions=body.repetitions,
         idempotency_key=idempotency_key,
         budget=body.budget,
+        prices=prices,
     )
     record_audit(
         scope,
@@ -190,3 +197,97 @@ async def runs(
         offset=offset,
     )
     return [RunOut.of(r) for r in rows]
+
+
+PAUSED = {models.ExperimentStatus.PAUSED_BUDGET, models.ExperimentStatus.PAUSED_USER}
+
+
+async def _one(scope: WorkspaceScope, experiment: models.Experiment) -> ExperimentOut:
+    await scope.flush()
+    await scope.session.refresh(experiment)
+    return (await _out(scope, [experiment]))[0]
+
+
+@router.post("/{experiment_id}/pause")
+async def pause(experiment_id: str, principal: Member, session: Db) -> ExperimentOut:
+    """Stop starting new runs. Finished runs are kept as they are."""
+    scope = scope_for(session, principal)
+    experiment = await transition(
+        scope,
+        experiment_id,
+        {models.ExperimentStatus.QUEUED, models.ExperimentStatus.RUNNING},
+        models.ExperimentStatus.PAUSED_USER,
+    )
+    record_audit(
+        scope,
+        principal.actor_type,
+        principal.actor_id,
+        "experiment.paused",
+        "experiment",
+        experiment.id,
+    )
+    return await _one(scope, experiment)
+
+
+@router.post("/{experiment_id}/resume")
+async def resume(experiment_id: str, principal: Member, session: Db) -> ExperimentOut:
+    """Queue a paused experiment again. Runs the budget stopped are retried from scratch."""
+    scope = scope_for(session, principal)
+    budget = await budget_for_experiment(
+        scope, (await scope.require(models.Experiment, experiment_id)).id
+    )
+    if not has_headroom(budget):
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "budget_exhausted", "message": "raise the budget before resuming"},
+        )
+    experiment = await transition(scope, experiment_id, PAUSED, models.ExperimentStatus.QUEUED)
+    requeued = await requeue_budget_stopped_runs(scope, experiment.id)
+    record_audit(
+        scope,
+        principal.actor_type,
+        principal.actor_id,
+        "experiment.resumed",
+        "experiment",
+        experiment.id,
+        {"requeued_runs": requeued},
+    )
+    return await _one(scope, experiment)
+
+
+@router.post("/{experiment_id}/close")
+async def close(experiment_id: str, principal: Member, session: Db) -> ExperimentOut:
+    """End a paused experiment as partial. Its report says so and shows coverage."""
+    scope = scope_for(session, principal)
+    experiment = await transition(
+        scope, experiment_id, PAUSED, models.ExperimentStatus.CLOSED_PARTIAL
+    )
+    record_audit(
+        scope,
+        principal.actor_type,
+        principal.actor_id,
+        "experiment.closed",
+        "experiment",
+        experiment.id,
+    )
+    return await _one(scope, experiment)
+
+
+@router.patch("/{experiment_id}/budget")
+async def change_budget(
+    experiment_id: str, body: BudgetLimits, principal: Owner, session: Db
+) -> ExperimentOut:
+    """Set new caps. A cap can rise or be removed, but never drop below what is used."""
+    scope = scope_for(session, principal)
+    experiment = await scope.require(models.Experiment, experiment_id)
+    await raise_limits(scope, await budget_for_experiment(scope, experiment.id), body)
+    record_audit(
+        scope,
+        principal.actor_type,
+        principal.actor_id,
+        "budget.changed",
+        "experiment",
+        experiment.id,
+        body.model_dump(),
+    )
+    return await _one(scope, experiment)

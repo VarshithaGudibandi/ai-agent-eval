@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import func, select
 
@@ -23,6 +24,7 @@ async def create_experiment(
     repetitions: int = 1,
     idempotency_key: str | None = None,
     budget: BudgetLimits | None = None,
+    prices: dict[str, Any] | None = None,
 ) -> models.Experiment:
     """Create the experiment, its budget and its runs together, or return the existing one."""
     if idempotency_key is not None:
@@ -53,6 +55,9 @@ async def create_experiment(
         # Scripted agents are canned answers. Letting them into a real experiment would
         # produce numbers that look like a real result.
         raise ExperimentRejectedError("scripted agents can only run in demo experiments")
+    if mode == models.ExperimentMode.DEMO and len(scripted) != len(configs):
+        # Demo mode needs no key and costs nothing, so it runs scripted agents only.
+        raise ExperimentRejectedError("demo experiments can only run scripted agents")
     experiment = models.Experiment(
         id=new_id("exp"),
         workspace_id=scope.workspace_id,
@@ -72,6 +77,7 @@ async def create_experiment(
                 key=lambda e: (e["name"], e["version"]),
             ),
             "repetitions": repetitions,
+            "prices": prices or {},
         },
     )
     scope.add(experiment)
@@ -117,17 +123,25 @@ async def start_attempt(scope: WorkspaceScope, run_id: str) -> models.Attempt:
     return attempt
 
 
+UNFINISHED = (
+    models.ExecutionStatus.QUEUED,
+    models.ExecutionStatus.RUNNING,
+    models.ExecutionStatus.BUDGET_EXCEEDED,
+)
+
+
 async def complete_if_done(scope: WorkspaceScope, experiment_id: str) -> None:
+    """Mark a running experiment completed once no run is left to do. Paused ones stay paused."""
+    experiment = await scope.require(models.Experiment, experiment_id)
+    if experiment.status != models.ExperimentStatus.RUNNING:
+        return
     unfinished = await scope.first(
         scope.query(models.Run).where(
             models.Run.experiment_id == experiment_id,
-            models.Run.execution_status.in_(
-                [models.ExecutionStatus.QUEUED, models.ExecutionStatus.RUNNING]
-            ),
+            models.Run.execution_status.in_(UNFINISHED),
         )
     )
     if unfinished is None:
-        experiment = await scope.require(models.Experiment, experiment_id)
         experiment.status = models.ExperimentStatus.COMPLETED
 
 
@@ -195,3 +209,50 @@ async def pause_for_budget(scope: WorkspaceScope, experiment_id: str) -> bool:
         return False
     experiment.status = models.ExperimentStatus.PAUSED_BUDGET
     return True
+
+
+class InvalidTransitionError(ValueError):
+    pass
+
+
+async def transition(
+    scope: WorkspaceScope,
+    experiment_id: str,
+    allowed_from: set[models.ExperimentStatus],
+    to: models.ExperimentStatus,
+) -> models.Experiment:
+    experiment = await scope.session.scalar(
+        scope.query(models.Experiment)
+        .where(models.Experiment.id == experiment_id)
+        .with_for_update()
+    )
+    if experiment is None:
+        raise NotFoundError(f"experiments:{experiment_id}")
+    if experiment.status not in allowed_from:
+        raise InvalidTransitionError(f"cannot go from {experiment.status} to {to}")
+    experiment.status = to
+    return experiment
+
+
+async def requeue_budget_stopped_runs(scope: WorkspaceScope, experiment_id: str) -> int:
+    """Put runs that the budget stopped back in the queue. Each gets a fresh attempt."""
+    runs = await scope.all(
+        scope.query(models.Run).where(
+            models.Run.experiment_id == experiment_id,
+            models.Run.execution_status == models.ExecutionStatus.BUDGET_EXCEEDED,
+        )
+    )
+    for run in runs:
+        run.execution_status = models.ExecutionStatus.QUEUED
+    return len(runs)
+
+
+async def next_queued_run(scope: WorkspaceScope, experiment_id: str) -> models.Run | None:
+    return await scope.first(
+        scope.query(models.Run)
+        .where(
+            models.Run.experiment_id == experiment_id,
+            models.Run.execution_status == models.ExecutionStatus.QUEUED,
+        )
+        .order_by(models.Run.repetition, models.Run.task_version_id, models.Run.agent_config_id)
+    )
