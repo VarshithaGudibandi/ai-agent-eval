@@ -2,7 +2,7 @@
 
 Runs an AI agent many times inside controlled environments, grades the resulting state, and compares configurations task by task.
 
-Status: one complete path works end to end, behind accounts. A scripted agent handles a refund task in the mock retail store, every tool call is traced, and the result is graded from the store's final state. People sign in, work in separate workspaces, and use API tokens for scripts. Real model agents, the job queue that runs experiments, and the web pages come next.
+Status: real model agents run end to end, with costs tracked and capped. A scripted agent or a model (Gemini, or a local Ollama model) handles a refund task in the mock retail store, every model call and tool call is traced, and the result is graded from the store's final state. People sign in, work in separate workspaces, and use API tokens for scripts. The job queue that runs experiments in the background, and the web pages, come next.
 
 ## How a run flows
 
@@ -29,6 +29,8 @@ Every agent changes state only through the tool gateway. Evaluators read the hid
 
 A run passes only if every applicable check passes and the agent did not hit a hard limit (turns, tool calls or time).
 
+Some runs are left unscored instead of failed, because the agent did nothing wrong: the model could not be reached even after retries, or the experiment ran out of budget mid-run. Budget-stopped runs are retried from scratch when the experiment resumes.
+
 ## Trace events
 
 | Event | When |
@@ -36,6 +38,7 @@ A run passes only if every applicable check passes and the agent did not hit a h
 | `attempt_started` | The agent gets its input. Holds what the agent saw, its tools and its limits |
 | `tool_call_requested` | The agent asked for a tool. Recorded before anything runs |
 | `tool_call_completed` | The gateway answered. Holds the outcome and any state change |
+| `model_call` | One request to a model, including each retry. Holds the reply, tool calls, token usage and cost |
 | `agent_finished` | The agent stopped. Holds the final message and why it stopped |
 
 ## Grading
@@ -65,7 +68,7 @@ make up
 curl http://127.0.0.1:8000/health/ready
 ```
 
-`make up` starts Postgres, runs migrations, then starts the API and the worker.
+`make up` starts Postgres, runs migrations, then starts the API and the worker. To store provider keys, first set `APP_MASTER_KEY` in `.env`; the comment above it shows how to make one.
 
 On a fresh install, create the first account. That person becomes the owner of the first workspace. This works only once.
 
@@ -75,11 +78,43 @@ curl -X POST http://127.0.0.1:8000/api/v1/auth/setup -H 'content-type: applicati
 
 Then sign in with `POST /api/v1/auth/login`, or create an API token for scripts.
 
-Experiments can be created through the API, but nothing runs them yet. The job queue and worker that run them arrive in a later step.
+Experiments can be created through the API, but nothing runs them in the background yet. The job queue and worker that do arrive in a later step. Until then, experiments run from the tests, including the real Gemini test below.
 
 To see the end-to-end refund path run, use `make test`. The tests run a correct script and a script that refunds the wrong amount, and check that the second one fails with `WRONG_REFUND_AMOUNT` pointing at the refund call.
 
 Demo mode with scripted agents and no provider key is not built yet.
+
+## Models, keys and money
+
+| Agent type | What it is | Needs |
+| --- | --- | --- |
+| `scripted` | Replays fixed tool calls. Only allowed in `demo` experiments | Nothing |
+| `tool_loop` with `gemini` | Our own agent loop on Gemini | A Gemini key stored in the workspace |
+| `tool_loop` with `ollama` | The same loop on a local model. No data leaves the machine | Ollama running at `OLLAMA_BASE_URL` |
+
+A `tool_loop` config looks like `{"provider": "gemini", "model": "gemini-flash-lite-latest"}`, plus an optional `system_prompt`, `temperature` and `max_output_tokens`.
+
+**Provider keys.** An owner stores a key with `POST /api/v1/provider-credentials`. It is encrypted with AES-GCM using `APP_MASTER_KEY`, and only its label and last four characters are ever shown. Keys never appear in traces, logs or errors; log lines are scrubbed of anything shaped like a secret. A key can carry `requests_per_minute` and `tokens_per_minute`, and every worker using that key shares one rate limit stored in Postgres. Launching a real experiment that needs a key the workspace does not have returns `409 provider_key_required`.
+
+Free-tier Gemini traffic may be used by Google to improve its products, so send only synthetic data through a free-tier key.
+
+**Prices.** An owner adds a price for a model with `POST /api/v1/price-versions`, per million tokens, in micro-units (1 USD is 1,000,000 micros). The newest price is frozen into each experiment when it is created, so later price changes never rewrite old costs. A money cap needs a price; without one, launching returns `422 price_unknown`.
+
+**Budgets.** Every experiment has a budget with optional caps on money, tokens and requests. Before each model call the worst case is reserved in one atomic update, so two workers can never both spend the last of a budget. After the call the reservation is settled to what was really used. If the provider does not report usage, the reserved amount stands, because unknown cost is never zero.
+
+```mermaid
+flowchart LR
+    R[Reserve worst case] -->|fits| C[Call the model]
+    R -->|does not fit| P[Pause: paused_budget]
+    C --> S[Settle to real usage]
+    S -->|80% of a cap| W[Warn once]
+    S -->|next call would not fit| P
+    P --> U[Raise the cap and resume, or close as partial]
+```
+
+Pausing never deletes anything. Finished runs stay as they are. Raise the cap with `PATCH /api/v1/experiments/{id}/budget`, then `POST .../resume`, or end it with `POST .../close` as `closed_partial`.
+
+Rate-limited calls (`429`) are retried with backoff and cost nothing. Other transient errors are retried too, and keep their reserved cost. Every try is recorded.
 
 ## Accounts and workspaces
 
@@ -113,10 +148,14 @@ Creating a workspace, inviting, joining, creating or revoking a token, importing
 | `POST /api/v1/agent-configs`, `GET /api/v1/agent-configs` | Register an agent config, list them | member, viewer |
 | `POST /api/v1/experiments`, `GET /api/v1/experiments`, `GET /api/v1/experiments/{id}` | Create an experiment (send `Idempotency-Key` to make retries safe), list, view | member, viewer |
 | `GET /api/v1/experiments/{id}/runs` | Runs of an experiment, filtered by `evaluation_status`, paginated | viewer |
+| `POST /api/v1/experiments/{id}/pause`, `/resume`, `/close` | Pause, resume, or close a paused experiment as partial | member |
+| `PATCH /api/v1/experiments/{id}/budget` | Change the caps. Never below what is used | owner |
 | `GET /api/v1/runs/{id}`, `GET /api/v1/attempts/{id}/events` | A run with its scores, the ordered trace of an attempt | viewer |
+| `GET`, `POST /api/v1/provider-credentials`, `DELETE .../{id}` | Manage encrypted provider keys | owner |
+| `GET`, `POST /api/v1/price-versions` | List and add model prices | viewer, owner |
 | `GET /health/live`, `GET /health/ready` | Process is up; database is reachable and migrated | none |
 
-Scripted agents can only run in `demo` experiments, so canned answers never show up as real results.
+Scripted agents can only run in `demo` experiments, and demo experiments can only run scripted agents. Canned answers never show up as real results, and demos never spend money.
 
 ## Make commands
 
@@ -128,7 +167,8 @@ Scripted agents can only run in `demo` experiments, so canned answers never show
 | `make ps` | Show service status |
 | `make migrate` | Run database migrations |
 | `make db` | Start only Postgres, for running tests on the host |
-| `make test` | Start Postgres, migrate, run the tests |
+| `make test` | Start Postgres, migrate, run the tests. Needs no network or key |
+| `make test-paid` | Run the one test that calls the real Gemini API. Needs `GEMINI_API_KEY` |
 | `make lint` | Check lint and formatting |
 | `make format` | Fix formatting and safe lint issues |
 | `make typecheck` | Run mypy in strict mode on `app/` |
@@ -138,14 +178,16 @@ Scripted agents can only run in `demo` experiments, so canned answers never show
 
 | Folder | What it holds |
 | --- | --- |
-| `app/agents/` | The agent contract and the scripted agent |
+| `app/agents/` | The agent contract, the scripted agent and the built-in tool loop |
 | `app/api/` | HTTP routes, including health checks |
 | `app/auth/` | Accounts, passwords, sessions, invites and API tokens |
+| `app/budget/` | Prices, worst-case estimates, reservations, warnings and pausing |
 | `app/db/` | Tables, the workspace-scoped data layer, datasets, experiments, audit log |
 | `app/environments/` | The environment contract, its state store and the retail store |
 | `app/evaluators/` | The evaluator contract and the checks that grade runs |
-| `app/execution/` | The attempt runner, the trace recorder and the worker |
+| `app/execution/` | The attempt and experiment runners, launch checks, the trace recorder, the worker |
 | `app/gateway/` | The tool gateway every agent calls |
+| `app/providers/` | Model providers (Gemini, Ollama), encrypted keys, rate limiting, metered calls |
 | `datasets/` | Tasks, one JSON file each |
 | `migrations/` | Alembic migrations |
 | `tests/` | Tests, laid out like `app/` |
@@ -164,6 +206,10 @@ All settings are in `.env.example`. The main ones:
 | `SESSION_TTL_HOURS` | `12` | How long a sign-in lasts |
 | `SESSION_COOKIE_SECURE` | `false` | Send the session cookie over HTTPS only. Turn on anywhere but a laptop |
 | `INVITE_TTL_HOURS` | `72` | How long an invite stays valid |
+| `APP_MASTER_KEY` | none | Encrypts stored provider keys. Base64 of 32 random bytes. Needed to store or use a key |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Where a local Ollama server listens |
+| `MODEL_CALL_TIMEOUT_SECONDS` | `60` | How long one model request may take |
+| `MODEL_CALL_MAX_RETRIES` | `4` | Retries for rate-limited or failed model requests |
 
 ## Connect your own agent
 

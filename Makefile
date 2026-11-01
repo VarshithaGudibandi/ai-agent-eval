@@ -1,4 +1,4 @@
-.PHONY: up down logs ps migrate db test lint format typecheck check
+.PHONY: up down logs ps migrate db test test-paid lint format typecheck check
 
 up:
 	docker compose up -d --build --wait
@@ -22,6 +22,10 @@ test: db
 	uv run alembic upgrade head
 	uv run alembic check
 	uv run pytest
+
+test-paid: db
+	uv run alembic upgrade head
+	RUN_PAID_TESTS=1 uv run pytest tests/paid -s
 
 lint:
 	uv run ruff check .
