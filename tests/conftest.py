@@ -4,7 +4,8 @@ import os
 import secrets
 import sys
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
+from pathlib import Path
 
 import pytest
 from sqlalchemy import make_url, text
@@ -15,9 +16,14 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from app.agents.contract import RunLimits
 from app.db import models
+from app.db.budgets import BudgetLimits
+from app.db.content import create_agent_config, create_dataset_version, load_task_file
 from app.db.engine import create_engine, create_sessionmaker
+from app.db.experiments import create_experiment
 from app.db.ids import new_id
+from app.db.scope import WorkspaceScope
 from app.settings import Settings
 
 
@@ -175,3 +181,30 @@ async def fresh_sessionmaker(
     engine = create_engine(settings.model_copy(update={"database_url": fresh_database_url}))
     yield create_sessionmaker(engine)
     await engine.dispose()
+
+
+TASK_FILE = (
+    Path(__file__).parents[1] / "datasets/support_retail/tasks/refund_damaged_headphones.json"
+)
+
+MakeExperiment = Callable[[BudgetLimits], Awaitable[models.Experiment]]
+
+
+@pytest.fixture
+def make_experiment(
+    sessionmaker: async_sessionmaker[AsyncSession], workspace_id: str
+) -> MakeExperiment:
+    async def make(limits: BudgetLimits) -> models.Experiment:
+        async with sessionmaker.begin() as session:
+            scope = WorkspaceScope(session, workspace_id)
+            version = await create_dataset_version(scope, "d", [load_task_file(TASK_FILE)])
+            config = await create_agent_config(
+                scope, "c", models.AdapterType.SCRIPTED, {}, RunLimits()
+            )
+            experiment = await create_experiment(
+                scope, version.id, [config.id], [], mode=models.ExperimentMode.DEMO, budget=limits
+            )
+            experiment.status = models.ExperimentStatus.RUNNING
+            return experiment
+
+    return make

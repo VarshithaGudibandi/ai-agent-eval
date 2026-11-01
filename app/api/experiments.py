@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.api.dependencies import Db, Member, Viewer, scope_for
 from app.db import models
 from app.db.audit import record_audit
+from app.db.budgets import BudgetLimits, budget_for_experiment
 from app.db.experiments import (
     create_experiment,
     find_by_idempotency_key,
@@ -24,6 +25,31 @@ class NewExperimentRequest(BaseModel):
     agent_config_ids: list[str] = Field(min_length=1, max_length=20)
     repetitions: int = Field(default=1, ge=1, le=100)
     mode: models.ExperimentMode
+    budget: BudgetLimits = BudgetLimits()
+
+
+class BudgetOut(BaseModel):
+    currency: str
+    money_limit_micros: int | None
+    tokens_limit: int | None
+    requests_limit: int | None
+    money_used_micros: int
+    tokens_used: int
+    requests_used: int
+    warning: bool
+
+    @classmethod
+    def of(cls, row: models.Budget) -> "BudgetOut":
+        return cls(
+            currency=row.currency,
+            money_limit_micros=row.money_limit_micros,
+            tokens_limit=row.tokens_limit,
+            requests_limit=row.requests_limit,
+            money_used_micros=row.money_used_micros,
+            tokens_used=row.tokens_used,
+            requests_used=row.requests_used,
+            warning=row.warned_at is not None,
+        )
 
 
 class ExperimentOut(BaseModel):
@@ -34,6 +60,7 @@ class ExperimentOut(BaseModel):
     repetitions: int
     created_at: datetime
     runs_by_evaluation_status: dict[str, int]
+    budget: BudgetOut
     manifest: dict[str, Any]
 
 
@@ -68,6 +95,7 @@ async def _out(scope: WorkspaceScope, rows: list[models.Experiment]) -> list[Exp
             repetitions=r.repetitions,
             created_at=r.created_at,
             runs_by_evaluation_status=counts.get(r.id, {}),
+            budget=BudgetOut.of(await budget_for_experiment(scope, r.id)),
             manifest=r.manifest,
         )
         for r in rows
@@ -115,6 +143,7 @@ async def new_experiment(
         mode=body.mode,
         repetitions=body.repetitions,
         idempotency_key=idempotency_key,
+        budget=body.budget,
     )
     record_audit(
         scope,

@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 
 from app.db import models
+from app.db.budgets import BudgetLimits, create_budget
 from app.db.ids import new_id
 from app.db.scope import NotFoundError, WorkspaceScope
 from app.evaluators.contract import Evaluator
@@ -21,8 +22,9 @@ async def create_experiment(
     mode: models.ExperimentMode,
     repetitions: int = 1,
     idempotency_key: str | None = None,
+    budget: BudgetLimits | None = None,
 ) -> models.Experiment:
-    """Create the experiment and all its runs together, or return the one already made."""
+    """Create the experiment, its budget and its runs together, or return the existing one."""
     if idempotency_key is not None:
         existing = await scope.first(
             scope.query(models.Experiment).where(
@@ -74,6 +76,7 @@ async def create_experiment(
     )
     scope.add(experiment)
     await scope.flush()
+    await create_budget(scope, experiment.id, budget or BudgetLimits())
     for repetition in range(1, repetitions + 1):
         for task in tasks:
             for config_id in agent_config_ids:
@@ -176,3 +179,19 @@ async def list_runs(
         .limit(limit)
         .offset(offset)
     )
+
+
+async def pause_for_budget(scope: WorkspaceScope, experiment_id: str) -> bool:
+    """Pause a running experiment. Returns True only if this call paused it."""
+    experiment = await scope.session.scalar(
+        scope.query(models.Experiment)
+        .where(models.Experiment.id == experiment_id)
+        .with_for_update()
+    )
+    if experiment is None or experiment.status not in (
+        models.ExperimentStatus.QUEUED,
+        models.ExperimentStatus.RUNNING,
+    ):
+        return False
+    experiment.status = models.ExperimentStatus.PAUSED_BUDGET
+    return True

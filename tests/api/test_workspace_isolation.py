@@ -34,6 +34,17 @@ class World:
     b: Seeded
     b_token_id: str
     b_credential_id: str
+    b_price_id: str
+
+
+PRICE = {
+    "provider": "gemini",
+    "model": "m",
+    "input_per_million_micros": 1,
+    "cached_input_per_million_micros": 1,
+    "output_per_million_micros": 1,
+    "other_per_million_micros": 1,
+}
 
 
 @pytest.fixture
@@ -47,7 +58,18 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         "/api/v1/provider-credentials",
         json={"provider": "gemini", "label": "b", "api_key": "AIzaB-secret-key-0000"},
     )
-    return World(a_person, a_token, b_person, b_token, a, b, b_token_id, credential.json()["id"])
+    price = await b_person.post("/api/v1/price-versions", json=PRICE)
+    return World(
+        a_person,
+        a_token,
+        b_person,
+        b_token,
+        a,
+        b,
+        b_token_id,
+        credential.json()["id"],
+        price.json()["id"],
+    )
 
 
 def _foreign_id_attacks(w: World) -> list[tuple[str, str, Any]]:
@@ -124,6 +146,7 @@ async def _b_view(w: World) -> dict[str, Any]:
     tokens = (await w.b_person.get("/api/v1/api-tokens")).json()
     view["tokens"] = [{k: t[k] for k in ("id", "revoked")} for t in tokens]
     view["keys"] = (await w.b_person.get("/api/v1/provider-credentials")).json()
+    view["prices"] = (await w.b_person.get("/api/v1/price-versions")).json()
     return view
 
 
@@ -204,12 +227,14 @@ LIST_ROUTES = [
     "/api/v1/experiments",
     "/api/v1/api-tokens",
     "/api/v1/provider-credentials",
+    "/api/v1/price-versions",
 ]
 BODY_ROUTES = {
     ("POST", "/api/v1/datasets/import"),
     ("POST", "/api/v1/agent-configs"),
     ("POST", "/api/v1/api-tokens"),
     ("POST", "/api/v1/provider-credentials"),
+    ("POST", "/api/v1/price-versions"),
 }
 # These take no workspace input at all: the workspace comes from the caller or is new.
 NO_WORKSPACE_INPUT = {

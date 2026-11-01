@@ -3,6 +3,7 @@ from enum import StrEnum
 from typing import Any, ClassVar
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -104,6 +105,12 @@ class Role(StrEnum):
 class ActorType(StrEnum):
     USER = "user"
     TOKEN = "token"  # noqa: S105
+    SYSTEM = "system"
+
+
+class LedgerKind(StrEnum):
+    RESERVATION = "reservation"
+    RECONCILIATION = "reconciliation"
 
 
 class KeyedProvider(StrEnum):
@@ -496,3 +503,77 @@ class ProviderCredential(WorkspaceScoped, Base):
     created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     revoked_at: Mapped[datetime | None]
+
+
+class PriceVersion(WorkspaceScoped, Base):
+    """Prices for one model, per million tokens, in micro-units. Rows are never edited."""
+
+    __tablename__ = "price_versions"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        CheckConstraint(
+            "input_per_million_micros >= 0 AND cached_input_per_million_micros >= 0"
+            " AND output_per_million_micros >= 0 AND other_per_million_micros >= 0",
+            name="prices_not_negative",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    provider: Mapped[str]
+    model: Mapped[str]
+    currency: Mapped[str]
+    input_per_million_micros: Mapped[int] = mapped_column(BigInteger)
+    cached_input_per_million_micros: Mapped[int] = mapped_column(BigInteger)
+    output_per_million_micros: Mapped[int] = mapped_column(BigInteger)
+    other_per_million_micros: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Budget(WorkspaceScoped, Base):
+    """Limits and running totals for one experiment. A null limit means no cap.
+
+    The used totals include amounts reserved for calls still in flight.
+    """
+
+    __tablename__ = "budgets"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("experiment_id"),
+        workspace_fk("experiment_id", "experiments"),
+        CheckConstraint(
+            "money_used_micros >= 0 AND tokens_used >= 0 AND requests_used >= 0",
+            name="used_not_negative",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    experiment_id: Mapped[str]
+    currency: Mapped[str]
+    money_limit_micros: Mapped[int | None] = mapped_column(BigInteger)
+    tokens_limit: Mapped[int | None] = mapped_column(BigInteger)
+    requests_limit: Mapped[int | None] = mapped_column(BigInteger)
+    money_used_micros: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    tokens_used: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    requests_used: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    warned_at: Mapped[datetime | None]
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class SpendEntry(WorkspaceScoped, Base):
+    __tablename__ = "spend_ledger"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        workspace_fk("budget_id", "budgets"),
+        one_of("kind", LedgerKind),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    budget_id: Mapped[str]
+    attempt_id: Mapped[str | None]
+    reservation_id: Mapped[str | None]
+    kind: Mapped[str]
+    money_micros: Mapped[int] = mapped_column(BigInteger)
+    tokens: Mapped[int] = mapped_column(BigInteger)
+    requests: Mapped[int] = mapped_column(BigInteger)
+    cost_known: Mapped[bool]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())

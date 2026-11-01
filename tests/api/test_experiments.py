@@ -45,3 +45,24 @@ async def test_finished_experiment_shows_progress_and_filters_runs(
         f"/api/v1/experiments/{seeded.experiment_id}/runs", params={"evaluation_status": "fail"}
     )
     assert failing.json() == []
+
+
+async def test_budget_limits_are_stored_and_reported(new_owner: SignIn) -> None:
+    owner = await new_owner()
+    version, config = await _ids(owner)
+    created = await owner.post(
+        "/api/v1/experiments",
+        json={
+            "dataset_version_id": version,
+            "agent_config_ids": [config],
+            "mode": "demo",
+            "budget": {"money_micros": 2_000_000, "tokens": 50_000, "requests": 100},
+        },
+    )
+    budget = created.json()["budget"]
+    assert (budget["money_limit_micros"], budget["tokens_limit"], budget["requests_limit"]) == (
+        2_000_000,
+        50_000,
+        100,
+    )
+    assert (budget["money_used_micros"], budget["warning"]) == (0, False)
