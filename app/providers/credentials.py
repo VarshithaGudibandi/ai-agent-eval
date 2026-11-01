@@ -21,6 +21,9 @@ async def create_credential(
     label: str,
     api_key: str,
     vault: KeyVault,
+    *,
+    requests_per_minute: int | None = None,
+    tokens_per_minute: int | None = None,
 ) -> models.ProviderCredential:
     credential_id = new_id("cred")
     nonce, ciphertext = vault.encrypt(
@@ -35,6 +38,8 @@ async def create_credential(
         ciphertext=ciphertext,
         key_last4=api_key[-4:],
         created_by_user_id=principal.user_id,
+        requests_per_minute=requests_per_minute,
+        tokens_per_minute=tokens_per_minute,
     )
     scope.add(row)
     record_audit(

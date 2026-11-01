@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = False
     invite_ttl_hours: float = Field(default=72, gt=0)
     app_master_key: SecretStr | None = None
+    gemini_base_url: str = "https://generativelanguage.googleapis.com"
+    ollama_base_url: str = "http://localhost:11434"
+    model_call_timeout_seconds: float = Field(default=60, gt=0)
+    model_call_max_retries: int = Field(default=4, ge=0, le=10)
 
 
 @lru_cache

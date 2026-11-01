@@ -141,6 +141,14 @@ async def attempt(
                 evaluation_status="pending",
             )
         )
+        session.add(
+            models.Budget(
+                id=new_id("bud"),
+                workspace_id=workspace_id,
+                experiment_id=ids["exp"],
+                currency="USD",
+            )
+        )
         await session.flush()
         session.add(attempt)
     return attempt

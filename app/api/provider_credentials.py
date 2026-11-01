@@ -33,6 +33,8 @@ class NewCredentialRequest(BaseModel):
     provider: models.KeyedProvider
     label: str = Field(min_length=1, max_length=200)
     api_key: SecretStr = Field(min_length=8, max_length=500)
+    requests_per_minute: int | None = Field(default=None, gt=0)
+    tokens_per_minute: int | None = Field(default=None, gt=0)
 
 
 class CredentialOut(BaseModel):
@@ -42,6 +44,8 @@ class CredentialOut(BaseModel):
     last4: str
     created_at: datetime
     revoked: bool
+    requests_per_minute: int | None
+    tokens_per_minute: int | None
     warning: str | None
 
     @classmethod
@@ -54,6 +58,8 @@ class CredentialOut(BaseModel):
             last4=row.key_last4,
             created_at=row.created_at,
             revoked=row.revoked_at is not None,
+            requests_per_minute=row.requests_per_minute,
+            tokens_per_minute=row.tokens_per_minute,
             warning=FREE_TIER_WARNING.get(provider),
         )
 
@@ -71,7 +77,10 @@ async def new_credential(
     session: Db,
     vault: Annotated[KeyVault, Depends(key_vault)],
 ) -> CredentialOut:
-    """Store a provider key, encrypted. It is never shown again."""
+    """Store a provider key, encrypted. It is never shown again.
+
+    The per-minute limits feed a rate limiter shared by every worker using this key.
+    """
     row = await create_credential(
         scope_for(session, principal),
         principal,
@@ -79,6 +88,8 @@ async def new_credential(
         body.label,
         body.api_key.get_secret_value(),
         vault,
+        requests_per_minute=body.requests_per_minute,
+        tokens_per_minute=body.tokens_per_minute,
     )
     await session.refresh(row)
     return CredentialOut.of(row)

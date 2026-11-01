@@ -113,6 +113,14 @@ class LedgerKind(StrEnum):
     RECONCILIATION = "reconciliation"
 
 
+class ModelCallStatus(StrEnum):
+    OK = "ok"
+    RATE_LIMITED = "rate_limited"
+    RETRYABLE_ERROR = "retryable_error"
+    FATAL_ERROR = "fatal_error"
+    CONTENT_BLOCKED = "content_blocked"
+
+
 class KeyedProvider(StrEnum):
     GEMINI = "gemini"
 
@@ -503,6 +511,12 @@ class ProviderCredential(WorkspaceScoped, Base):
     created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     revoked_at: Mapped[datetime | None]
+    # A token bucket shared by every worker using this key. Null limits mean no limit.
+    requests_per_minute: Mapped[int | None]
+    tokens_per_minute: Mapped[int | None] = mapped_column(BigInteger)
+    bucket_requests: Mapped[float | None]
+    bucket_tokens: Mapped[float | None]
+    bucket_refreshed_at: Mapped[datetime | None]
 
 
 class PriceVersion(WorkspaceScoped, Base):
@@ -576,4 +590,36 @@ class SpendEntry(WorkspaceScoped, Base):
     tokens: Mapped[int] = mapped_column(BigInteger)
     requests: Mapped[int] = mapped_column(BigInteger)
     cost_known: Mapped[bool]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class ModelCall(WorkspaceScoped, Base):
+    """One request to a model provider, including retries, with what it used and cost."""
+
+    __tablename__ = "model_calls"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        workspace_fk("attempt_id", "attempts"),
+        workspace_fk("trace_event_id", "trace_events"),
+        one_of("status", ModelCallStatus),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    attempt_id: Mapped[str]
+    trace_event_id: Mapped[str]
+    reservation_id: Mapped[str]
+    provider: Mapped[str]
+    requested_model: Mapped[str]
+    resolved_model: Mapped[str | None]
+    status: Mapped[str]
+    error: Mapped[str | None]
+    retry_number: Mapped[int]
+    input_tokens: Mapped[int | None]
+    cached_input_tokens: Mapped[int | None]
+    output_tokens: Mapped[int | None]
+    other_tokens: Mapped[int | None]
+    usage_known: Mapped[bool]
+    self_reported: Mapped[bool] = mapped_column(default=False, server_default="false")
+    cost_micros: Mapped[int | None] = mapped_column(BigInteger)
+    duration_ms: Mapped[int]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
