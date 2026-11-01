@@ -48,3 +48,7 @@ async def authenticate(session: AsyncSession, email: str, password: str) -> mode
     if not verify_password(user.password_hash if user else None, password) or user is None:
         raise InvalidCredentialsError
     return user
+
+
+async def user_by_id(session: AsyncSession, user_id: str) -> models.User:
+    return await session.get_one(models.User, user_id)

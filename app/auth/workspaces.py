@@ -109,3 +109,7 @@ async def accept_invite(session: AsyncSession, user: models.User, secret: str) -
     )
     await session.flush()
     return member
+
+
+async def workspace_by_id(session: AsyncSession, workspace_id: str) -> models.Workspace:
+    return await session.get_one(models.Workspace, workspace_id)

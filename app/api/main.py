@@ -3,8 +3,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import health
-from app.db.engine import create_engine
+from app.api import api_tokens, auth, health, workspaces
+from app.api.errors import register_error_handlers
+from app.db.engine import create_engine, create_sessionmaker
+from app.environments.registry import default_registry
+from app.evaluators.registry import default_evaluators
 from app.settings import Settings, get_settings
 from app.structured_logging import configure_logging
 
@@ -16,11 +19,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         configure_logging(settings.log_level, settings.log_format)
         app.state.engine = create_engine(settings)
+        app.state.sessionmaker = create_sessionmaker(app.state.engine)
         try:
             yield
         finally:
             await app.state.engine.dispose()
 
     app = FastAPI(title="AI Agent Eval", lifespan=lifespan)
-    app.include_router(health.router)
+    app.state.settings = settings
+    app.state.environments = default_registry()
+    app.state.evaluators = default_evaluators()
+    register_error_handlers(app)
+    for module in (health, auth, workspaces, api_tokens):
+        app.include_router(module.router)
     return app
