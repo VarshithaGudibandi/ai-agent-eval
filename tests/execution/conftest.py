@@ -40,14 +40,26 @@ def _reply(text: str, *calls: ToolCallRequest) -> ModelResponse:
 
 def refund_conversation() -> list[ModelResponse | ProviderError]:
     """What a capable model would say on the refund task, one reply per turn."""
+    order = {"order_id": "ord_1001"}
+    refund = {**order, "amount_minor": 24999}
     return [
-        _reply("", ToolCallRequest(id="c1", name="get_order", arguments={"order_id": "ord_1001"})),
+        _reply(
+            "",
+            ToolCallRequest(id="c1", name="get_order", arguments=order),
+            ToolCallRequest(id="c2", name="get_return_status", arguments=order),
+        ),
         _reply(
             "",
             ToolCallRequest(
-                id="c2",
-                name="issue_refund",
-                arguments={"order_id": "ord_1001", "amount_minor": 24999, "reason": "damaged"},
+                id="c3",
+                name="request_refund_approval",
+                arguments={**refund, "reason": "damaged"},
+            ),
+        ),
+        _reply(
+            "",
+            ToolCallRequest(
+                id="c4", name="issue_refund", arguments={**refund, "approval_id": "apr_0001"}
             ),
         ),
         _reply("I have refunded $249.99 to your card."),

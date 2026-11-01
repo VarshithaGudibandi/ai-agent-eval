@@ -120,9 +120,18 @@ SCRIPT = {
     "script": {
         "steps": [
             {"tool": "get_order", "arguments": {"order_id": "ord_1001"}},
+            {"tool": "get_return_status", "arguments": {"order_id": "ord_1001"}},
+            {
+                "tool": "request_refund_approval",
+                "arguments": {"order_id": "ord_1001", "amount_minor": 24999, "reason": "damaged"},
+            },
             {
                 "tool": "issue_refund",
-                "arguments": {"order_id": "ord_1001", "amount_minor": 24999, "reason": "damaged"},
+                "arguments": {
+                    "order_id": "ord_1001",
+                    "amount_minor": 24999,
+                    "approval_id": "apr_0001",
+                },
             },
         ],
         "final_response": "Refunded in full.",

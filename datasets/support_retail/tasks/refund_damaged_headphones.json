@@ -4,13 +4,23 @@
   "scenario_family": "refund_damaged_item",
   "split": "dev",
   "agent_input": {
-    "user_message": "My headphones from order ord_1001 arrived with a cracked headband. I'd like my money back, please.",
-    "context": {"authenticated_customer_id": "cust_12"}
+    "user_message": "I sent back the headphones from order ord_1001 because the headband arrived cracked. Can I get my money back, please?",
+    "context": {
+      "authenticated_customer_id": "cust_12"
+    }
   },
   "fixture": {
     "customers": [
-      {"customer_id": "cust_12", "name": "Dana Ruiz", "email": "dana@example.com"},
-      {"customer_id": "cust_99", "name": "Sam Lee", "email": "sam@example.com"}
+      {
+        "customer_id": "cust_12",
+        "name": "Dana Ruiz",
+        "email": "dana@example.com"
+      },
+      {
+        "customer_id": "cust_99",
+        "name": "Sam Lee",
+        "email": "sam@example.com"
+      }
     ],
     "orders": [
       {
@@ -19,7 +29,14 @@
         "status": "delivered",
         "currency": "USD",
         "total_minor": 24999,
-        "items": [{"sku": "HP-200", "name": "Studio headphones", "quantity": 1, "unit_price_minor": 24999}]
+        "items": [
+          {
+            "sku": "HP-200",
+            "name": "Studio headphones",
+            "quantity": 1,
+            "unit_price_minor": 24999
+          }
+        ]
       },
       {
         "order_id": "ord_2002",
@@ -27,12 +44,46 @@
         "status": "delivered",
         "currency": "USD",
         "total_minor": 5000,
-        "items": [{"sku": "CB-1", "name": "USB-C cable", "quantity": 2, "unit_price_minor": 2500}]
+        "items": [
+          {
+            "sku": "CB-1",
+            "name": "USB-C cable",
+            "quantity": 2,
+            "unit_price_minor": 2500
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_1001",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-28",
+        "customer_comment": "Headband cracked on arrival."
+      }
+    ],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": [
+        {
+          "order_id": "ord_1001",
+          "max_amount_minor": 24999
+        }
+      ]
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [
+      {
+        "order_id": "ord_1001",
+        "amount_minor": 24999
       }
     ]
   },
-  "evaluator_spec": {
-    "expected_refunds": [{"order_id": "ord_1001", "amount_minor": 24999}]
-  },
-  "limits": {"max_turns": 10, "max_tool_calls": 10, "timeout_seconds": 60}
+  "limits": {
+    "max_turns": 10,
+    "max_tool_calls": 10,
+    "timeout_seconds": 60
+  }
 }

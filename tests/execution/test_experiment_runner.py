@@ -49,8 +49,8 @@ async def test_tiny_budget_pauses_without_losing_finished_runs_then_resumes(
     platform_with: Callable[[ProviderRegistry], Platform],
 ) -> None:
     platform = platform_with(scripted_providers())
-    # Each run makes 3 calls of 1,100 micros. 8,000 covers two runs and not a third.
-    cap = 8_000
+    # Each run makes 4 calls of 1,100 micros. 11,000 covers two runs and not a third.
+    cap = 11_000
     made = await tool_loop_experiment(BudgetLimits(money_micros=cap), 4)
 
     status = await run_experiment(platform, workspace_id, made.experiment_id)
@@ -79,7 +79,7 @@ async def test_tiny_budget_pauses_without_losing_finished_runs_then_resumes(
             .where(models.Run.experiment_id == made.experiment_id, models.ModelCall.status == "ok")
         )
     assert budget.money_used_micros <= cap
-    assert paid_calls is not None and paid_calls >= 6
+    assert paid_calls is not None and paid_calls >= 8
     assert budget.money_used_micros == int(ledger or 0) == paid_calls * COST_PER_CALL
     before = {
         r.id: ([a.id for a in attempts], sorted(s.id for s in scores))
@@ -134,18 +134,21 @@ async def test_every_model_call_is_traced_with_its_cost(
             )
         )
     kinds = [e.event_type for e in events]
+    tool_call = ["tool_call_requested", "tool_call_completed"]
+    # The first reply asks for two lookups at once; each later reply asks for one call.
     assert kinds == [
         "attempt_started",
         "model_call",
-        "tool_call_requested",
-        "tool_call_completed",
+        *tool_call,
+        *tool_call,
         "model_call",
-        "tool_call_requested",
-        "tool_call_completed",
+        *tool_call,
+        "model_call",
+        *tool_call,
         "model_call",
         "agent_finished",
     ]
-    assert len(calls) == 3
+    assert len(calls) == 4
     assert all(c.cost_micros == COST_PER_CALL and c.usage_known for c in calls)
     assert {e.id for e in events if e.event_type == "model_call"} == {
         c.trace_event_id for c in calls

@@ -37,6 +37,8 @@ class ToolSchema:
     name: str
     description: str
     args_model: type[ToolArgs]
+    # The tool changes state, so running a repeated call twice could double its effect.
+    effectful: bool = False
 
     def parameters(self) -> dict[str, Any]:
         return self.args_model.model_json_schema()

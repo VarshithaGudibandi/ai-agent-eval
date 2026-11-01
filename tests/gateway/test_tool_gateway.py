@@ -8,7 +8,8 @@ from app.db import models
 from app.environments.contract import CallContext, ToolArgs, ToolResult
 from app.environments.registry import EnvironmentRegistry, default_registry
 from app.environments.state_store import EnvStateStore
-from app.environments.support_retail.environment import TOOLS, SupportRetail
+from app.environments.support_retail.environment import SupportRetail
+from app.environments.support_retail.tools import TOOLS
 from app.execution.trace_recorder import TraceRecorder
 from app.gateway.tool_gateway import AttemptContext, ToolGateway, public_schemas
 from tests.environments.support_retail.fixtures import FIXTURE
@@ -66,7 +67,11 @@ async def _tool_calls(
 async def _refunds(sessionmaker: async_sessionmaker[AsyncSession], ctx: AttemptContext) -> Any:
     async with sessionmaker() as session:
         state = await EnvStateStore(session, ctx.workspace_id).snapshot(ctx.env_id)
-    return state.get("refunds", [])
+    # The fixture already holds one earlier refund, which tests leave alone.
+    return [r for r in state.get("refunds", []) if r["refund_id"] != "ref_0001"]
+
+
+REFUND = {"order_id": "ord_1001", "amount_minor": 24999, "approval_id": "apr_0001"}
 
 
 async def test_successful_call_is_traced_and_linked(
@@ -75,17 +80,19 @@ async def test_successful_call_is_traced_and_linked(
     recorder: TraceRecorder,
     sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
-    outcome = await gateway.call(
-        ctx, recorder, "issue_refund", {"order_id": "ord_1001", "amount_minor": 100, "reason": "r"}
-    )
+    approval = {"order_id": "ord_1001", "amount_minor": 24999, "reason": "damaged"}
+    await gateway.call(ctx, recorder, "request_refund_approval", approval)
+    outcome = await gateway.call(ctx, recorder, "issue_refund", REFUND)
     assert outcome.status == "ok"
-    requested, completed = await _trace(sessionmaker, ctx.attempt_id)
+    requested, completed = (await _trace(sessionmaker, ctx.attempt_id))[2:]
     assert requested.event_type == "tool_call_requested"
-    assert requested.payload["arguments"]["amount_minor"] == 100
+    assert requested.payload["arguments"]["amount_minor"] == 24999
     assert completed.event_type == "tool_call_completed"
     assert completed.payload["tool_call_id"] == outcome.tool_call_id
-    assert completed.payload["state_changes"][0]["record_id"] == "ref_0001"
-    [row] = await _tool_calls(sessionmaker, ctx.attempt_id)
+    assert completed.payload["state_changes"][0]["record_id"] == "ref_0002"
+    row = next(
+        r for r in await _tool_calls(sessionmaker, ctx.attempt_id) if r.id == outcome.tool_call_id
+    )
     assert (row.id, row.status) == (outcome.tool_call_id, "ok")
     assert (row.request_event_id, row.result_event_id) == (requested.id, completed.id)
     assert (await _refunds(sessionmaker, ctx))[0]["tool_call_id"] == outcome.tool_call_id
@@ -97,12 +104,12 @@ async def test_successful_call_is_traced_and_linked(
         ("delete_everything", {}, "TOOL_NOT_ALLOWED"),
         (
             "issue_refund",
-            {"order_id": "ord_1001", "amount_minor": "100", "reason": "r"},
+            {**REFUND, "amount_minor": "24999"},
             "INVALID_ARGUMENTS",
         ),
         (
             "issue_refund",
-            {"order_id": "ord_1001", "amount_minor": 100, "reason": "r", "customer_id": "cust_99"},
+            {**REFUND, "customer_id": "cust_99"},
             "INVALID_ARGUMENTS",
         ),
         ("issue_refund", {"order_id": "ord_1001"}, "INVALID_ARGUMENTS"),
@@ -133,7 +140,7 @@ async def test_tools_outside_the_allowlist_are_rejected(
         limited,
         recorder,
         "issue_refund",
-        {"order_id": "ord_1001", "amount_minor": 1, "reason": "r"},
+        REFUND,
     )
     assert outcome.error_code == "TOOL_NOT_ALLOWED"
 

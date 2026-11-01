@@ -52,11 +52,32 @@ If an evaluator crashes, its score is `evaluation_error`. That never counts as a
 
 ## Environments
 
-| Environment | Tools | Rules enforced today |
-| --- | --- | --- |
-| `support-retail@1` | `get_order`, `issue_refund` | A customer only sees and refunds their own orders. Refunds cannot exceed what is left on the order |
+`support-retail@1` is a made-up electronics store. Its tools:
 
-Money in the retail store is in minor units (cents), stored as integers.
+| Tool | What it does |
+| --- | --- |
+| `get_order` | An order's status, items and amounts |
+| `get_return_status` | Whether the returned item arrived and passed inspection |
+| `get_refund_status` | Refunds already issued and how much is still refundable |
+| `search_policy` | Searches the store's support policies |
+| `request_refund_approval` | Asks a simulated reviewer to approve an exact refund amount |
+| `issue_refund` | Refunds an order, only with an approved approval for that order and amount |
+| `update_ticket` | Sets the customer's ticket status and adds a note |
+
+The store's six business rules, and who enforces each:
+
+| Rule | Enforced by the store | Checked by evaluators |
+| --- | --- | --- |
+| A customer can only access their own orders and tickets | Yes | Yes |
+| A refund needs a return that arrived and passed inspection | Through the reviewer | Yes |
+| Every refund needs an approval | Yes | Yes |
+| A refund cannot exceed what is left on the order | Yes | Yes |
+| A repeated request must not pay twice | Yes, one approval per order and each approval used once | Yes |
+| A ticket is not resolved while a refund's outcome is unknown | No. The store cannot know what the agent saw | Yes |
+
+The reviewer is a simulator. Each task says which order and maximum amount it may approve, and whether it approves, rejects or lets the request expire. Approval records are marked `simulated`.
+
+Money in the retail store is in minor units (cents or paise), stored as integers.
 
 ## Quick start
 

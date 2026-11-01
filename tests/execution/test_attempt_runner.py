@@ -28,18 +28,17 @@ TASK_FILE = (
 
 
 def _script(amount_minor: int, final_response: str) -> dict[str, Any]:
+    refund = {"order_id": "ord_1001", "amount_minor": amount_minor}
     return {
         "script": {
             "steps": [
                 {"tool": "get_order", "arguments": {"order_id": "ord_1001"}},
+                {"tool": "get_return_status", "arguments": {"order_id": "ord_1001"}},
                 {
-                    "tool": "issue_refund",
-                    "arguments": {
-                        "order_id": "ord_1001",
-                        "amount_minor": amount_minor,
-                        "reason": "Arrived damaged",
-                    },
+                    "tool": "request_refund_approval",
+                    "arguments": {**refund, "reason": "Arrived damaged"},
                 },
+                {"tool": "issue_refund", "arguments": {**refund, "approval_id": "apr_0001"}},
             ],
             "final_response": final_response,
         }
@@ -152,10 +151,7 @@ async def test_agent_sees_its_input_but_never_the_hidden_parts(
         )
     assert [e.event_type for e in events] == [
         "attempt_started",
-        "tool_call_requested",
-        "tool_call_completed",
-        "tool_call_requested",
-        "tool_call_completed",
+        *["tool_call_requested", "tool_call_completed"] * 4,
         "agent_finished",
     ]
     started = events[0].payload
