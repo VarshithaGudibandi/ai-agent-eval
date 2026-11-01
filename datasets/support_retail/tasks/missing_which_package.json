@@ -1,0 +1,120 @@
+{
+  "task_key": "missing-which-package",
+  "environment": "support-retail@1",
+  "scenario_family": "missing_order_reference",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "Where is my package? It still hasn't come.",
+    "context": {
+      "authenticated_customer_id": "cust_52"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_52",
+        "name": "Diego Torres",
+        "email": "diego@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_7103",
+        "customer_id": "cust_52",
+        "status": "shipped",
+        "currency": "USD",
+        "total_minor": 4900,
+        "items": [
+          {
+            "sku": "SC-1",
+            "name": "Smart scale",
+            "quantity": 1,
+            "unit_price_minor": 4900
+          }
+        ]
+      },
+      {
+        "order_id": "ord_7104",
+        "customer_id": "cust_52",
+        "status": "placed",
+        "currency": "USD",
+        "total_minor": 29900,
+        "items": [
+          {
+            "sku": "RC-1",
+            "name": "Robot cleaner",
+            "quantity": 1,
+            "unit_price_minor": 29900
+          }
+        ]
+      },
+      {
+        "order_id": "ord_7105",
+        "customer_id": "cust_52",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 1200,
+        "items": [
+          {
+            "sku": "CB-9",
+            "name": "HDMI cable",
+            "quantity": 1,
+            "unit_price_minor": 1200
+          }
+        ]
+      }
+    ],
+    "returns": [],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": []
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [],
+    "forbidden_calls": [
+      {
+        "tool": "issue_refund",
+        "args": {}
+      },
+      {
+        "tool": "request_refund_approval",
+        "args": {}
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "asks_which_order",
+          "any_of": [
+            "which order",
+            "order (?:number|id)",
+            "what order"
+          ]
+        }
+      ],
+      "must_not_claim": []
+    }
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "missing_information",
+    "difficulty": "easy",
+    "expected_outcome": "Asks which order before answering.",
+    "acceptable_alternatives": [],
+    "rationale": "Three orders in different states. There is no tool to list them, so the agent must ask.",
+    "reference_script": {
+      "steps": [],
+      "final_response": "I can check that for you. Which order do you mean? Please send me the order number."
+    }
+  }
+}

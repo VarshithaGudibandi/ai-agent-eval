@@ -1,0 +1,93 @@
+{
+  "task_key": "policy-how-returns-work",
+  "environment": "support-retail@1",
+  "scenario_family": "policy_return_process",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "I want to send back some headphones I bought. How does that work, and when do I get my money?",
+    "context": {
+      "authenticated_customer_id": "cust_28"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_28",
+        "name": "Sara Novak",
+        "email": "sara@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_3402",
+        "customer_id": "cust_28",
+        "status": "delivered",
+        "currency": "INR",
+        "total_minor": 459900,
+        "items": [
+          {
+            "sku": "HP-9",
+            "name": "Over-ear headphones",
+            "quantity": 1,
+            "unit_price_minor": 459900
+          }
+        ]
+      }
+    ],
+    "returns": [],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": []
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [],
+    "response": {
+      "must_include": [
+        {
+          "name": "inspection",
+          "any_of": [
+            "inspect"
+          ]
+        },
+        {
+          "name": "how_to_return",
+          "any_of": [
+            "orders page",
+            "prepaid label",
+            "ship"
+          ]
+        }
+      ],
+      "must_not_claim": []
+    }
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "lookup",
+    "difficulty": "easy",
+    "expected_outcome": "Explains how to start a return and that a refund follows a passed inspection.",
+    "acceptable_alternatives": [],
+    "rationale": "The customer needs the process, not an action. Nothing should be refunded.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "search_policy",
+          "arguments": {
+            "query": "start a return refund eligibility inspection"
+          }
+        }
+      ],
+      "final_response": "Start the return from the Orders page of your account and ship the headphones back with the prepaid label. Once they arrive, inspection takes up to 3 business days, and a refund can be issued after they pass inspection."
+    }
+  }
+}

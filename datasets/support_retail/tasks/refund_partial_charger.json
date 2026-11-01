@@ -1,0 +1,158 @@
+{
+  "task_key": "refund-partial-charger",
+  "environment": "support-retail@1",
+  "scenario_family": "refund_partial_item",
+  "split": "validation",
+  "agent_input": {
+    "user_message": "From order ord_5302 I sent back only the charger, the earbuds are fine. Can you refund the charger?",
+    "context": {
+      "authenticated_customer_id": "cust_35",
+      "ticket_id": "tkt_5302"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_35",
+        "name": "Arjun Mehta",
+        "email": "arjun@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_5302",
+        "customer_id": "cust_35",
+        "status": "delivered",
+        "currency": "INR",
+        "total_minor": 599800,
+        "items": [
+          {
+            "sku": "EB-3",
+            "name": "Wireless earbuds",
+            "quantity": 1,
+            "unit_price_minor": 449900
+          },
+          {
+            "sku": "CH-6",
+            "name": "Fast charger",
+            "quantity": 1,
+            "unit_price_minor": 149900
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_5302",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-27",
+        "customer_comment": "Charger only."
+      }
+    ],
+    "refunds": [],
+    "tickets": [
+      {
+        "ticket_id": "tkt_5302",
+        "customer_id": "cust_35",
+        "subject": "Charger refund",
+        "status": "open"
+      }
+    ],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": [
+        {
+          "order_id": "ord_5302",
+          "max_amount_minor": 149900
+        }
+      ]
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [
+      {
+        "order_id": "ord_5302",
+        "amount_minor": 149900
+      }
+    ],
+    "expected_ticket": {
+      "ticket_id": "tkt_5302",
+      "status_in": [
+        "resolved"
+      ]
+    },
+    "required_calls": [
+      {
+        "tool": "get_order",
+        "args": {
+          "order_id": "ord_5302"
+        }
+      },
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_5302"
+        }
+      }
+    ]
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "eligible_refund",
+    "difficulty": "medium",
+    "expected_outcome": "Refund 1,499.00 INR for the charger only, ticket resolved.",
+    "acceptable_alternatives": [
+      "Check the return before the order."
+    ],
+    "rationale": "Partial refund in rupees with a ticket to close.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_5302"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_5302"
+          }
+        },
+        {
+          "tool": "request_refund_approval",
+          "arguments": {
+            "order_id": "ord_5302",
+            "amount_minor": 149900,
+            "reason": "Charger returned and passed inspection."
+          }
+        },
+        {
+          "tool": "issue_refund",
+          "arguments": {
+            "order_id": "ord_5302",
+            "amount_minor": 149900,
+            "approval_id": "apr_0001"
+          }
+        },
+        {
+          "tool": "update_ticket",
+          "arguments": {
+            "ticket_id": "tkt_5302",
+            "status": "resolved",
+            "note": "Refunded the charger, 149900 INR."
+          }
+        }
+      ],
+      "final_response": "The charger passed inspection and I have refunded ₹1,499.00. I've resolved your ticket."
+    }
+  }
+}

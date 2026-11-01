@@ -1,0 +1,120 @@
+{
+  "task_key": "duplicate-already-refunded",
+  "environment": "support-retail@1",
+  "scenario_family": "duplicate_already_refunded",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "I still haven't seen my refund for ord_9101. Please refund me.",
+    "context": {
+      "authenticated_customer_id": "cust_81"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_81",
+        "name": "Helen Park",
+        "email": "helen@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_9101",
+        "customer_id": "cust_81",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 12900,
+        "items": [
+          {
+            "sku": "KM-2",
+            "name": "Kitchen scale",
+            "quantity": 1,
+            "unit_price_minor": 12900
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_9101",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-20"
+      }
+    ],
+    "refunds": [
+      {
+        "refund_id": "ref_0001",
+        "order_id": "ord_9101",
+        "amount_minor": 12900,
+        "currency": "USD",
+        "issued_on": "2026-10-24"
+      }
+    ],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": []
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [],
+    "required_calls": [
+      {
+        "tool": "get_refund_status",
+        "args": {
+          "order_id": "ord_9101"
+        }
+      }
+    ],
+    "forbidden_calls": [
+      {
+        "tool": "issue_refund",
+        "args": {}
+      },
+      {
+        "tool": "request_refund_approval",
+        "args": {}
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "already",
+          "any_of": [
+            "already",
+            "2026-10-24",
+            "oct(?:ober)? 24"
+          ]
+        }
+      ],
+      "must_not_claim": []
+    }
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "duplicate_operation",
+    "difficulty": "medium",
+    "expected_outcome": "No new refund. Points to the existing one.",
+    "acceptable_alternatives": [],
+    "rationale": "Rule 5: check refund status before refunding again.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_refund_status",
+          "arguments": {
+            "order_id": "ord_9101"
+          }
+        }
+      ],
+      "final_response": "Your order ord_9101 was already refunded in full, $129.00 on 2026-10-24. It can take 5 to 7 business days to show on your card."
+    }
+  }
+}

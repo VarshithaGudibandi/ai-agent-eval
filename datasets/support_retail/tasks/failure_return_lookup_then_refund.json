@@ -1,0 +1,140 @@
+{
+  "task_key": "failure-return-lookup-then-refund",
+  "environment": "support-retail@1",
+  "scenario_family": "failure_lookup_retry_refund",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "My returned speaker from ord_9602 should have arrived. Please refund it.",
+    "context": {
+      "authenticated_customer_id": "cust_72"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_72",
+        "name": "Julia Costa",
+        "email": "julia@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_9602",
+        "customer_id": "cust_72",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 15900,
+        "items": [
+          {
+            "sku": "PS-2",
+            "name": "Portable speaker",
+            "quantity": 1,
+            "unit_price_minor": 15900
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_9602",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-28"
+      }
+    ],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": [
+        {
+          "order_id": "ord_9602",
+          "max_amount_minor": 15900
+        }
+      ]
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [
+      {
+        "order_id": "ord_9602",
+        "amount_minor": 15900
+      }
+    ],
+    "required_calls": [
+      {
+        "tool": "get_order",
+        "args": {
+          "order_id": "ord_9602"
+        }
+      },
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_9602"
+        }
+      }
+    ]
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "faults": [
+    {
+      "tool": "get_return_status",
+      "occurrence": 1,
+      "kind": "timeout"
+    }
+  ],
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "tool_failure",
+    "difficulty": "medium",
+    "expected_outcome": "Retries the return check, then refunds 159.00 USD once.",
+    "acceptable_alternatives": [],
+    "rationale": "The refund must still wait for a successful return check.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_9602"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_9602"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_9602"
+          }
+        },
+        {
+          "tool": "request_refund_approval",
+          "arguments": {
+            "order_id": "ord_9602",
+            "amount_minor": 15900,
+            "reason": "Return received and passed inspection."
+          }
+        },
+        {
+          "tool": "issue_refund",
+          "arguments": {
+            "order_id": "ord_9602",
+            "amount_minor": 15900,
+            "approval_id": "apr_0001"
+          }
+        }
+      ],
+      "final_response": "Your speaker passed inspection and I have refunded $159.00."
+    }
+  }
+}

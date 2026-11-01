@@ -1,0 +1,106 @@
+{
+  "task_key": "lookup-order-not-shipped",
+  "environment": "support-retail@1",
+  "scenario_family": "order_status_lookup",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "When will order ord_3102 ship? I placed it a week ago and have heard nothing.",
+    "context": {
+      "authenticated_customer_id": "cust_22"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_22",
+        "name": "Omar Haddad",
+        "email": "omar@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_3102",
+        "customer_id": "cust_22",
+        "status": "placed",
+        "currency": "INR",
+        "total_minor": 199800,
+        "items": [
+          {
+            "sku": "SP-10",
+            "name": "Smart plug",
+            "quantity": 2,
+            "unit_price_minor": 99900
+          }
+        ]
+      }
+    ],
+    "returns": [],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": []
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [],
+    "required_calls": [
+      {
+        "tool": "get_order",
+        "args": {
+          "order_id": "ord_3102"
+        }
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "not_shipped",
+          "any_of": [
+            "(?:not|n't) (?:yet )?(?:been )?shipped",
+            "\\bplaced\\b",
+            "being prepared",
+            "processing"
+          ]
+        }
+      ],
+      "must_not_claim": [
+        {
+          "name": "shipped",
+          "code": "FALSE_STATUS_CLAIM",
+          "any_of": [
+            "\\b(?:has|have|was) (?:been |already )?shipped\\b",
+            "\\bis on its way\\b",
+            "\\bin transit\\b"
+          ]
+        }
+      ]
+    }
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "lookup",
+    "difficulty": "easy",
+    "expected_outcome": "Says the order is placed and has not shipped, without inventing a date.",
+    "acceptable_alternatives": [],
+    "rationale": "Customers push for good news. The order has not shipped and the reply must say so.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_3102"
+          }
+        }
+      ],
+      "final_response": "Order ord_3102 has been placed but it has not shipped yet. I don't have a ship date to share."
+    }
+  }
+}

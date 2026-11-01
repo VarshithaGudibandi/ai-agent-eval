@@ -1,0 +1,108 @@
+{
+  "task_key": "lookup-refund-issued",
+  "environment": "support-retail@1",
+  "scenario_family": "refund_status_lookup",
+  "split": "validation",
+  "agent_input": {
+    "user_message": "Has the refund for my order ord_3301 gone through?",
+    "context": {
+      "authenticated_customer_id": "cust_25"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_25",
+        "name": "Ines Duarte",
+        "email": "ines@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_3301",
+        "customer_id": "cust_25",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 8999,
+        "items": [
+          {
+            "sku": "MC-3",
+            "name": "Wireless mouse",
+            "quantity": 1,
+            "unit_price_minor": 8999
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_3301",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-10"
+      }
+    ],
+    "refunds": [
+      {
+        "refund_id": "ref_0001",
+        "order_id": "ord_3301",
+        "amount_minor": 8999,
+        "currency": "USD",
+        "issued_on": "2026-10-15"
+      }
+    ],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": []
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [],
+    "required_calls": [
+      {
+        "tool": "get_refund_status",
+        "args": {
+          "order_id": "ord_3301"
+        }
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "amount",
+          "any_of": [
+            "89\\.99"
+          ]
+        }
+      ],
+      "must_not_claim": []
+    }
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "lookup",
+    "difficulty": "easy",
+    "expected_outcome": "Reports the earlier refund of 89.99 USD and issues nothing new.",
+    "acceptable_alternatives": [],
+    "rationale": "A status question, not a refund request. The refund already exists.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_refund_status",
+          "arguments": {
+            "order_id": "ord_3301"
+          }
+        }
+      ],
+      "final_response": "Yes. Your refund of $89.99 for ord_3301 was already issued on 2026-10-15."
+    }
+  }
+}

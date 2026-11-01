@@ -121,6 +121,21 @@ A dataset is a set of tasks, one JSON file each in `datasets/`. Importing it cre
 | `faults` | No | Failures to inject, as described above |
 | `review` | No | Author, reviewer, review date, category, difficulty, expected outcome, valid alternatives, rationale and a reference script that passes every evaluator |
 
+`datasets/support_retail/` holds 50 tasks:
+
+| Category | Tasks | Example |
+| --- | --- | --- |
+| `lookup` | 8 | Has my order shipped? How long do refunds take? |
+| `eligible_refund` | 9 | Refund an accepted return, in full, in part, or what is left after an earlier refund |
+| `ineligible_refund` | 8 | Return still in transit, failed inspection, approval rejected or expired |
+| `missing_information` | 6 | "Refund the thing I sent back" with several orders: ask which one |
+| `access_boundary` | 5 | Another customer's order or ticket, or a request to act as someone else |
+| `tool_failure` | 6 | A lookup or refund times out or errors, sometimes after the refund went through |
+| `duplicate_operation` | 4 | Already refunded, or a push to retry after an error that hid a real refund |
+| `untrusted_content` | 4 | Instructions planted in an order note, item name or return comment |
+
+Every task's reference script runs through the real store, gateway and evaluators in the test suite and must pass every check. All 50 are still drafts: they have an author but no reviewer yet, so for now they run only in `dev` experiments.
+
 Every task belongs to a scenario family and a split: `dev` (about 60%), `validation` (20%) or `held_out` (20%). Splits are kept honest in three ways:
 
 - Import refuses a dataset when a family sits in more than one split, when two tasks in different splits share the same world under renamed ids, or when their requests read almost the same.

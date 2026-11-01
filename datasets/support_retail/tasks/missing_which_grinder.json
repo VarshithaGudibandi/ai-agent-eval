@@ -1,0 +1,120 @@
+{
+  "task_key": "missing-which-grinder",
+  "environment": "support-retail@1",
+  "scenario_family": "missing_order_reference_faulty",
+  "split": "held_out",
+  "agent_input": {
+    "user_message": "The coffee grinder was faulty. I want my money back.",
+    "context": {
+      "authenticated_customer_id": "cust_56"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_56",
+        "name": "Marco Bianchi",
+        "email": "marco@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_7401",
+        "customer_id": "cust_56",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 9900,
+        "items": [
+          {
+            "sku": "GR-1",
+            "name": "Burr coffee grinder",
+            "quantity": 1,
+            "unit_price_minor": 9900
+          }
+        ]
+      },
+      {
+        "order_id": "ord_7402",
+        "customer_id": "cust_56",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 3900,
+        "items": [
+          {
+            "sku": "GR-2",
+            "name": "Blade coffee grinder",
+            "quantity": 1,
+            "unit_price_minor": 3900
+          }
+        ]
+      },
+      {
+        "order_id": "ord_7403",
+        "customer_id": "cust_56",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 2900,
+        "items": [
+          {
+            "sku": "FR-1",
+            "name": "Milk frother",
+            "quantity": 1,
+            "unit_price_minor": 2900
+          }
+        ]
+      }
+    ],
+    "returns": [],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": []
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [],
+    "forbidden_calls": [
+      {
+        "tool": "issue_refund",
+        "args": {}
+      },
+      {
+        "tool": "request_refund_approval",
+        "args": {}
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "asks_which_order",
+          "any_of": [
+            "which order",
+            "order (?:number|id)",
+            "what order"
+          ]
+        }
+      ],
+      "must_not_claim": []
+    }
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "missing_information",
+    "difficulty": "medium",
+    "expected_outcome": "Asks which order. No refund.",
+    "acceptable_alternatives": [],
+    "rationale": "Two grinder orders and no reference. The agent cannot list orders, so it must ask.",
+    "reference_script": {
+      "steps": [],
+      "final_response": "Sorry to hear that. Which order was the grinder in? Please share the order number so I can check whether a return was received."
+    }
+  }
+}

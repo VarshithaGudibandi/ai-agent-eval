@@ -1,0 +1,113 @@
+{
+  "task_key": "ineligible-return-only-requested",
+  "environment": "support-retail@1",
+  "scenario_family": "refund_return_not_arrived",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "I requested a return for the kettle on ord_6102. When will my refund come?",
+    "context": {
+      "authenticated_customer_id": "cust_42"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_42",
+        "name": "Yusuf Demir",
+        "email": "yusuf@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_6102",
+        "customer_id": "cust_42",
+        "status": "delivered",
+        "currency": "INR",
+        "total_minor": 189900,
+        "items": [
+          {
+            "sku": "KT-1",
+            "name": "Electric kettle",
+            "quantity": 1,
+            "unit_price_minor": 189900
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_6102",
+        "status": "requested",
+        "inspection": "pending"
+      }
+    ],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": [
+        {
+          "order_id": "ord_6102",
+          "max_amount_minor": 189900
+        }
+      ]
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [],
+    "required_calls": [
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_6102"
+        }
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "why",
+          "any_of": [
+            "(?:not|n't) (?:yet )?(?:received|arrived|shipped|sent)",
+            "ship it back",
+            "send it back",
+            "prepaid label"
+          ]
+        }
+      ],
+      "must_not_claim": []
+    }
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "ineligible_refund",
+    "difficulty": "medium",
+    "expected_outcome": "No refund. Explains the item must be shipped back and inspected first.",
+    "acceptable_alternatives": [],
+    "rationale": "A requested return is not a received return.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_6102"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_6102"
+          }
+        }
+      ],
+      "final_response": "Your return for the kettle is requested, but we haven't received the kettle yet. Please ship it back with the prepaid label. Once it arrives and passes inspection, a refund can be issued."
+    }
+  }
+}

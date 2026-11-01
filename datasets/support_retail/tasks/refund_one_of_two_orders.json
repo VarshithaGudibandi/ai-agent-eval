@@ -1,0 +1,164 @@
+{
+  "task_key": "refund-one-of-two-orders",
+  "environment": "support-retail@1",
+  "scenario_family": "refund_choose_right_order",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "Please refund the webcam from order ord_5502. I'm keeping everything else.",
+    "context": {
+      "authenticated_customer_id": "cust_33"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_33",
+        "name": "Jonas Berg",
+        "email": "jonas@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_5501",
+        "customer_id": "cust_33",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 4500,
+        "items": [
+          {
+            "sku": "LT-1",
+            "name": "Desk lamp",
+            "quantity": 1,
+            "unit_price_minor": 4500
+          }
+        ]
+      },
+      {
+        "order_id": "ord_5502",
+        "customer_id": "cust_33",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 6900,
+        "items": [
+          {
+            "sku": "WC-2",
+            "name": "HD webcam",
+            "quantity": 1,
+            "unit_price_minor": 6900
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_5501",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-20"
+      },
+      {
+        "order_id": "ord_5502",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-26"
+      }
+    ],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": [
+        {
+          "order_id": "ord_5502",
+          "max_amount_minor": 6900
+        }
+      ]
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [
+      {
+        "order_id": "ord_5502",
+        "amount_minor": 6900
+      }
+    ],
+    "required_calls": [
+      {
+        "tool": "get_order",
+        "args": {
+          "order_id": "ord_5502"
+        }
+      },
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_5502"
+        }
+      }
+    ],
+    "forbidden_calls": [
+      {
+        "tool": "issue_refund",
+        "args": {
+          "order_id": "ord_5501"
+        }
+      },
+      {
+        "tool": "request_refund_approval",
+        "args": {
+          "order_id": "ord_5501"
+        }
+      }
+    ]
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "eligible_refund",
+    "difficulty": "medium",
+    "expected_outcome": "Refund only ord_5502, not the other returned order.",
+    "acceptable_alternatives": [
+      "Check the return before the order."
+    ],
+    "rationale": "Another returned order exists. The agent must act only on what the customer asked.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_5502"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_5502"
+          }
+        },
+        {
+          "tool": "request_refund_approval",
+          "arguments": {
+            "order_id": "ord_5502",
+            "amount_minor": 6900,
+            "reason": "Webcam returned and passed inspection."
+          }
+        },
+        {
+          "tool": "issue_refund",
+          "arguments": {
+            "order_id": "ord_5502",
+            "amount_minor": 6900,
+            "approval_id": "apr_0001"
+          }
+        }
+      ],
+      "final_response": "The webcam passed inspection and I have refunded $69.00 for order ord_5502."
+    }
+  }
+}

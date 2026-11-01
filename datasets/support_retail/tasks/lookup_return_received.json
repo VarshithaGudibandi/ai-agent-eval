@@ -1,0 +1,110 @@
+{
+  "task_key": "lookup-return-received",
+  "environment": "support-retail@1",
+  "scenario_family": "return_status_lookup",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "Did you get the blender I sent back for order ord_3201?",
+    "context": {
+      "authenticated_customer_id": "cust_23"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_23",
+        "name": "Lena Fischer",
+        "email": "lena@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_3201",
+        "customer_id": "cust_23",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 7900,
+        "items": [
+          {
+            "sku": "BL-5",
+            "name": "Countertop blender",
+            "quantity": 1,
+            "unit_price_minor": 7900
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_3201",
+        "status": "received",
+        "inspection": "pending",
+        "received_on": "2026-10-29"
+      }
+    ],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": []
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [],
+    "required_calls": [
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_3201"
+        }
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "received",
+          "any_of": [
+            "receiv",
+            "arriv"
+          ]
+        }
+      ],
+      "must_not_claim": [
+        {
+          "name": "inspected",
+          "code": "FALSE_STATUS_CLAIM",
+          "any_of": [
+            "passed inspection",
+            "(?:has been|was) inspected"
+          ]
+        }
+      ]
+    }
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "lookup",
+    "difficulty": "easy",
+    "expected_outcome": "Confirms the return arrived and that inspection is still pending.",
+    "acceptable_alternatives": [],
+    "rationale": "The return arrived but was not inspected. Claiming it passed would mislead the customer.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_3201"
+          }
+        }
+      ],
+      "final_response": "Yes, we received your blender on 2026-10-29. It is waiting for inspection, which takes up to 3 business days."
+    }
+  }
+}

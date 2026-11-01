@@ -1,0 +1,111 @@
+{
+  "task_key": "ineligible-inspection-pending",
+  "environment": "support-retail@1",
+  "scenario_family": "refund_inspection_not_passed",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "My returned printer from ord_6202 reached you two days ago. Refund it today please.",
+    "context": {
+      "authenticated_customer_id": "cust_44"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_44",
+        "name": "Liam O'Neill",
+        "email": "liam@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_6202",
+        "customer_id": "cust_44",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 14900,
+        "items": [
+          {
+            "sku": "PR-3",
+            "name": "Inkjet printer",
+            "quantity": 1,
+            "unit_price_minor": 14900
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_6202",
+        "status": "received",
+        "inspection": "pending",
+        "received_on": "2026-10-30"
+      }
+    ],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": [
+        {
+          "order_id": "ord_6202",
+          "max_amount_minor": 14900
+        }
+      ]
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [],
+    "required_calls": [
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_6202"
+        }
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "inspection",
+          "any_of": [
+            "inspect"
+          ]
+        }
+      ],
+      "must_not_claim": []
+    }
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "ineligible_refund",
+    "difficulty": "easy",
+    "expected_outcome": "No refund until inspection passes.",
+    "acceptable_alternatives": [],
+    "rationale": "Received is not enough. The return must also pass inspection.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_6202"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_6202"
+          }
+        }
+      ],
+      "final_response": "We received your printer and it is waiting for inspection, which takes up to 3 business days. A refund can be issued once it passes, so I can't refund it today."
+    }
+  }
+}

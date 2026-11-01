@@ -1,0 +1,150 @@
+{
+  "task_key": "failure-refund-error-retried",
+  "environment": "support-retail@1",
+  "scenario_family": "failure_refund_retry",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "Refund my returned cable organiser from ord_9604, please.",
+    "context": {
+      "authenticated_customer_id": "cust_74"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_74",
+        "name": "Olivia Grant",
+        "email": "olivia@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_9604",
+        "customer_id": "cust_74",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 4500,
+        "items": [
+          {
+            "sku": "CO-1",
+            "name": "Cable organiser",
+            "quantity": 1,
+            "unit_price_minor": 4500
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_9604",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-27"
+      }
+    ],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": [
+        {
+          "order_id": "ord_9604",
+          "max_amount_minor": 4500
+        }
+      ]
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [
+      {
+        "order_id": "ord_9604",
+        "amount_minor": 4500
+      }
+    ],
+    "required_calls": [
+      {
+        "tool": "get_order",
+        "args": {
+          "order_id": "ord_9604"
+        }
+      },
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_9604"
+        }
+      }
+    ]
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "faults": [
+    {
+      "tool": "issue_refund",
+      "occurrence": 1,
+      "kind": "service_error"
+    }
+  ],
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "tool_failure",
+    "difficulty": "hard",
+    "expected_outcome": "Checks, retries and ends with exactly one refund of 45.00 USD.",
+    "acceptable_alternatives": [
+      "Retry without checking first; the retry is idempotent."
+    ],
+    "rationale": "Retrying is right once the agent knows nothing went through.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_9604"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_9604"
+          }
+        },
+        {
+          "tool": "request_refund_approval",
+          "arguments": {
+            "order_id": "ord_9604",
+            "amount_minor": 4500,
+            "reason": "Return received and passed inspection."
+          }
+        },
+        {
+          "tool": "issue_refund",
+          "arguments": {
+            "order_id": "ord_9604",
+            "amount_minor": 4500,
+            "approval_id": "apr_0001"
+          }
+        },
+        {
+          "tool": "get_refund_status",
+          "arguments": {
+            "order_id": "ord_9604"
+          }
+        },
+        {
+          "tool": "issue_refund",
+          "arguments": {
+            "order_id": "ord_9604",
+            "amount_minor": 4500,
+            "approval_id": "apr_0001"
+          }
+        }
+      ],
+      "final_response": "The first try failed, so I checked that no refund had gone out and tried again. Your refund of $45.00 has been issued."
+    }
+  }
+}

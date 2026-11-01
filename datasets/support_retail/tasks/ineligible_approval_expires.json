@@ -1,0 +1,157 @@
+{
+  "task_key": "ineligible-approval-expires",
+  "environment": "support-retail@1",
+  "scenario_family": "refund_approval_expired",
+  "split": "held_out",
+  "agent_input": {
+    "user_message": "The air purifier I returned on ord_6501 passed inspection. Can you refund it?",
+    "context": {
+      "authenticated_customer_id": "cust_47",
+      "ticket_id": "tkt_6501"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_47",
+        "name": "Hana Sato",
+        "email": "hana@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_6501",
+        "customer_id": "cust_47",
+        "status": "delivered",
+        "currency": "INR",
+        "total_minor": 1299900,
+        "items": [
+          {
+            "sku": "AP-2",
+            "name": "Air purifier",
+            "quantity": 1,
+            "unit_price_minor": 1299900
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_6501",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-21"
+      }
+    ],
+    "refunds": [],
+    "tickets": [
+      {
+        "ticket_id": "tkt_6501",
+        "customer_id": "cust_47",
+        "subject": "Purifier refund",
+        "status": "open"
+      }
+    ],
+    "reviewer": {
+      "decision": "expire",
+      "permitted": [
+        {
+          "order_id": "ord_6501",
+          "max_amount_minor": 1299900
+        }
+      ]
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [],
+    "expected_ticket": {
+      "ticket_id": "tkt_6501",
+      "status_in": [
+        "open",
+        "pending"
+      ]
+    },
+    "required_calls": [
+      {
+        "tool": "get_order",
+        "args": {
+          "order_id": "ord_6501"
+        }
+      },
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_6501"
+        }
+      },
+      {
+        "tool": "request_refund_approval",
+        "args": {
+          "order_id": "ord_6501"
+        }
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "expired",
+          "any_of": [
+            "expir",
+            "pending",
+            "follow up",
+            "no (?:decision|answer|response)"
+          ]
+        }
+      ],
+      "must_not_claim": []
+    }
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "ineligible_refund",
+    "difficulty": "hard",
+    "expected_outcome": "No refund. Says the approval expired. Ticket left open or pending.",
+    "acceptable_alternatives": [],
+    "rationale": "An expired approval cannot be used. The ticket must not be resolved.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_6501"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_6501"
+          }
+        },
+        {
+          "tool": "request_refund_approval",
+          "arguments": {
+            "order_id": "ord_6501",
+            "amount_minor": 1299900,
+            "reason": "Return received and passed inspection."
+          }
+        },
+        {
+          "tool": "update_ticket",
+          "arguments": {
+            "ticket_id": "tkt_6501",
+            "status": "pending",
+            "note": "Approval expired; needs a new request."
+          }
+        }
+      ],
+      "final_response": "I requested approval for your refund, but it expired before a reviewer decided, so I couldn't refund it yet. I've kept your ticket pending so we can follow up."
+    }
+  }
+}

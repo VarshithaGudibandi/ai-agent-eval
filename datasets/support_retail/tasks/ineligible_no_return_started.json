@@ -1,0 +1,99 @@
+{
+  "task_key": "ineligible-no-return-started",
+  "environment": "support-retail@1",
+  "scenario_family": "refund_without_return",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "I don't want the tablet from ord_6301 any more. Just refund me.",
+    "context": {
+      "authenticated_customer_id": "cust_45"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_45",
+        "name": "Mia Rossi",
+        "email": "mia@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_6301",
+        "customer_id": "cust_45",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 17900,
+        "items": [
+          {
+            "sku": "TB-8",
+            "name": "8-inch tablet",
+            "quantity": 1,
+            "unit_price_minor": 17900
+          }
+        ]
+      }
+    ],
+    "returns": [],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": []
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [],
+    "required_calls": [
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_6301"
+        }
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "return_first",
+          "any_of": [
+            "return"
+          ]
+        }
+      ],
+      "must_not_claim": []
+    }
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "ineligible_refund",
+    "difficulty": "easy",
+    "expected_outcome": "No refund. Explains how to start a return.",
+    "acceptable_alternatives": [],
+    "rationale": "Without a return there is nothing to refund yet.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_6301"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_6301"
+          }
+        }
+      ],
+      "final_response": "There is no return for ord_6301 yet. Please start a return from the Orders page of your account and ship the tablet back. A refund can be issued after it arrives and passes inspection."
+    }
+  }
+}

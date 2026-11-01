@@ -1,0 +1,107 @@
+{
+  "task_key": "ineligible-failed-inspection",
+  "environment": "support-retail@1",
+  "scenario_family": "refund_inspection_not_passed",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "I returned the smartwatch from ord_6201. Why haven't I got my refund?",
+    "context": {
+      "authenticated_customer_id": "cust_43"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_43",
+        "name": "Chloe Dubois",
+        "email": "chloe@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_6201",
+        "customer_id": "cust_43",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 24900,
+        "items": [
+          {
+            "sku": "SW-5",
+            "name": "Smartwatch",
+            "quantity": 1,
+            "unit_price_minor": 24900
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_6201",
+        "status": "received",
+        "inspection": "failed",
+        "received_on": "2026-10-22",
+        "customer_comment": "Screen has a scratch."
+      }
+    ],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": []
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [],
+    "required_calls": [
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_6201"
+        }
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "inspection",
+          "any_of": [
+            "inspect"
+          ]
+        }
+      ],
+      "must_not_claim": []
+    }
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "ineligible_refund",
+    "difficulty": "medium",
+    "expected_outcome": "No refund. Explains the return failed inspection.",
+    "acceptable_alternatives": [],
+    "rationale": "A return that failed inspection is not eligible under rule 2.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_6201"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_6201"
+          }
+        }
+      ],
+      "final_response": "We received your smartwatch, but it did not pass inspection, so it is not eligible for a refund."
+    }
+  }
+}

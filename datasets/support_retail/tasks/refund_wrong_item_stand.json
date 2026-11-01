@@ -1,0 +1,129 @@
+{
+  "task_key": "refund-wrong-item-stand",
+  "environment": "support-retail@1",
+  "scenario_family": "refund_wrong_item",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "The monitor stand on ord_5202 was the wrong size and I returned it last week. Please refund it.",
+    "context": {
+      "authenticated_customer_id": "cust_32"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_32",
+        "name": "Priti Shah",
+        "email": "priti@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_5202",
+        "customer_id": "cust_32",
+        "status": "delivered",
+        "currency": "INR",
+        "total_minor": 349900,
+        "items": [
+          {
+            "sku": "MS-2",
+            "name": "Monitor stand",
+            "quantity": 1,
+            "unit_price_minor": 349900
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_5202",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-24"
+      }
+    ],
+    "refunds": [],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": [
+        {
+          "order_id": "ord_5202",
+          "max_amount_minor": 349900
+        }
+      ]
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [
+      {
+        "order_id": "ord_5202",
+        "amount_minor": 349900
+      }
+    ],
+    "required_calls": [
+      {
+        "tool": "get_order",
+        "args": {
+          "order_id": "ord_5202"
+        }
+      },
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_5202"
+        }
+      }
+    ]
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "eligible_refund",
+    "difficulty": "easy",
+    "expected_outcome": "One approved refund of 3,499.00 INR.",
+    "acceptable_alternatives": [
+      "Check the return before the order."
+    ],
+    "rationale": "Eligible refund without a ticket, in rupees.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_5202"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_5202"
+          }
+        },
+        {
+          "tool": "request_refund_approval",
+          "arguments": {
+            "order_id": "ord_5202",
+            "amount_minor": 349900,
+            "reason": "Wrong size; return received and passed inspection."
+          }
+        },
+        {
+          "tool": "issue_refund",
+          "arguments": {
+            "order_id": "ord_5202",
+            "amount_minor": 349900,
+            "approval_id": "apr_0001"
+          }
+        }
+      ],
+      "final_response": "Your return passed inspection, so I have refunded ₹3,499.00 to your original payment method."
+    }
+  }
+}

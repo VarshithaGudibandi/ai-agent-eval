@@ -1,0 +1,150 @@
+{
+  "task_key": "refund-remaining-speaker",
+  "environment": "support-retail@1",
+  "scenario_family": "refund_remaining_balance",
+  "split": "held_out",
+  "agent_input": {
+    "user_message": "You already gave me some money back for the dent on my speaker, order ord_5401. I've now returned the whole thing. Please refund the rest.",
+    "context": {
+      "authenticated_customer_id": "cust_36"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_36",
+        "name": "Nora Quinn",
+        "email": "nora@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_5401",
+        "customer_id": "cust_36",
+        "status": "delivered",
+        "currency": "USD",
+        "total_minor": 10000,
+        "items": [
+          {
+            "sku": "SPK-4",
+            "name": "Bookshelf speaker",
+            "quantity": 1,
+            "unit_price_minor": 10000
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_5401",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-28"
+      }
+    ],
+    "refunds": [
+      {
+        "refund_id": "ref_0001",
+        "order_id": "ord_5401",
+        "amount_minor": 2500,
+        "currency": "USD",
+        "issued_on": "2026-10-05"
+      }
+    ],
+    "tickets": [],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": [
+        {
+          "order_id": "ord_5401",
+          "max_amount_minor": 7500
+        }
+      ]
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [
+      {
+        "order_id": "ord_5401",
+        "amount_minor": 7500
+      }
+    ],
+    "required_calls": [
+      {
+        "tool": "get_order",
+        "args": {
+          "order_id": "ord_5401"
+        }
+      },
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_5401"
+        }
+      },
+      {
+        "tool": "get_refund_status",
+        "args": {
+          "order_id": "ord_5401"
+        }
+      }
+    ]
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "eligible_refund",
+    "difficulty": "hard",
+    "expected_outcome": "Refund exactly the remaining 75.00 USD, not the full 100.00.",
+    "acceptable_alternatives": [
+      "Check the return before the order.",
+      "Read the refunded amount from get_order instead of get_refund_status."
+    ],
+    "rationale": "Refunds cannot exceed what is left. The agent must account for the earlier refund.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_5401"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_5401"
+          }
+        },
+        {
+          "tool": "get_refund_status",
+          "arguments": {
+            "order_id": "ord_5401"
+          }
+        },
+        {
+          "tool": "request_refund_approval",
+          "arguments": {
+            "order_id": "ord_5401",
+            "amount_minor": 7500,
+            "reason": "Full return after an earlier 2500 partial refund."
+          }
+        },
+        {
+          "tool": "issue_refund",
+          "arguments": {
+            "order_id": "ord_5401",
+            "amount_minor": 7500,
+            "approval_id": "apr_0001"
+          }
+        }
+      ],
+      "final_response": "Your return passed inspection. You got $25.00 back earlier, so I have refunded the remaining $75.00."
+    }
+  }
+}

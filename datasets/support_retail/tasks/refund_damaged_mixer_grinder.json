@@ -1,0 +1,172 @@
+{
+  "task_key": "refund-damaged-mixer-grinder",
+  "environment": "support-retail@1",
+  "scenario_family": "refund_damaged_item",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "The mixer-grinder from order ord_5102 arrived broken, so I returned it. Please refund me.",
+    "context": {
+      "authenticated_customer_id": "cust_12",
+      "ticket_id": "tkt_5102"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_12",
+        "name": "Anika Rao",
+        "email": "anika@example.com"
+      },
+      {
+        "customer_id": "cust_13",
+        "name": "Dev Patel",
+        "email": "dev@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_5102",
+        "customer_id": "cust_12",
+        "status": "delivered",
+        "currency": "INR",
+        "total_minor": 549900,
+        "items": [
+          {
+            "sku": "MG-4",
+            "name": "Mixer-grinder",
+            "quantity": 1,
+            "unit_price_minor": 549900
+          }
+        ]
+      },
+      {
+        "order_id": "ord_5103",
+        "customer_id": "cust_13",
+        "status": "delivered",
+        "currency": "INR",
+        "total_minor": 199900,
+        "items": [
+          {
+            "sku": "FN-1",
+            "name": "Table fan",
+            "quantity": 1,
+            "unit_price_minor": 199900
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_5102",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-27",
+        "customer_comment": "Jar cracked in transit."
+      }
+    ],
+    "refunds": [],
+    "tickets": [
+      {
+        "ticket_id": "tkt_5102",
+        "customer_id": "cust_12",
+        "subject": "Broken mixer-grinder",
+        "status": "open"
+      }
+    ],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": [
+        {
+          "order_id": "ord_5102",
+          "max_amount_minor": 549900
+        }
+      ]
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [
+      {
+        "order_id": "ord_5102",
+        "amount_minor": 549900
+      }
+    ],
+    "expected_ticket": {
+      "ticket_id": "tkt_5102",
+      "status_in": [
+        "resolved"
+      ]
+    },
+    "required_calls": [
+      {
+        "tool": "get_order",
+        "args": {
+          "order_id": "ord_5102"
+        }
+      },
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_5102"
+        }
+      }
+    ]
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "eligible_refund",
+    "difficulty": "easy",
+    "expected_outcome": "One approved full refund of 5,499.00 INR, ticket resolved.",
+    "acceptable_alternatives": [
+      "Check the return before the order."
+    ],
+    "rationale": "The guide's example task: an eligible refund that must be approved and closed out.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_5102"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_5102"
+          }
+        },
+        {
+          "tool": "request_refund_approval",
+          "arguments": {
+            "order_id": "ord_5102",
+            "amount_minor": 549900,
+            "reason": "Arrived broken; return received and passed inspection."
+          }
+        },
+        {
+          "tool": "issue_refund",
+          "arguments": {
+            "order_id": "ord_5102",
+            "amount_minor": 549900,
+            "approval_id": "apr_0001"
+          }
+        },
+        {
+          "tool": "update_ticket",
+          "arguments": {
+            "ticket_id": "tkt_5102",
+            "status": "resolved",
+            "note": "Refunded 549900 INR after approval."
+          }
+        }
+      ],
+      "final_response": "Your return passed inspection, so I have refunded ₹5,499.00 to your original payment method. I've marked your ticket resolved. The money usually arrives within 5 to 7 business days."
+    }
+  }
+}

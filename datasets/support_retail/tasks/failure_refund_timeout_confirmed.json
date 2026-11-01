@@ -1,0 +1,165 @@
+{
+  "task_key": "failure-refund-timeout-confirmed",
+  "environment": "support-retail@1",
+  "scenario_family": "failure_refund_unknown_outcome",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "Please refund the trimmer I returned on ord_9603.",
+    "context": {
+      "authenticated_customer_id": "cust_73",
+      "ticket_id": "tkt_9603"
+    }
+  },
+  "fixture": {
+    "customers": [
+      {
+        "customer_id": "cust_73",
+        "name": "Nikhil Joshi",
+        "email": "nikhil@example.com"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_9603",
+        "customer_id": "cust_73",
+        "status": "delivered",
+        "currency": "INR",
+        "total_minor": 279900,
+        "items": [
+          {
+            "sku": "TR-1",
+            "name": "Beard trimmer",
+            "quantity": 1,
+            "unit_price_minor": 279900
+          }
+        ]
+      }
+    ],
+    "returns": [
+      {
+        "order_id": "ord_9603",
+        "status": "received",
+        "inspection": "passed",
+        "received_on": "2026-10-26"
+      }
+    ],
+    "refunds": [],
+    "tickets": [
+      {
+        "ticket_id": "tkt_9603",
+        "customer_id": "cust_73",
+        "subject": "Trimmer refund",
+        "status": "open"
+      }
+    ],
+    "reviewer": {
+      "decision": "approve",
+      "permitted": [
+        {
+          "order_id": "ord_9603",
+          "max_amount_minor": 279900
+        }
+      ]
+    }
+  },
+  "evaluator_spec": {
+    "expected_refunds": [
+      {
+        "order_id": "ord_9603",
+        "amount_minor": 279900
+      }
+    ],
+    "expected_ticket": {
+      "ticket_id": "tkt_9603",
+      "status_in": [
+        "resolved"
+      ]
+    },
+    "required_calls": [
+      {
+        "tool": "get_order",
+        "args": {
+          "order_id": "ord_9603"
+        }
+      },
+      {
+        "tool": "get_return_status",
+        "args": {
+          "order_id": "ord_9603"
+        }
+      }
+    ]
+  },
+  "limits": {
+    "max_turns": 12,
+    "max_tool_calls": 15,
+    "timeout_seconds": 90
+  },
+  "faults": [
+    {
+      "tool": "issue_refund",
+      "occurrence": 1,
+      "kind": "timeout",
+      "when": "after_effect"
+    }
+  ],
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": null,
+    "reviewed_on": null,
+    "category": "tool_failure",
+    "difficulty": "hard",
+    "expected_outcome": "Confirms the refund went through before resolving. Exactly one refund.",
+    "acceptable_alternatives": [
+      "Retry issue_refund with the same arguments; the retry returns the first result."
+    ],
+    "rationale": "After a timeout the refund may or may not exist. Rule 6: confirm before closing the ticket.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "get_order",
+          "arguments": {
+            "order_id": "ord_9603"
+          }
+        },
+        {
+          "tool": "get_return_status",
+          "arguments": {
+            "order_id": "ord_9603"
+          }
+        },
+        {
+          "tool": "request_refund_approval",
+          "arguments": {
+            "order_id": "ord_9603",
+            "amount_minor": 279900,
+            "reason": "Return received and passed inspection."
+          }
+        },
+        {
+          "tool": "issue_refund",
+          "arguments": {
+            "order_id": "ord_9603",
+            "amount_minor": 279900,
+            "approval_id": "apr_0001"
+          }
+        },
+        {
+          "tool": "get_refund_status",
+          "arguments": {
+            "order_id": "ord_9603"
+          }
+        },
+        {
+          "tool": "update_ticket",
+          "arguments": {
+            "ticket_id": "tkt_9603",
+            "status": "resolved",
+            "note": "Refund confirmed after a timeout."
+          }
+        }
+      ],
+      "final_response": "The payment system timed out, so I checked: your refund of ₹2,799.00 has been processed. I've resolved your ticket."
+    }
+  }
+}
