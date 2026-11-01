@@ -118,7 +118,10 @@ class MeteredModel:
             cost,
             tokens,
             1,
-            {"text": response.text, "tool_calls": [c.model_dump() for c in response.tool_calls]},
+            {
+                "text": response.text,
+                "tool_calls": [c.model_dump(exclude={"signature"}) for c in response.tool_calls],
+            },
         )
 
     async def _record_failure(

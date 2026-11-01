@@ -92,15 +92,20 @@ def gemini_contents(messages: list[Message]) -> tuple[dict[str, Any] | None, lis
                 contents.append({"role": "user", "parts": [part]})
             continue
         parts: list[dict[str, Any]] = [{"text": message.content}] if message.content else []
-        parts += [
-            {"functionCall": {"name": call.name, "args": call.arguments}}
-            for call in message.tool_calls
-        ]
+        parts += [_function_call_part(call) for call in message.tool_calls]
         contents.append(
             {"role": "model" if message.role == "assistant" else "user", "parts": parts}
         )
     instruction = {"parts": [{"text": "\n\n".join(system)}]} if system else None
     return instruction, contents
+
+
+def _function_call_part(call: ToolCallRequest) -> dict[str, Any]:
+    part: dict[str, Any] = {"functionCall": {"name": call.name, "args": call.arguments}}
+    # Gemini 3 rejects a function call sent back without the signature it came with.
+    if call.signature:
+        part["thoughtSignature"] = call.signature
+    return part
 
 
 def _retry_after(body: dict[str, Any]) -> float | None:
@@ -145,6 +150,7 @@ def parse_response(body: dict[str, Any], requested_model: str) -> ModelResponse:
                     id=call.get("id") or f"call_{uuid.uuid4().hex[:12]}",
                     name=call["name"],
                     arguments=call.get("args") or {},
+                    signature=part.get("thoughtSignature"),
                 )
             )
         elif "text" in part and not part.get("thought"):

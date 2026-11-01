@@ -9,6 +9,8 @@ class ToolCallRequest(BaseModel):
     id: str
     name: str
     arguments: dict[str, Any]
+    # Opaque provider token that must be sent back with this call on the next turn.
+    signature: str | None = None
 
 
 class Message(BaseModel):

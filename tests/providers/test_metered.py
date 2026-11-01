@@ -18,6 +18,7 @@ from app.providers.contract import (
     ProviderError,
     RateLimited,
     Retryable,
+    ToolCallRequest,
     Usage,
 )
 from app.providers.metered import MeteredModel
@@ -113,6 +114,17 @@ async def test_success_is_traced_and_charged_its_real_cost(
     assert event.event_type == "model_call"
     assert event.id == call.trace_event_id
     assert event.payload["usage"]["output_tokens"] == 5
+
+
+async def test_provider_signatures_reach_the_agent_but_not_the_trace(
+    sessionmaker: async_sessionmaker[AsyncSession], attempt: models.Attempt
+) -> None:
+    call = ToolCallRequest(id="c1", name="get_order", arguments={}, signature="opaque-blob")
+    reply = REPLY.model_copy(update={"tool_calls": [call]})
+    model, _, _ = await _model(sessionmaker, attempt, [reply])
+    assert (await model.generate(MESSAGES, [], SETTINGS)).tool_calls == [call]
+    _, _, [event] = await _calls_and_budget(sessionmaker, attempt)
+    assert event.payload["tool_calls"] == [{"id": "c1", "name": "get_order", "arguments": {}}]
 
 
 async def test_rate_limit_is_retried_free_and_recorded(

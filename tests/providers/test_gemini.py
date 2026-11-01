@@ -34,7 +34,9 @@ CONVERSATION = [
     Message(
         role="assistant",
         tool_calls=[
-            ToolCallRequest(id="c1", name="get_order", arguments={"order_id": "ord_1"}),
+            ToolCallRequest(
+                id="c1", name="get_order", arguments={"order_id": "ord_1"}, signature="sig-1"
+            ),
             ToolCallRequest(id="c2", name="get_order", arguments={"order_id": "ord_2"}),
         ],
     ),
@@ -66,7 +68,13 @@ def test_conversation_maps_to_gemini_turns() -> None:
     instruction, contents = gemini_contents(CONVERSATION)
     assert instruction == {"parts": [{"text": "Be helpful."}]}
     assert [c["role"] for c in contents] == ["user", "model", "user"]
-    assert len(contents[1]["parts"]) == 2
+    assert contents[1]["parts"] == [
+        {
+            "functionCall": {"name": "get_order", "args": {"order_id": "ord_1"}},
+            "thoughtSignature": "sig-1",
+        },
+        {"functionCall": {"name": "get_order", "args": {"order_id": "ord_2"}}},
+    ]
     responses = [p["functionResponse"] for p in contents[2]["parts"]]
     assert responses == [
         {"name": "get_order", "response": {"status": "ok"}},
@@ -89,7 +97,8 @@ async def test_request_and_response_round_trip() -> None:
                                     "functionCall": {
                                         "name": "get_order",
                                         "args": {"order_id": "ord_1"},
-                                    }
+                                    },
+                                    "thoughtSignature": "sig-from-gemini",
                                 },
                             ]
                         },
@@ -116,8 +125,8 @@ async def test_request_and_response_round_trip() -> None:
     assert body["generationConfig"] == {"temperature": 0.0, "maxOutputTokens": 256}
     assert body["tools"][0]["functionDeclarations"][0]["name"] == "get_order"
     assert response.text == "Looking it up."
-    assert [(c.name, c.arguments) for c in response.tool_calls] == [
-        ("get_order", {"order_id": "ord_1"})
+    assert [(c.name, c.arguments, c.signature) for c in response.tool_calls] == [
+        ("get_order", {"order_id": "ord_1"}, "sig-from-gemini")
     ]
     assert response.usage.model_dump() == {
         "input_tokens": 100,
