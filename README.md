@@ -2,7 +2,7 @@
 
 Runs an AI agent many times inside controlled environments, grades the resulting state, and compares configurations task by task.
 
-Status: real model agents run end to end, with costs tracked and capped. A scripted agent or a model (Gemini, or a local Ollama model) works in two mock environments: an electronics store with 50 support tasks, and a company IT helpdesk with 10. Every model call and tool call is traced, faults can be injected, and each run is graded on outcome, policy, trajectory and response from the environment's real state. People sign in, work in separate workspaces, and use API tokens for scripts. The job queue that runs experiments in the background, and the web pages, come next.
+Status: real model agents run end to end, with costs tracked and capped. A scripted agent or a model (Gemini, or a local Ollama model) works in two mock environments: an electronics store with 50 support tasks, and a company IT helpdesk with 10. Every model call and tool call is traced, faults can be injected, and each run is graded on outcome, policy, trajectory and response from the environment's real state. People sign in, work in separate workspaces, and use API tokens for scripts. Workers run experiments in the background from a Postgres job queue, survive crashes and can be cancelled. External agents over HTTP, and the web pages, come next.
 
 ## How a run flows
 
@@ -18,6 +18,21 @@ flowchart LR
 ```
 
 Every agent changes state only through the tool gateway. Evaluators read the hidden expected state, which the agent never sees.
+
+## Workers
+
+Postgres is the queue. Creating an experiment writes one job per run in the same transaction, so a restart of the API never loses queued work.
+
+| Piece | What it does |
+| --- | --- |
+| Claiming | A worker takes the next job with `FOR UPDATE SKIP LOCKED`, so workers never take the same job. Agent configs alternate in the queue, so a slow provider hits every config alike |
+| Lease | Each attempt holds a lease token that expires. The worker renews it every `HEARTBEAT_SECONDS` |
+| Fencing | Every step that changes state checks, in the same transaction, that the attempt is live and the token matches: tool calls, model calls, budget reservations, trace writes and the final result. A stale step is refused with `attempt_not_live` and changes nothing |
+| Self-stop | A worker that cannot renew its lease stops its attempt before the lease runs out |
+| Recovery | Any worker marks attempts with expired leases `interrupted` and queues a fresh attempt with a new, clean environment, up to `MAX_ATTEMPTS_PER_RUN`. The interrupted environment is kept as evidence. Only the latest finished attempt is graded |
+| Concurrency | Each worker runs up to `WORKER_CONCURRENCY` attempts at once. Scale by adding workers |
+| Cancelling | Cancelling an experiment drops its queued runs and clears the lease of each running attempt, so the agent is stopped at its next step |
+| Stopping | On `SIGTERM` a worker takes no new work and finishes what it is running |
 
 ## What happens in one attempt
 
@@ -196,7 +211,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/auth/setup -H 'content-type: applicati
 
 Then sign in with `POST /api/v1/auth/login`, or create an API token for scripts.
 
-Experiments can be created through the API, but nothing runs them in the background yet. The job queue and worker that do arrive in a later step. Until then, experiments run from the tests, including the real Gemini test below.
+Create an experiment through the API and the `worker` service runs it in the background. `make up` starts one worker. Start more with `docker compose up -d --scale worker=3`.
 
 To see the end-to-end path run, use `make test`. It runs every task's reference script through the store, gateway and evaluators, runs a script that refunds the wrong amount and checks it fails with `WRONG_REFUND_AMOUNT` pointing at the refund call, and runs the trace-mutation suite.
 
@@ -267,6 +282,7 @@ Creating a workspace, inviting, joining, creating or revoking a token, importing
 | `POST /api/v1/experiments`, `GET /api/v1/experiments`, `GET /api/v1/experiments/{id}` | Create an experiment on one `split`, with `final` for held-out runs (send `Idempotency-Key` to make retries safe), list, view | member, viewer |
 | `GET /api/v1/experiments/{id}/runs` | Runs of an experiment, filtered by `evaluation_status`, paginated | viewer |
 | `POST /api/v1/experiments/{id}/pause`, `/resume`, `/close` | Pause, resume, or close a paused experiment as partial | member |
+| `POST /api/v1/experiments/{id}/cancel` | Stop an experiment for good. Running agents are stopped at their next step | member |
 | `PATCH /api/v1/experiments/{id}/budget` | Change the caps. Never below what is used | owner |
 | `GET /api/v1/runs/{id}`, `GET /api/v1/attempts/{id}/events` | A run with its scores, the ordered trace of an attempt | viewer |
 | `GET`, `POST /api/v1/provider-credentials`, `DELETE .../{id}` | Manage encrypted provider keys | owner |
@@ -328,6 +344,11 @@ All settings are in `.env.example`. The main ones:
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Where a local Ollama server listens |
 | `MODEL_CALL_TIMEOUT_SECONDS` | `60` | How long one model request may take |
 | `MODEL_CALL_MAX_RETRIES` | `4` | Retries for rate-limited or failed model requests |
+| `WORKER_CONCURRENCY` | `2` | Attempts one worker runs at once |
+| `LEASE_SECONDS` | `30` | How long an attempt's lease lasts without a heartbeat |
+| `HEARTBEAT_SECONDS` | `10` | How often a worker renews its leases. At most half of `LEASE_SECONDS` |
+| `RECONCILE_SECONDS` | `15` | How often a worker looks for expired leases |
+| `MAX_ATTEMPTS_PER_RUN` | `3` | Interrupted attempts a run may have before it is given up as an infrastructure error |
 
 ## Connect your own agent
 

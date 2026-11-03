@@ -17,6 +17,7 @@ from app.db.experiments import (
     run_counts,
     transition,
 )
+from app.db.jobs import CANCELLABLE, cancel_work
 from app.db.scope import WorkspaceScope
 from app.execution.launch import launch_prices
 
@@ -279,6 +280,26 @@ async def close(experiment_id: str, principal: Member, session: Db) -> Experimen
         "experiment.closed",
         "experiment",
         experiment.id,
+    )
+    return await _one(scope, experiment)
+
+
+@router.post("/{experiment_id}/cancel")
+async def cancel(experiment_id: str, principal: Member, session: Db) -> ExperimentOut:
+    """Stop for good. Queued runs are dropped and running agents lose their lease at once."""
+    scope = scope_for(session, principal)
+    experiment = await transition(
+        scope, experiment_id, CANCELLABLE, models.ExperimentStatus.CANCELLED
+    )
+    in_flight = await cancel_work(scope, experiment.id)
+    record_audit(
+        scope,
+        principal.actor_type,
+        principal.actor_id,
+        "experiment.cancelled",
+        "experiment",
+        experiment.id,
+        {"in_flight_attempts": in_flight},
     )
     return await _one(scope, experiment)
 

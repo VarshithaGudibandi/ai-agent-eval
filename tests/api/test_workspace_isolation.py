@@ -228,6 +228,7 @@ FOREIGN_ID_ROUTES = {
     ("POST", "/api/v1/experiments/{experiment_id}/pause"),
     ("POST", "/api/v1/experiments/{experiment_id}/resume"),
     ("POST", "/api/v1/experiments/{experiment_id}/close"),
+    ("POST", "/api/v1/experiments/{experiment_id}/cancel"),
     ("PATCH", "/api/v1/experiments/{experiment_id}/budget"),
 }
 LIST_ROUTES = [

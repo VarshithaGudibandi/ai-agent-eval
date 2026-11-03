@@ -160,3 +160,19 @@ async def test_split_is_chosen_at_launch_and_held_out_needs_final(new_owner: Sig
     assert (dev.status_code, dev.json()["split"], dev.json()["final"]) == (201, "dev", False)
     assert held_out.status_code == 422
     assert "final" in held_out.json()["message"]
+
+
+async def test_cancel_stops_the_experiment_and_its_queued_runs(new_owner: SignIn) -> None:
+    owner = await new_owner()
+    version, config = await _ids(owner)
+    created = await owner.post(
+        "/api/v1/experiments",
+        json={"dataset_version_id": version, "agent_config_ids": [config], "mode": "demo"},
+    )
+    experiment_id = created.json()["id"]
+    cancelled = await owner.post(f"/api/v1/experiments/{experiment_id}/cancel")
+    again = await owner.post(f"/api/v1/experiments/{experiment_id}/cancel")
+    assert (cancelled.status_code, cancelled.json()["status"]) == (200, "cancelled")
+    assert (again.status_code, again.json()["error"]) == (409, "invalid_transition")
+    runs = (await owner.get(f"/api/v1/experiments/{experiment_id}/runs")).json()
+    assert {r["execution_status"] for r in runs} == {"cancelled"}

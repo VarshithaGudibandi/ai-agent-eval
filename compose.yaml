@@ -60,6 +60,9 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
+    # Time to finish in-flight attempts on stop. Anything still running after this is killed,
+    # its lease expires and another worker retries it.
+    stop_grace_period: 90s
 
 volumes:
   postgres-data:
