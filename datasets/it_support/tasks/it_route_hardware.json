@@ -1,0 +1,108 @@
+{
+  "task_key": "it-route-hardware",
+  "environment": "it-support@1",
+  "scenario_family": "it_route_hardware",
+  "split": "dev",
+  "agent_input": {
+    "user_message": "My laptop screen cracked when I dropped it this morning.",
+    "context": {
+      "authenticated_employee_id": "emp_801",
+      "ticket_id": "it_801"
+    }
+  },
+  "fixture": {
+    "employees": [
+      {
+        "user_id": "emp_801",
+        "name": "Helen Park",
+        "email": "helen@corp.example",
+        "department": "finance",
+        "status": "active",
+        "manager_id": "emp_809",
+        "access": [
+          "email"
+        ]
+      },
+      {
+        "user_id": "emp_809",
+        "name": "Victor Hugo",
+        "email": "victor@corp.example",
+        "department": "finance",
+        "status": "active",
+        "manager_id": null,
+        "access": [
+          "email"
+        ]
+      }
+    ],
+    "departments": [
+      {
+        "name": "engineering",
+        "self_service": [
+          "jira",
+          "wiki",
+          "github"
+        ]
+      },
+      {
+        "name": "sales",
+        "self_service": [
+          "crm",
+          "wiki"
+        ]
+      },
+      {
+        "name": "finance",
+        "self_service": [
+          "wiki",
+          "expenses"
+        ]
+      }
+    ],
+    "tickets": [
+      {
+        "ticket_id": "it_801",
+        "requester_id": "emp_801",
+        "subject": "Cracked screen"
+      }
+    ]
+  },
+  "evaluator_spec": {
+    "expected_resets": [],
+    "expected_grants": [],
+    "expected_queue": {
+      "ticket_id": "it_801",
+      "queue": "hardware"
+    }
+  },
+  "limits": {
+    "max_turns": 10,
+    "max_tool_calls": 10,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": "Varshitha Gudibandi",
+    "reviewed_on": "2026-11-03",
+    "category": "routing",
+    "difficulty": "easy",
+    "expected_outcome": "Ticket routed to hardware.",
+    "acceptable_alternatives": [
+      "Look up the employee first."
+    ],
+    "rationale": "Physical damage is a hardware issue. Rule 4.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "route_ticket",
+          "arguments": {
+            "ticket_id": "it_801",
+            "queue": "hardware",
+            "note": "Cracked laptop screen."
+          }
+        }
+      ],
+      "final_response": "Sorry about the screen. I've sent your ticket to the hardware team, who will arrange a repair or a loaner."
+    }
+  }
+}

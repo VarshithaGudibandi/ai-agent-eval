@@ -10,7 +10,7 @@ from app.db.leakage import find_leaks
 from app.environments.support_retail.records import RetailFixture
 from app.environments.support_retail.tools import TOOLS
 from app.evaluators.retail_spec import RetailSpec
-from tests.datasets.support_retail.reference import run_reference
+from tests.datasets.reference import run_reference
 
 TASK_DIR = Path(__file__).parents[3] / "datasets/support_retail/tasks"
 FILES = sorted(TASK_DIR.glob("*.json"))

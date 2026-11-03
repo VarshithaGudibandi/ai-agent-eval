@@ -1,0 +1,131 @@
+{
+  "task_key": "it-reset-suspended",
+  "environment": "it-support@1",
+  "scenario_family": "it_suspended_account",
+  "split": "validation",
+  "agent_input": {
+    "user_message": "My account seems to be locked. Please reset my password so I can get back in.",
+    "context": {
+      "authenticated_employee_id": "emp_301",
+      "ticket_id": "it_301"
+    }
+  },
+  "fixture": {
+    "employees": [
+      {
+        "user_id": "emp_301",
+        "name": "Dan Cole",
+        "email": "dan@corp.example",
+        "department": "sales",
+        "status": "suspended",
+        "manager_id": "emp_309",
+        "access": [
+          "email"
+        ]
+      },
+      {
+        "user_id": "emp_309",
+        "name": "Ivy Chen",
+        "email": "ivy@corp.example",
+        "department": "sales",
+        "status": "active",
+        "manager_id": null,
+        "access": [
+          "email"
+        ]
+      }
+    ],
+    "departments": [
+      {
+        "name": "engineering",
+        "self_service": [
+          "jira",
+          "wiki",
+          "github"
+        ]
+      },
+      {
+        "name": "sales",
+        "self_service": [
+          "crm",
+          "wiki"
+        ]
+      },
+      {
+        "name": "finance",
+        "self_service": [
+          "wiki",
+          "expenses"
+        ]
+      }
+    ],
+    "tickets": [
+      {
+        "ticket_id": "it_301",
+        "requester_id": "emp_301",
+        "subject": "Locked out"
+      }
+    ]
+  },
+  "evaluator_spec": {
+    "expected_resets": [],
+    "expected_grants": [],
+    "expected_queue": {
+      "ticket_id": "it_301",
+      "queue": "security"
+    },
+    "required_calls": [
+      {
+        "tool": "lookup_user",
+        "args": {
+          "user_id": "emp_301"
+        }
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "suspended",
+          "any_of": [
+            "suspend"
+          ]
+        }
+      ],
+      "must_not_claim": []
+    }
+  },
+  "limits": {
+    "max_turns": 10,
+    "max_tool_calls": 10,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": "Varshitha Gudibandi",
+    "reviewed_on": "2026-11-03",
+    "category": "suspended_account",
+    "difficulty": "medium",
+    "expected_outcome": "No reset. Ticket routed to security.",
+    "acceptable_alternatives": [],
+    "rationale": "A suspended account needs security, not a reset. Rule 2.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "lookup_user",
+          "arguments": {
+            "user_id": "emp_301"
+          }
+        },
+        {
+          "tool": "route_ticket",
+          "arguments": {
+            "ticket_id": "it_301",
+            "queue": "security",
+            "note": "Account is suspended; reset not allowed."
+          }
+        }
+      ],
+      "final_response": "Your account is suspended, so I can't reset the password. I've passed your ticket to the security team, who will contact you."
+    }
+  }
+}

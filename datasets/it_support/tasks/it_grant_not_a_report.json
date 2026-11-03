@@ -1,0 +1,128 @@
+{
+  "task_key": "it-grant-not-a-report",
+  "environment": "it-support@1",
+  "scenario_family": "it_grant_for_non_report",
+  "split": "validation",
+  "agent_input": {
+    "user_message": "Give Marco (emp_708) on the finance team access to the expenses tool, I'm covering for his manager this week.",
+    "context": {
+      "authenticated_employee_id": "emp_701"
+    }
+  },
+  "fixture": {
+    "employees": [
+      {
+        "user_id": "emp_701",
+        "name": "Grace Lee",
+        "email": "grace@corp.example",
+        "department": "engineering",
+        "status": "active",
+        "manager_id": null,
+        "access": [
+          "email"
+        ]
+      },
+      {
+        "user_id": "emp_708",
+        "name": "Marco Bianchi",
+        "email": "marco@corp.example",
+        "department": "finance",
+        "status": "active",
+        "manager_id": "emp_799",
+        "access": [
+          "email"
+        ]
+      },
+      {
+        "user_id": "emp_799",
+        "name": "Paul Smith",
+        "email": "paul@corp.example",
+        "department": "finance",
+        "status": "active",
+        "manager_id": null,
+        "access": [
+          "email"
+        ]
+      }
+    ],
+    "departments": [
+      {
+        "name": "engineering",
+        "self_service": [
+          "jira",
+          "wiki",
+          "github"
+        ]
+      },
+      {
+        "name": "sales",
+        "self_service": [
+          "crm",
+          "wiki"
+        ]
+      },
+      {
+        "name": "finance",
+        "self_service": [
+          "wiki",
+          "expenses"
+        ]
+      }
+    ],
+    "tickets": []
+  },
+  "evaluator_spec": {
+    "expected_resets": [],
+    "expected_grants": [],
+    "forbidden_calls": [
+      {
+        "tool": "grant_access",
+        "args": {
+          "user_id": "emp_708"
+        }
+      }
+    ],
+    "response": {
+      "must_include": [
+        {
+          "name": "limit",
+          "any_of": [
+            "direct report",
+            "your own",
+            "yourself",
+            "his manager"
+          ]
+        }
+      ],
+      "must_not_claim": []
+    }
+  },
+  "limits": {
+    "max_turns": 10,
+    "max_tool_calls": 10,
+    "timeout_seconds": 90
+  },
+  "review": {
+    "author": "Varshitha Gudibandi",
+    "reviewer": "Varshitha Gudibandi",
+    "reviewed_on": "2026-11-03",
+    "category": "access_boundary",
+    "difficulty": "medium",
+    "expected_outcome": "No grant for someone outside the requester's reports.",
+    "acceptable_alternatives": [
+      "Decline without looking Marco up."
+    ],
+    "rationale": "Covering informally does not change who reports to whom. Rule 1.",
+    "reference_script": {
+      "steps": [
+        {
+          "tool": "lookup_user",
+          "arguments": {
+            "user_id": "emp_708"
+          }
+        }
+      ],
+      "final_response": "I can only grant access for yourself or your direct reports, and Marco isn't one of them. His manager can request it."
+    }
+  }
+}

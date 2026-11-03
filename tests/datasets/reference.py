@@ -99,8 +99,12 @@ async def golden_context(
     )
 
 
-TASK_DIR = Path(__file__).parents[3] / "datasets/support_retail/tasks"
+DATASETS = Path(__file__).parents[2] / "datasets"
 
 
-def load_task(name: str) -> TaskDefinition:
-    return load_task_file(TASK_DIR / f"{name}.json")
+def task_dir(dataset: str) -> Path:
+    return DATASETS / dataset / "tasks"
+
+
+def load_task(dataset: str, name: str) -> TaskDefinition:
+    return load_task_file(task_dir(dataset) / f"{name}.json")
