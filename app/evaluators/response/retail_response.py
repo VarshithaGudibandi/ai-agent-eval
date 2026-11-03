@@ -4,7 +4,8 @@ from typing import Any
 
 from app.environments.contract import TaskVersion
 from app.evaluators.contract import EvalContext, Layer, Score
-from app.evaluators.retail_spec import Claim, ResponseSpec, RetailFacts, is_retail
+from app.evaluators.response.text import UNDOING, clauses, facts_score
+from app.evaluators.retail_spec import RetailFacts, is_retail
 from app.evaluators.scores import not_applicable, verdict
 
 # A clause that says a refund happened. Patterns stay in the past or perfect tense, so a
@@ -36,14 +37,6 @@ _DENIALS = [
         r"\brefund\s+(?:failed|did not go through|didn't go through)\b",
     )
 ]
-# Words up to the end of a claim that turn it into a negation, a condition or a plan.
-# "After" and "when" are left out: "after checking, I have refunded you" is still a claim, and
-# a real condition comes with a future tense the claim patterns never match.
-_UNDOING = re.compile(
-    r"\b(?:not|no|never|cannot|unable|once|if|until|unless|pending|awaiting|will|would)\b"
-    r"|n't\b",
-    re.IGNORECASE,
-)
 # A claim about an earlier refund, not one made in this conversation.
 _HISTORICAL = re.compile(
     r"\b(?:already|previously|earlier|last (?:week|month)|on \d{4}-\d{2}-\d{2}|"
@@ -55,17 +48,6 @@ _MONEY = re.compile(
     r"|(\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\s?(?:USD|INR|EUR|GBP|dollars|rupees)\b",
     re.IGNORECASE,
 )
-_SENTENCE_END = re.compile(r"(?<=[!?])\s+|(?<=\.)\s+|\n+")
-_CLAUSE_BREAK = re.compile(r";|,?\s+but\s+|,\s+(?:and|so|while|however)\s+|\s+however,?\s+")
-
-
-def clauses(text: str) -> list[str]:
-    # Curly apostrophes are normalized so "I\u2019ve" reads like "I've".
-    text = text.replace("\u2019", "'")
-    out: list[str] = []
-    for sentence in _SENTENCE_END.split(text):
-        out.extend(c.strip() for c in _CLAUSE_BREAK.split(sentence) if c.strip())
-    return out
 
 
 def _matches(patterns: list[re.Pattern[str]], clause: str) -> bool:
@@ -73,7 +55,7 @@ def _matches(patterns: list[re.Pattern[str]], clause: str) -> bool:
         return False
     for pattern in patterns:
         match = pattern.search(clause)
-        if match and (patterns is _DENIALS or not _UNDOING.search(clause[: match.end()])):
+        if match and (patterns is _DENIALS or not UNDOING.search(clause[: match.end()])):
             return True
     return False
 
@@ -84,18 +66,6 @@ def claims(text: str) -> list[str]:
 
 def denials(text: str) -> list[str]:
     return [c for c in clauses(text) if _matches(_DENIALS, c) and not _matches(_CLAIMS, c)]
-
-
-def _states(claim: Claim, text: str) -> bool:
-    """Whether the reply asserts the claim, not just mentions it in a negation or condition."""
-    if not claim.negatable:
-        return bool(claim.found_in(text))
-    for clause in clauses(text):
-        for pattern in claim.any_of:
-            match = re.search(pattern, clause, re.IGNORECASE)
-            if match and not _UNDOING.search(clause[: match.end()]):
-                return True
-    return False
 
 
 def amounts_minor(text: str) -> set[int]:
@@ -151,7 +121,7 @@ class RetailResponse:
             verdict(self, "final_response", "pass"),
             self._refund_claim(text, created, any_refund, finish, refund_events),
             self._amount_claim(text, created, finish),
-            self._facts(facts.spec.response, text, finish),
+            facts_score(self, facts.spec.response, text, finish),
         ]
 
     def _refund_claim(
@@ -202,27 +172,6 @@ class RetailResponse:
             evidence={
                 "claimed_minor": sorted(claimed),
                 "actual_minor": sorted(actual),
-                "event_ids": finish,
-            },
-        )
-
-    def _facts(self, spec: ResponseSpec, text: str, finish: list[str]) -> Score:
-        if not spec.must_include and not spec.must_not_claim:
-            return not_applicable(self, "facts")
-        false = [c for c in spec.must_not_claim if _states(c, text)]
-        missing = [p.name for p in spec.must_include if not p.found_in(text)]
-        if not false and not missing:
-            return verdict(self, "facts", "pass")
-        # A false statement is worse than a missing one, so it names the failure.
-        reason = false[0].code if false else "MISSING_FACT"
-        return verdict(
-            self,
-            "facts",
-            "fail",
-            reason=reason,
-            evidence={
-                "false_claims": [c.name for c in false],
-                "missing_facts": missing,
                 "event_ids": finish,
             },
         )
