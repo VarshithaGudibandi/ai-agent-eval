@@ -97,7 +97,7 @@ async def test_config_hash_ignores_name(
 
 def test_reviewer_and_review_date_go_together() -> None:
     body = json.loads(TASK_FILE.read_text())
-    body["review"]["reviewer"] = "Someone"
+    body["review"].update(reviewer="Someone", reviewed_on=None)
     with pytest.raises(ValidationError, match="go together"):
         TaskDefinition.model_validate(body)
 
@@ -113,7 +113,11 @@ async def test_review_metadata_is_stored_with_the_task(
                 models.TaskVersion.dataset_version_id == version.id
             )
         )
-    assert (task.category, task.difficulty, task.reviewer) == ("eligible_refund", "easy", None)
+    assert (task.category, task.difficulty, task.reviewer) == (
+        "eligible_refund",
+        "easy",
+        "Varshitha Gudibandi",
+    )
     assert task.review["reference_script"]["steps"][0]["tool"] == "get_order"
 
 

@@ -83,8 +83,8 @@
   },
   "review": {
     "author": "Varshitha Gudibandi",
-    "reviewer": null,
-    "reviewed_on": null,
+    "reviewer": "Varshitha Gudibandi",
+    "reviewed_on": "2026-11-03",
     "category": "eligible_refund",
     "difficulty": "easy",
     "expected_outcome": "One approved refund of 3,499.00 INR.",

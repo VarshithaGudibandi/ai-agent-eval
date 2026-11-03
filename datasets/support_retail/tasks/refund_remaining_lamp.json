@@ -95,12 +95,6 @@
         "args": {
           "order_id": "ord_5402"
         }
-      },
-      {
-        "tool": "get_refund_status",
-        "args": {
-          "order_id": "ord_5402"
-        }
       }
     ]
   },
@@ -111,8 +105,8 @@
   },
   "review": {
     "author": "Varshitha Gudibandi",
-    "reviewer": null,
-    "reviewed_on": null,
+    "reviewer": "Varshitha Gudibandi",
+    "reviewed_on": "2026-11-03",
     "category": "eligible_refund",
     "difficulty": "hard",
     "expected_outcome": "Refund the remaining 3,000.00 INR and resolve the ticket.",

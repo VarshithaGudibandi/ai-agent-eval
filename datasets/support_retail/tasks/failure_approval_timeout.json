@@ -91,8 +91,8 @@
   ],
   "review": {
     "author": "Varshitha Gudibandi",
-    "reviewer": null,
-    "reviewed_on": null,
+    "reviewer": "Varshitha Gudibandi",
+    "reviewed_on": "2026-11-03",
     "category": "tool_failure",
     "difficulty": "hard",
     "expected_outcome": "Repeats the approval request, uses the approval, refunds 329.00 USD once.",

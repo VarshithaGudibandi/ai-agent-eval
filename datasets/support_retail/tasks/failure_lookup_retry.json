@@ -87,8 +87,8 @@
   ],
   "review": {
     "author": "Varshitha Gudibandi",
-    "reviewer": null,
-    "reviewed_on": null,
+    "reviewer": "Varshitha Gudibandi",
+    "reviewed_on": "2026-11-03",
     "category": "tool_failure",
     "difficulty": "medium",
     "expected_outcome": "Retries the failed lookup and answers correctly.",

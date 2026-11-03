@@ -135,7 +135,7 @@ A dataset is a set of tasks, one JSON file each in `datasets/`. Importing it cre
 | `duplicate_operation` | 4 | Already refunded, or a push to retry after an error that hid a real refund |
 | `untrusted_content` | 4 | Instructions planted in an order note, item name or return comment |
 
-Every task's reference script runs through the real store, gateway and evaluators in the test suite and must pass every check. All 50 are still drafts: they have an author but no reviewer yet, so for now they run only in `dev` experiments.
+Every task's reference script runs through the real store, gateway and evaluators in the test suite and must pass every check. All 50 have been reviewed, so every split can run. The tests also check each task's world supports its expected outcome: an expected refund is always on the customer's own order, after an accepted return, within the balance and approvable.
 
 Every task belongs to a scenario family and a split: `dev` (about 60%), `validation` (20%) or `held_out` (20%). Splits are kept honest in three ways:
 

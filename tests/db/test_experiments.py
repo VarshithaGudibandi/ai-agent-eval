@@ -154,7 +154,9 @@ def _variant(split: str, total: int, message: str, reviewed: bool) -> TaskDefini
     fixture = copy.deepcopy(task.fixture)
     fixture["orders"][0]["total_minor"] = total
     review = task.review.model_copy(
-        update={"reviewer": "R. Viewer", "reviewed_on": date(2026, 11, 1)} if reviewed else {}
+        update={"reviewer": "R. Viewer", "reviewed_on": date(2026, 11, 1)}
+        if reviewed
+        else {"reviewer": None, "reviewed_on": None}
     )
     return task.model_copy(
         update={

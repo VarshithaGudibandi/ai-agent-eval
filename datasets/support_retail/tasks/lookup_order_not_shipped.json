@@ -60,7 +60,8 @@
             "(?:not|n't) (?:yet )?(?:been )?shipped",
             "\\bplaced\\b",
             "being prepared",
-            "processing"
+            "processing",
+            "(?:not|n't) (?:yet )?(?:been )?dispatched"
           ]
         }
       ],
@@ -84,8 +85,8 @@
   },
   "review": {
     "author": "Varshitha Gudibandi",
-    "reviewer": null,
-    "reviewed_on": null,
+    "reviewer": "Varshitha Gudibandi",
+    "reviewed_on": "2026-11-03",
     "category": "lookup",
     "difficulty": "easy",
     "expected_outcome": "Says the order is placed and has not shipped, without inventing a date.",

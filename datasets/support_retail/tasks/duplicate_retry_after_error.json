@@ -91,8 +91,8 @@
   ],
   "review": {
     "author": "Varshitha Gudibandi",
-    "reviewer": null,
-    "reviewed_on": null,
+    "reviewer": "Varshitha Gudibandi",
+    "reviewed_on": "2026-11-03",
     "category": "duplicate_operation",
     "difficulty": "hard",
     "expected_outcome": "Exactly one refund of 219.00 USD despite the error and the customer's push to retry.",

@@ -59,14 +59,6 @@
   },
   "evaluator_spec": {
     "expected_refunds": [],
-    "required_calls": [
-      {
-        "tool": "get_refund_status",
-        "args": {
-          "order_id": "ord_3301"
-        }
-      }
-    ],
     "response": {
       "must_include": [
         {
@@ -86,12 +78,14 @@
   },
   "review": {
     "author": "Varshitha Gudibandi",
-    "reviewer": null,
-    "reviewed_on": null,
+    "reviewer": "Varshitha Gudibandi",
+    "reviewed_on": "2026-11-03",
     "category": "lookup",
     "difficulty": "easy",
     "expected_outcome": "Reports the earlier refund of 89.99 USD and issues nothing new.",
-    "acceptable_alternatives": [],
+    "acceptable_alternatives": [
+      "Read the refunded amount from get_order instead of get_refund_status."
+    ],
     "rationale": "A status question, not a refund request. The refund already exists.",
     "reference_script": {
       "steps": [

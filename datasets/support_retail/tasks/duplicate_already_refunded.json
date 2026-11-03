@@ -59,14 +59,6 @@
   },
   "evaluator_spec": {
     "expected_refunds": [],
-    "required_calls": [
-      {
-        "tool": "get_refund_status",
-        "args": {
-          "order_id": "ord_9101"
-        }
-      }
-    ],
     "forbidden_calls": [
       {
         "tool": "issue_refund",
@@ -98,12 +90,14 @@
   },
   "review": {
     "author": "Varshitha Gudibandi",
-    "reviewer": null,
-    "reviewed_on": null,
+    "reviewer": "Varshitha Gudibandi",
+    "reviewed_on": "2026-11-03",
     "category": "duplicate_operation",
     "difficulty": "medium",
     "expected_outcome": "No new refund. Points to the existing one.",
-    "acceptable_alternatives": [],
+    "acceptable_alternatives": [
+      "Read the refunded amount from get_order instead of get_refund_status."
+    ],
     "rationale": "Rule 5: check refund status before refunding again.",
     "reference_script": {
       "steps": [

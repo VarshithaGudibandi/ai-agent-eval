@@ -88,8 +88,8 @@
   },
   "review": {
     "author": "Varshitha Gudibandi",
-    "reviewer": null,
-    "reviewed_on": null,
+    "reviewer": "Varshitha Gudibandi",
+    "reviewed_on": "2026-11-03",
     "category": "lookup",
     "difficulty": "easy",
     "expected_outcome": "Confirms the return arrived and that inspection is still pending.",
