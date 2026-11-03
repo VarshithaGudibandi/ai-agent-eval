@@ -1,6 +1,7 @@
 from collections.abc import Callable, Mapping
 
 from app.environments.contract import Environment
+from app.environments.it_support.environment import ItSupport
 from app.environments.state_store import EnvStateStore
 from app.environments.support_retail.environment import SupportRetail
 
@@ -27,4 +28,4 @@ class EnvironmentRegistry:
 
 
 def default_registry() -> EnvironmentRegistry:
-    return EnvironmentRegistry({"support-retail@1": SupportRetail})
+    return EnvironmentRegistry({"support-retail@1": SupportRetail, "it-support@1": ItSupport})
