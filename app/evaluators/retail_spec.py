@@ -74,6 +74,9 @@ class Claim(Pattern):
     """Something the reply must not say, and the reason code if it does."""
 
     code: str = Field(pattern=r"^[A-Z][A-Z_]+$")
+    # A status claim is undone by "not", "once" and the like. A leak is not: naming another
+    # customer's item in a denial still reveals it, so leak checks set this to false.
+    negatable: bool = True
 
 
 class ResponseSpec(SpecModel):

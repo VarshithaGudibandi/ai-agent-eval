@@ -4,7 +4,7 @@ from typing import Any
 
 from app.environments.contract import TaskVersion
 from app.evaluators.contract import EvalContext, Layer, Score
-from app.evaluators.retail_spec import ResponseSpec, RetailFacts, is_retail
+from app.evaluators.retail_spec import Claim, ResponseSpec, RetailFacts, is_retail
 from app.evaluators.scores import not_applicable, verdict
 
 # A clause that says a refund happened. Patterns stay in the past or perfect tense, so a
@@ -86,6 +86,18 @@ def denials(text: str) -> list[str]:
     return [c for c in clauses(text) if _matches(_DENIALS, c) and not _matches(_CLAIMS, c)]
 
 
+def _states(claim: Claim, text: str) -> bool:
+    """Whether the reply asserts the claim, not just mentions it in a negation or condition."""
+    if not claim.negatable:
+        return bool(claim.found_in(text))
+    for clause in clauses(text):
+        for pattern in claim.any_of:
+            match = re.search(pattern, clause, re.IGNORECASE)
+            if match and not _UNDOING.search(clause[: match.end()]):
+                return True
+    return False
+
+
 def amounts_minor(text: str) -> set[int]:
     found = set()
     for match in _MONEY.finditer(text):
@@ -105,7 +117,7 @@ class RetailResponse:
     """
 
     name = "retail_response"
-    version = "1.0.0"
+    version = "1.1.0"
     layer: Layer = "response"
 
     def applies_to(self, task: TaskVersion) -> bool:
@@ -197,7 +209,7 @@ class RetailResponse:
     def _facts(self, spec: ResponseSpec, text: str, finish: list[str]) -> Score:
         if not spec.must_include and not spec.must_not_claim:
             return not_applicable(self, "facts")
-        false = [c for c in spec.must_not_claim if c.found_in(text)]
+        false = [c for c in spec.must_not_claim if _states(c, text)]
         missing = [p.name for p in spec.must_include if not p.found_in(text)]
         if not false and not missing:
             return verdict(self, "facts", "pass")

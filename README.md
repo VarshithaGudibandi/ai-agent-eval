@@ -65,10 +65,10 @@ Four layers of evaluators grade every retail run. Each reads the hidden fixture,
 | Trajectory | `retail_trajectory` 1.0.0 | `call_order` | `MISSING_PREREQUISITE` |
 | Trajectory | `retail_trajectory` 1.0.0 | `repetition` | `EXCESSIVE_REPETITION` |
 | Trajectory | `retail_trajectory` 1.0.0 | `error_handling` | `UNVERIFIED_TOOL_ERROR` |
-| Response | `retail_response` 1.0.0 | `final_response` | `NO_FINAL_RESPONSE` |
-| Response | `retail_response` 1.0.0 | `refund_claim` | `FALSE_REFUND_CLAIM`, `REFUND_DENIED_BUT_ISSUED` |
-| Response | `retail_response` 1.0.0 | `amount_claim` | `WRONG_AMOUNT_CLAIMED` |
-| Response | `retail_response` 1.0.0 | `facts` | `MISSING_FACT`, or a code the task names |
+| Response | `retail_response` 1.1.0 | `final_response` | `NO_FINAL_RESPONSE` |
+| Response | `retail_response` 1.1.0 | `refund_claim` | `FALSE_REFUND_CLAIM`, `REFUND_DENIED_BUT_ISSUED` |
+| Response | `retail_response` 1.1.0 | `amount_claim` | `WRONG_AMOUNT_CLAIMED` |
+| Response | `retail_response` 1.1.0 | `facts` | `MISSING_FACT`, or a code the task names |
 
 A few things worth knowing:
 

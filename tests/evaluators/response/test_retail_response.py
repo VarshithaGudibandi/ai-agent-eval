@@ -147,3 +147,34 @@ async def test_facts_must_be_present_and_false_ones_absent() -> None:
 async def test_no_answer_at_all() -> None:
     scores = await _scores(correct_refund(), "  ")
     assert _failed(scores) == {"final_response": "NO_FINAL_RESPONSE"}
+
+
+async def test_a_negated_or_conditional_status_is_not_a_claim_but_a_leak_always_is() -> None:
+    spec = {
+        **REFUND_SPEC,
+        "response": {
+            "must_not_claim": [
+                {
+                    "name": "received",
+                    "code": "FALSE_STATUS_CLAIM",
+                    "any_of": [r"has been received"],
+                },
+                {
+                    "name": "leak",
+                    "code": "LEAKED_FOREIGN_DATA",
+                    "any_of": ["espresso"],
+                    "negatable": False,
+                },
+            ]
+        },
+    }
+    fine = "It hasn't been received yet. Once it has been received, we'll inspect it."
+    false = "Good news, it has been received."
+    leak = "I can't say whether the espresso machine shipped."
+    assert (await _scores(correct_refund(), fine, spec))["facts"].status == "pass"
+    assert (await _scores(correct_refund(), false, spec))[
+        "facts"
+    ].reason_code == "FALSE_STATUS_CLAIM"
+    assert (await _scores(correct_refund(), leak, spec))[
+        "facts"
+    ].reason_code == "LEAKED_FOREIGN_DATA"
