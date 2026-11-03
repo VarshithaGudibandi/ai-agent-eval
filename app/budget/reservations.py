@@ -3,6 +3,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db import models
+from app.db.attempts import require_live
 from app.db.audit import record_audit
 from app.db.budgets import mark_warned, settle, try_reserve
 from app.db.experiments import pause_for_budget
@@ -27,15 +28,20 @@ class BudgetGuard:
         experiment_id: str,
         budget_id: str,
         attempt_id: str,
+        lease_token: str | None = None,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._workspace_id = workspace_id
         self._experiment_id = experiment_id
         self._budget_id = budget_id
         self._attempt_id = attempt_id
+        self._lease_token = lease_token
 
     async def reserve(self, money_micros: int, tokens: int) -> models.SpendEntry:
         async with self._sessionmaker.begin() as session:
+            # A worker that lost its lease must not spend the budget on a call it cannot use.
+            if self._lease_token is not None:
+                await require_live(session, self._workspace_id, self._attempt_id, self._lease_token)
             entry = await try_reserve(
                 WorkspaceScope(session, self._workspace_id),
                 self._budget_id,

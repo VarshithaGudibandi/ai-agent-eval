@@ -285,14 +285,3 @@ async def requeue_budget_stopped_runs(scope: WorkspaceScope, experiment_id: str)
         run.execution_status = models.ExecutionStatus.QUEUED
     await requeue_jobs(scope, [r.id for r in runs])
     return len(runs)
-
-
-async def next_queued_run(scope: WorkspaceScope, experiment_id: str) -> models.Run | None:
-    return await scope.first(
-        scope.query(models.Run)
-        .where(
-            models.Run.experiment_id == experiment_id,
-            models.Run.execution_status == models.ExecutionStatus.QUEUED,
-        )
-        .order_by(models.Run.repetition, models.Run.task_version_id, models.Run.agent_config_id)
-    )

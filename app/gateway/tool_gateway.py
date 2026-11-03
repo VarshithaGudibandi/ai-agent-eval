@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db import models
+from app.db.attempts import AttemptNotLiveError
 from app.db.hashing import content_hash
 from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
@@ -115,6 +116,9 @@ class ToolGateway:
                 await self._record_result(
                     session, ctx, recorder, request_event_id, tool, arguments, executed, started
                 )
+        except AttemptNotLiveError:
+            # A stale worker's call: its effects were rolled back and nothing is recorded.
+            raise
         except Exception:
             logger.exception("tool execution failed", extra={"tool": tool})
             outcome = ToolCallOutcome(

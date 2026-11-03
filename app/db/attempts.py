@@ -1,7 +1,44 @@
 from dataclasses import dataclass
 
+from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.db import models
 from app.db.scope import WorkspaceScope
+
+LIVE = (models.ExecutionStatus.QUEUED, models.ExecutionStatus.RUNNING)
+
+
+class AttemptNotLiveError(Exception):
+    """The attempt was interrupted, cancelled or finished, or its lease ran out or moved.
+
+    A worker holding a stale lease gets this on its next step, and that step changes nothing.
+    """
+
+    code = "attempt_not_live"
+
+
+def lease_holds(attempt_id: str, lease_token: str) -> ColumnElement[bool]:
+    """The condition every state-changing step checks, in the same transaction as its write."""
+    return and_(
+        models.Attempt.id == attempt_id,
+        models.Attempt.lease_token == lease_token,
+        models.Attempt.execution_status.in_(LIVE),
+        models.Attempt.lease_expires_at > func.now(),
+    )
+
+
+async def require_live(
+    session: AsyncSession, workspace_id: str, attempt_id: str, lease_token: str
+) -> None:
+    """Lock the attempt for this transaction if the lease still holds, or refuse."""
+    held = await session.scalar(
+        select(models.Attempt.id)
+        .where(models.Attempt.workspace_id == workspace_id, lease_holds(attempt_id, lease_token))
+        .with_for_update()
+    )
+    if held is None:
+        raise AttemptNotLiveError(attempt_id)
 
 
 @dataclass

@@ -12,10 +12,11 @@ from app.agents.contract import HARD_STOPS, AgentResult, RunLimits
 from app.agents.factory import build_adapter
 from app.budget.reservations import BudgetExhaustedError
 from app.db import models
-from app.db.attempts import load_attempt, trace_events
+from app.db.attempts import AttemptNotLiveError, load_attempt, require_live, trace_events
 from app.db.budgets import budget_for_experiment
 from app.db.experiments import complete_if_done
 from app.db.ids import new_id
+from app.db.queue import finish_job
 from app.db.scope import WorkspaceScope
 from app.environments.contract import AgentTaskInput, FaultSpec, TaskVersion
 from app.environments.registry import EnvironmentRegistry
@@ -70,6 +71,7 @@ class _Loaded:
     run_id: str
     experiment_id: str
     env_id: str
+    lease_token: str
     budget_id: str
     task: TaskVersion
     agent_config_id: str
@@ -99,13 +101,21 @@ def overall_status(scores: Sequence[Score], stop_reason: str) -> models.Evaluati
 
 
 async def run_attempt(
-    platform: Platform, workspace_id: str, attempt_id: str
+    platform: Platform, workspace_id: str, attempt_id: str, lease_token: str | None = None
 ) -> models.EvaluationStatus:
-    """Execute one attempt end to end: set up, run the agent, snapshot, grade, finalize."""
+    """Execute one attempt end to end: set up, run the agent, snapshot, grade, finalize.
+
+    Every step that changes state checks the lease in the same transaction. If the lease is
+    lost, the next step raises AttemptNotLiveError and nothing more is written: whoever took
+    the attempt over owns its outcome.
+    """
     started = time.monotonic()
-    loaded = await _load_and_mark_running(platform, workspace_id, attempt_id)
+    loaded = await _load_and_mark_running(platform, workspace_id, attempt_id, lease_token)
     try:
         return await _execute(platform, loaded, started)
+    except AttemptNotLiveError:
+        logger.warning("attempt is no longer live; stopping", extra={"attempt_id": attempt_id})
+        raise
     except Exception:
         logger.exception("attempt failed outside the agent", extra={"attempt_id": attempt_id})
         await _mark_infrastructure_error(platform, loaded, started)
@@ -113,8 +123,11 @@ async def run_attempt(
 
 
 async def _execute(platform: Platform, loaded: _Loaded, started: float) -> models.EvaluationStatus:
-    recorder = TraceRecorder(platform.sessionmaker, loaded.workspace_id, loaded.attempt_id)
+    recorder = TraceRecorder(
+        platform.sessionmaker, loaded.workspace_id, loaded.attempt_id, loaded.lease_token
+    )
     async with platform.sessionmaker.begin() as session:
+        await require_live(session, loaded.workspace_id, loaded.attempt_id, loaded.lease_token)
         env = platform.environments.create(
             loaded.task.environment, EnvStateStore(session, loaded.workspace_id)
         )
@@ -161,6 +174,7 @@ async def _execute(platform: Platform, loaded: _Loaded, started: float) -> model
     )
 
     async with platform.sessionmaker.begin() as session:
+        await require_live(session, loaded.workspace_id, loaded.attempt_id, loaded.lease_token)
         env = platform.environments.create(
             loaded.task.environment, EnvStateStore(session, loaded.workspace_id)
         )
@@ -209,6 +223,7 @@ async def _run_agent(
         attempt_id=loaded.attempt_id,
         price=loaded.price,
         recorder=recorder,
+        lease_token=loaded.lease_token,
     )
     async with models_for_attempt:
         adapter = build_adapter(loaded.adapter_type, loaded.adapter_settings, models_for_attempt)
@@ -217,6 +232,8 @@ async def _run_agent(
                 return await adapter.run(agent_input, tools, recorder, loaded.limits)
         except TimeoutError:
             return AgentResult("", "timeout")
+        except AttemptNotLiveError:
+            raise
         except BudgetExhaustedError:
             return AgentResult("", "budget")
         except ContentBlocked as exc:
@@ -272,12 +289,18 @@ async def _evaluate(
     return scores
 
 
-async def _load_and_mark_running(platform: Platform, workspace_id: str, attempt_id: str) -> _Loaded:
+async def _load_and_mark_running(
+    platform: Platform, workspace_id: str, attempt_id: str, lease_token: str | None
+) -> _Loaded:
     async with platform.sessionmaker.begin() as session:
         rows = await load_attempt(WorkspaceScope(session, workspace_id), attempt_id)
         attempt, run, task, config = rows.attempt, rows.run, rows.task, rows.config
         if attempt.execution_status != models.ExecutionStatus.QUEUED:
-            raise RuntimeError(f"attempt {attempt_id} is {attempt.execution_status}, not queued")
+            raise AttemptNotLiveError(f"{attempt_id} is {attempt.execution_status}, not queued")
+        token = lease_token or attempt.lease_token
+        if token is None:
+            raise AttemptNotLiveError(attempt_id)
+        await require_live(session, workspace_id, attempt_id, token)
         now = datetime.now(UTC)
         attempt.execution_status = models.ExecutionStatus.RUNNING
         attempt.started_at = now
@@ -292,6 +315,7 @@ async def _load_and_mark_running(platform: Platform, workspace_id: str, attempt_
             run_id=run.id,
             experiment_id=run.experiment_id,
             env_id=attempt.env_id,
+            lease_token=token,
             budget_id=budget.id,
             task=TaskVersion(
                 id=task.id,
@@ -338,6 +362,8 @@ async def _finalize(
     started: float,
 ) -> None:
     async with platform.sessionmaker.begin() as session:
+        # The final write is fenced like every other: a stale worker records no result.
+        await require_live(session, loaded.workspace_id, loaded.attempt_id, loaded.lease_token)
         scope = WorkspaceScope(session, loaded.workspace_id)
         for score in scores:
             scope.add(
@@ -362,19 +388,27 @@ async def _finalize(
         attempt.final_response = result.final_response
         attempt.finished_at = datetime.now(UTC)
         attempt.duration_ms = round((time.monotonic() - started) * 1000)
+        attempt.lease_token = None
         run = await scope.require(models.Run, loaded.run_id)
         run.execution_status = execution_status
         run.evaluation_status = status
+        await finish_job(scope, loaded.run_id)
         await scope.flush()
         await complete_if_done(scope, loaded.experiment_id)
 
 
 async def _mark_infrastructure_error(platform: Platform, loaded: _Loaded, started: float) -> None:
     async with platform.sessionmaker.begin() as session:
+        try:
+            await require_live(session, loaded.workspace_id, loaded.attempt_id, loaded.lease_token)
+        except AttemptNotLiveError:
+            return
         scope = WorkspaceScope(session, loaded.workspace_id)
         attempt = await scope.require(models.Attempt, loaded.attempt_id)
         attempt.execution_status = models.ExecutionStatus.INFRASTRUCTURE_ERROR
         attempt.finished_at = datetime.now(UTC)
         attempt.duration_ms = round((time.monotonic() - started) * 1000)
+        attempt.lease_token = None
         run = await scope.require(models.Run, loaded.run_id)
         run.execution_status = models.ExecutionStatus.INFRASTRUCTURE_ERROR
+        await finish_job(scope, loaded.run_id)

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.agents.contract import RunLimits
 from app.budget.pricing import create_price_version
 from app.db import models
+from app.db.attempts import AttemptNotLiveError
 from app.db.budgets import BudgetLimits
 from app.db.content import create_agent_config, create_dataset_version, load_task_file
 from app.db.experiments import create_experiment, start_attempt
@@ -212,7 +213,7 @@ async def test_evaluator_crash_is_an_evaluation_error_not_a_verdict(
 
 async def test_an_attempt_runs_only_once(platform: Platform, workspace_id: str) -> None:
     _, attempt = await _run_one(platform, workspace_id, CORRECT)
-    with pytest.raises(RuntimeError, match="not queued"):
+    with pytest.raises(AttemptNotLiveError, match="not queued"):
         await run_attempt(platform, workspace_id, attempt.id)
 
 

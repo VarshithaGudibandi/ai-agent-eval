@@ -32,6 +32,7 @@ class AttemptModels:
         attempt_id: str,
         price: dict[str, Any] | None,
         recorder: TraceRecorder,
+        lease_token: str | None = None,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._providers = providers
@@ -42,6 +43,7 @@ class AttemptModels:
         self._attempt_id = attempt_id
         self._price = Price.model_validate(price) if price else None
         self._recorder = recorder
+        self._lease_token = lease_token
         self._http = httpx.AsyncClient()
 
     async def __aenter__(self) -> Self:
@@ -78,6 +80,7 @@ class AttemptModels:
                 self._experiment_id,
                 self._budget_id,
                 self._attempt_id,
+                self._lease_token,
             ),
             limiter=limiter,
             recorder=self._recorder,
