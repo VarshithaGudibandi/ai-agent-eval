@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from app.db import models
 from app.db.budgets import BudgetLimits, create_budget
 from app.db.ids import new_id
+from app.db.queue import add_jobs, lease_until, new_lease_token, requeue_jobs
 from app.db.scope import NotFoundError, WorkspaceScope
 from app.evaluators.contract import Evaluator
 
@@ -107,10 +108,11 @@ async def create_experiment(
     scope.add(experiment)
     await scope.flush()
     await create_budget(scope, experiment.id, budget or BudgetLimits())
+    runs: list[models.Run] = []
     for repetition in range(1, repetitions + 1):
         for task in tasks:
             for config_id in agent_config_ids:
-                scope.add(
+                runs.append(
                     models.Run(
                         id=new_id("run"),
                         workspace_id=scope.workspace_id,
@@ -122,12 +124,22 @@ async def create_experiment(
                         evaluation_status=models.EvaluationStatus.PENDING,
                     )
                 )
+    for run in runs:
+        scope.add(run)
+    await scope.flush()
+    # Runs are ordered repetition, task, config, so configs alternate in the queue.
+    add_jobs(scope, experiment.id, runs)
     await scope.flush()
     return experiment
 
 
-async def start_attempt(scope: WorkspaceScope, run_id: str) -> models.Attempt:
-    """Create the next attempt for a run. Each attempt gets a fresh environment."""
+DEFAULT_LEASE_SECONDS = 30.0
+
+
+async def start_attempt(
+    scope: WorkspaceScope, run_id: str, *, lease_seconds: float = DEFAULT_LEASE_SECONDS
+) -> models.Attempt:
+    """Create the next attempt for a run, holding a fresh lease and a fresh environment."""
     run = await scope.require(models.Run, run_id)
     latest = await scope.session.scalar(
         select(func.max(models.Attempt.attempt_number)).where(
@@ -141,9 +153,12 @@ async def start_attempt(scope: WorkspaceScope, run_id: str) -> models.Attempt:
         attempt_number=(latest or 0) + 1,
         env_id=new_id("env"),
         execution_status=models.ExecutionStatus.QUEUED,
+        lease_token=new_lease_token(),
+        lease_expires_at=lease_until(lease_seconds),
     )
     scope.add(attempt)
     await scope.flush()
+    await scope.session.refresh(attempt, ["lease_expires_at"])
     return attempt
 
 
@@ -268,6 +283,7 @@ async def requeue_budget_stopped_runs(scope: WorkspaceScope, experiment_id: str)
     )
     for run in runs:
         run.execution_status = models.ExecutionStatus.QUEUED
+    await requeue_jobs(scope, [r.id for r in runs])
     return len(runs)
 
 

@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     LargeBinary,
     MetaData,
     PrimaryKeyConstraint,
@@ -76,6 +77,13 @@ class Split(StrEnum):
     DEV = "dev"
     VALIDATION = "validation"
     HELD_OUT = "held_out"
+
+
+class JobStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    CANCELLED = "cancelled"
 
 
 class AdapterType(StrEnum):
@@ -384,6 +392,7 @@ class Attempt(WorkspaceScoped, Base):
         UniqueConstraint("env_id"),
         workspace_fk("run_id", "runs"),
         one_of("execution_status", ExecutionStatus),
+        Index("ix_attempts_lease", "execution_status", "lease_expires_at"),
     )
 
     id: Mapped[str] = mapped_column(primary_key=True)
@@ -394,9 +403,38 @@ class Attempt(WorkspaceScoped, Base):
     stop_reason: Mapped[str | None]
     final_response: Mapped[str | None]
     last_event_sequence: Mapped[int] = mapped_column(default=0, server_default="0")
+    # Whoever holds this token may change the attempt, until the lease expires. Clearing it
+    # revokes the attempt: every later step by its worker is refused.
+    lease_token: Mapped[str | None]
+    lease_expires_at: Mapped[datetime | None]
+    worker_id: Mapped[str | None]
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
     duration_ms: Mapped[int | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Job(WorkspaceScoped, Base):
+    """One run waiting for, or held by, a worker. Postgres is the queue."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("run_id"),
+        workspace_fk("run_id", "runs"),
+        workspace_fk("experiment_id", "experiments"),
+        one_of("status", JobStatus),
+        Index("ix_jobs_claimable", "status", "available_at"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    experiment_id: Mapped[str]
+    run_id: Mapped[str]
+    status: Mapped[str]
+    # Claim order inside an experiment. Configs alternate, so a provider slowdown hits every
+    # config alike.
+    position: Mapped[int]
+    available_at: Mapped[datetime] = mapped_column(server_default=func.now())
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
