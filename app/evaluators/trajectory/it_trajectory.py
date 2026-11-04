@@ -8,7 +8,7 @@ class ItTrajectory:
     """Grades how the agent worked: required lookups, looking before acting, repetition."""
 
     name = "it_trajectory"
-    version = "1.0.0"
+    version = "1.0.1"
     layer: Layer = "trajectory"
 
     def applies_to(self, task: TaskVersion) -> bool:

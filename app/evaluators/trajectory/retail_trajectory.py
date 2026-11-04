@@ -9,7 +9,7 @@ class RetailTrajectory:
     """Grades how the agent got there: investigation, order, repetition and error handling."""
 
     name = "retail_trajectory"
-    version = "1.0.0"
+    version = "1.0.1"
     layer: Layer = "trajectory"
 
     def applies_to(self, task: TaskVersion) -> bool:

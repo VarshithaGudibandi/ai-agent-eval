@@ -26,10 +26,14 @@ def required_calls(
             available.remove(hit)
             matched.append(hit)
     recall = len(matched) / len(required)
+    # Precision counts only calls to the tools the task needs, so harmless lookups elsewhere
+    # do not lower it.
+    needed_tools = {p.tool for p in required}
     evidence = {
         "recall": recall,
         "matched": len(matched),
         "required": len(required),
+        "relevant_calls": sum(1 for c in calls if c.tool in needed_tools),
         "attempted_calls": len(calls),
         "valid_calls": sum(1 for c in calls if c.error_code != "INVALID_ARGUMENTS"),
     }

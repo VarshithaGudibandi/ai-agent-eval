@@ -18,8 +18,10 @@ from app.db.experiments import (
     transition,
 )
 from app.db.jobs import CANCELLABLE, cancel_work
+from app.db.reports import run_facts
 from app.db.scope import WorkspaceScope
 from app.execution.launch import launch_prices
+from app.reports.metrics import Scorecard, scorecards
 
 router = APIRouter(prefix="/api/v1/experiments", tags=["experiments"])
 
@@ -70,6 +72,10 @@ class ExperimentOut(BaseModel):
     runs_by_evaluation_status: dict[str, int]
     budget: BudgetOut
     manifest: dict[str, Any]
+
+
+class ExperimentDetailOut(ExperimentOut):
+    scorecards: list[Scorecard]
 
 
 class RunOut(BaseModel):
@@ -184,10 +190,15 @@ async def experiments(principal: Viewer, session: Db) -> list[ExperimentOut]:
 
 
 @router.get("/{experiment_id}")
-async def experiment(experiment_id: str, principal: Viewer, session: Db) -> ExperimentOut:
-    """One experiment with its manifest and progress."""
+async def experiment(experiment_id: str, principal: Viewer, session: Db) -> ExperimentDetailOut:
+    """One experiment with its manifest, progress and a scorecard per agent config."""
     scope = scope_for(session, principal)
-    return (await _out(scope, [await scope.require(models.Experiment, experiment_id)]))[0]
+    row = await scope.require(models.Experiment, experiment_id)
+    configs = [c["id"] for c in row.manifest["agent_configs"]]
+    return ExperimentDetailOut(
+        **(await _out(scope, [row]))[0].model_dump(),
+        scorecards=scorecards(configs, await run_facts(scope, row.id)),
+    )
 
 
 @router.get("/{experiment_id}/runs")

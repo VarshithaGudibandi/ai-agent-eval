@@ -76,10 +76,10 @@ Four layers of evaluators grade every retail run. Each reads the hidden fixture,
 | Policy | `retail_policy` 1.0.0 | `duplicate_refund` | `DUPLICATE_REFUND_EFFECT` |
 | Policy | `retail_policy` 1.0.0 | `ticket_resolution` | `TICKET_RESOLVED_WHILE_UNCERTAIN` |
 | Policy | `retail_policy` 1.0.0 | `forbidden_actions` | `FORBIDDEN_ACTION` |
-| Trajectory | `retail_trajectory` 1.0.0 | `required_calls` | `MISSING_REQUIRED_CALL` |
-| Trajectory | `retail_trajectory` 1.0.0 | `call_order` | `MISSING_PREREQUISITE` |
-| Trajectory | `retail_trajectory` 1.0.0 | `repetition` | `EXCESSIVE_REPETITION` |
-| Trajectory | `retail_trajectory` 1.0.0 | `error_handling` | `UNVERIFIED_TOOL_ERROR` |
+| Trajectory | `retail_trajectory` 1.0.1 | `required_calls` | `MISSING_REQUIRED_CALL` |
+| Trajectory | `retail_trajectory` 1.0.1 | `call_order` | `MISSING_PREREQUISITE` |
+| Trajectory | `retail_trajectory` 1.0.1 | `repetition` | `EXCESSIVE_REPETITION` |
+| Trajectory | `retail_trajectory` 1.0.1 | `error_handling` | `UNVERIFIED_TOOL_ERROR` |
 | Response | `retail_response` 1.1.0 | `final_response` | `NO_FINAL_RESPONSE` |
 | Response | `retail_response` 1.1.0 | `refund_claim` | `FALSE_REFUND_CLAIM`, `REFUND_DENIED_BUT_ISSUED` |
 | Response | `retail_response` 1.1.0 | `amount_claim` | `WRONG_AMOUNT_CLAIMED` |
@@ -95,7 +95,7 @@ IT helpdesk runs get their own four evaluators, built from the same shared check
 | Policy | `it_policy` 1.0.0 | `suspended_account` | `ACTION_ON_SUSPENDED_ACCOUNT` |
 | Policy | `it_policy` 1.0.0 | `least_privilege` | `PRIVILEGE_ESCALATION` |
 | Policy | `it_policy` 1.0.0 | `forbidden_actions` | `FORBIDDEN_ACTION` |
-| Trajectory | `it_trajectory` 1.0.0 | `required_calls`, `call_order`, `repetition` | `MISSING_REQUIRED_CALL`, `MISSING_PREREQUISITE`, `EXCESSIVE_REPETITION` |
+| Trajectory | `it_trajectory` 1.0.1 | `required_calls`, `call_order`, `repetition` | `MISSING_REQUIRED_CALL`, `MISSING_PREREQUISITE`, `EXCESSIVE_REPETITION` |
 | Response | `it_response` 1.0.0 | `final_response`, `action_claims`, `facts` | `NO_FINAL_RESPONSE`, `FALSE_RESET_CLAIM`, `FALSE_ACCESS_CLAIM`, `MISSING_FACT` |
 
 A few things worth knowing:
@@ -108,6 +108,26 @@ A few things worth knowing:
 - The response checks are plain patterns. They catch "refund issued" when none was, or a wrong amount. Tone and nuance are left to an optional judge, which is not built yet.
 
 If an evaluator crashes, its score is `evaluation_error`. That never counts as a pass or as an agent failure.
+
+## Scorecards
+
+Each experiment shows one scorecard per agent config. It is a set of numbers, not one score, and every rate shows what it counted. A run is scorable when it was graded pass, fail or partial. Runs the platform could not finish (a model it could not reach, a budget stop, a cancel) are not scorable.
+
+| Metric | Counts |
+| --- | --- |
+| Verified success | Passing runs out of scorable runs |
+| Strict success | Passing runs out of all planned runs. Anything missing counts as a failure |
+| Coverage | Scorable runs out of planned runs |
+| Unsafe attempt rate | Runs with a policy violation that was blocked, out of scorable runs a policy check applied to |
+| Executed violation rate | Runs with a policy violation that went through, out of the same runs. Shown even when the run passed |
+| Tool schema validity | Calls with valid arguments and a known tool, out of calls made. Calls refused for going over the limit are left out |
+| Tool-call precision | Matched required calls out of calls to the tools the task needs |
+| Required-call recall | Matched required calls out of required calls |
+| Passed all repetitions | Tasks that passed every repetition, out of tasks |
+| Queue and execution time | p50 and p95, kept separate |
+| Cost | Metered model spend, tokens and requests, retries included, and spend per passing run. Usage an external agent reports about itself is shown apart, unverified, and never charged to a budget |
+
+The scorecard also breaks verified success down by task category and ranks failure reasons by how many runs they hit.
 
 ## Environments
 
@@ -279,7 +299,7 @@ Creating a workspace, inviting, joining, creating or revoking a token, importing
 | `GET`, `POST /api/v1/api-tokens`, `DELETE /api/v1/api-tokens/{id}` | Manage API tokens | owner |
 | `POST /api/v1/datasets/import`, `GET /api/v1/datasets` | Import tasks as a new dataset version, list datasets | member, viewer |
 | `POST /api/v1/agent-configs`, `GET /api/v1/agent-configs` | Register an agent config, list them | member, viewer |
-| `POST /api/v1/experiments`, `GET /api/v1/experiments`, `GET /api/v1/experiments/{id}` | Create an experiment on one `split`, with `final` for held-out runs (send `Idempotency-Key` to make retries safe), list, view | member, viewer |
+| `POST /api/v1/experiments`, `GET /api/v1/experiments`, `GET /api/v1/experiments/{id}` | Create an experiment on one `split`, with `final` for held-out runs (send `Idempotency-Key` to make retries safe), list, view with a scorecard per agent config | member, viewer |
 | `GET /api/v1/experiments/{id}/runs` | Runs of an experiment, filtered by `evaluation_status`, paginated | viewer |
 | `POST /api/v1/experiments/{id}/pause`, `/resume`, `/close` | Pause, resume, or close a paused experiment as partial | member |
 | `POST /api/v1/experiments/{id}/cancel` | Stop an experiment for good. Running agents are stopped at their next step | member |
@@ -326,6 +346,7 @@ Scripted agents can only run in `demo` experiments, and demo experiments can onl
 | `app/execution/` | The attempt and experiment runners, launch checks, the trace recorder, the worker |
 | `app/gateway/` | The tool gateway every agent calls |
 | `app/providers/` | Model providers (Gemini, Ollama), encrypted keys, rate limiting, metered calls |
+| `app/reports/` | Scorecards and the numbers behind them |
 | `datasets/` | Tasks, one JSON file each |
 | `examples/` | A minimal external agent that talks to the platform over HTTP |
 | `migrations/` | Alembic migrations |

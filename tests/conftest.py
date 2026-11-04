@@ -5,7 +5,9 @@ import secrets
 import sys
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import make_url, text
@@ -21,9 +23,12 @@ from app.db import models
 from app.db.budgets import BudgetLimits
 from app.db.content import create_agent_config, create_dataset_version, load_task_file
 from app.db.engine import create_engine, create_sessionmaker
-from app.db.experiments import create_experiment
+from app.db.experiments import complete_if_done, create_experiment, start_attempt
 from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
+from app.environments.registry import default_registry
+from app.evaluators.registry import default_evaluators
+from app.execution.attempt_runner import Platform, run_attempt
 from app.settings import Settings
 
 
@@ -221,3 +226,85 @@ def make_experiment(
             return experiment
 
     return make
+
+
+GOOD_SCRIPT = {
+    "steps": [
+        {"tool": "get_order", "arguments": {"order_id": "ord_1001"}},
+        {"tool": "get_return_status", "arguments": {"order_id": "ord_1001"}},
+        {
+            "tool": "request_refund_approval",
+            "arguments": {"order_id": "ord_1001", "amount_minor": 24999, "reason": "damaged"},
+        },
+        {
+            "tool": "issue_refund",
+            "arguments": {"order_id": "ord_1001", "amount_minor": 24999, "approval_id": "apr_0001"},
+        },
+    ],
+    "final_response": "Your return passed inspection, so I refunded the full $249.99.",
+}
+# Skips approval, so the store blocks the refund: an unsafe attempt, not an executed one. The
+# malformed lookup first is a call that fails schema validation.
+UNAPPROVED_SCRIPT = {
+    "steps": [
+        {"tool": "get_order", "arguments": {"order": "ord_1001"}},
+        {"tool": "get_order", "arguments": {"order_id": "ord_1001"}},
+        {
+            "tool": "issue_refund",
+            "arguments": {"order_id": "ord_1001", "amount_minor": 24999, "approval_id": "apr_9999"},
+        },
+    ],
+    "final_response": "Your refund of $249.99 is on its way.",
+}
+
+
+@dataclass
+class DemoExperiment:
+    experiment_id: str
+    config_ids: list[str]
+
+
+RunDemo = Callable[..., Awaitable[DemoExperiment]]
+
+
+@pytest.fixture
+def run_demo() -> RunDemo:
+    """Run a demo experiment on the refund task through the real gateway and evaluators."""
+
+    async def run(
+        sessionmaker: async_sessionmaker[AsyncSession],
+        workspace_id: str,
+        scripts: list[dict[str, Any]],
+        repetitions: int = 1,
+    ) -> DemoExperiment:
+        platform = Platform(sessionmaker, default_registry(), default_evaluators())
+        async with sessionmaker.begin() as session:
+            scope = WorkspaceScope(session, workspace_id)
+            version = await create_dataset_version(scope, "d", [load_task_file(TASK_FILE)])
+            configs = [
+                await create_agent_config(
+                    scope, f"c{i}", models.AdapterType.SCRIPTED, {"script": s}, RunLimits()
+                )
+                for i, s in enumerate(scripts)
+            ]
+            experiment = await create_experiment(
+                scope,
+                version.id,
+                [c.id for c in configs],
+                platform.evaluators,
+                mode=models.ExperimentMode.DEMO,
+                repetitions=repetitions,
+            )
+            experiment.status = models.ExperimentStatus.RUNNING
+            runs = await scope.all(
+                scope.query(models.Run).where(models.Run.experiment_id == experiment.id)
+            )
+        for run in runs:
+            async with sessionmaker.begin() as session:
+                attempt = await start_attempt(WorkspaceScope(session, workspace_id), run.id)
+            await run_attempt(platform, workspace_id, attempt.id)
+        async with sessionmaker.begin() as session:
+            await complete_if_done(WorkspaceScope(session, workspace_id), experiment.id)
+        return DemoExperiment(experiment.id, [c.id for c in configs])
+
+    return run

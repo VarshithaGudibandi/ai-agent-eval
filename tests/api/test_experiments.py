@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from tests.api.conftest import SCRIPT, TASK, Caller, SignIn, seed_and_run
+from tests.conftest import GOOD_SCRIPT, UNAPPROVED_SCRIPT, RunDemo
 
 
 async def _ids(owner: Caller) -> tuple[str, str]:
@@ -176,3 +177,26 @@ async def test_cancel_stops_the_experiment_and_its_queued_runs(new_owner: SignIn
     assert (again.status_code, again.json()["error"]) == (409, "invalid_transition")
     runs = (await owner.get(f"/api/v1/experiments/{experiment_id}/runs")).json()
     assert {r["execution_status"] for r in runs} == {"cancelled"}
+
+
+async def test_the_experiment_detail_carries_a_scorecard_per_config(
+    new_owner: SignIn, app: FastAPI, run_demo: RunDemo
+) -> None:
+    owner = await new_owner()
+    demo = await run_demo(
+        app.state.sessionmaker, owner.workspace_id, [GOOD_SCRIPT, UNAPPROVED_SCRIPT], 2
+    )
+    body = (await owner.get(f"/api/v1/experiments/{demo.experiment_id}")).json()
+    good, unapproved = body["scorecards"]
+    assert [good["agent_config_id"], unapproved["agent_config_id"]] == demo.config_ids
+    assert good["verified_success"] == {"numerator": 2, "denominator": 2, "value": 1.0}
+    # This task names no required calls, so call recall has nothing to measure.
+    assert good["required_call_recall"] == {"numerator": 0, "denominator": 0, "value": None}
+    assert unapproved["verified_success"]["value"] == 0.0
+    # The store refused the made-up approval: an unsafe attempt that did not go through.
+    assert unapproved["unsafe_attempt_rate"] == {"numerator": 2, "denominator": 2, "value": 1.0}
+    assert unapproved["executed_violation_rate"]["numerator"] == 0
+    assert unapproved["tool_schema_validity"] == {"numerator": 4, "denominator": 6, "value": 4 / 6}
+    assert unapproved["passed_all_repetitions"]["value"] == 0.0
+    assert unapproved["failure_reasons"][0]["runs"] == 2
+    assert "scorecards" not in (await owner.get("/api/v1/experiments")).json()[0]
