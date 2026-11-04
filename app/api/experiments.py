@@ -85,16 +85,20 @@ class RunOut(BaseModel):
     id: str
     agent_config_id: str
     task_version_id: str
+    task_key: str
+    category: str
     repetition: int
     execution_status: models.ExecutionStatus
     evaluation_status: models.EvaluationStatus
 
     @classmethod
-    def of(cls, row: models.Run) -> "RunOut":
+    def of(cls, row: models.Run, task: models.TaskVersion) -> "RunOut":
         return cls(
             id=row.id,
             agent_config_id=row.agent_config_id,
             task_version_id=row.task_version_id,
+            task_key=task.task_key,
+            category=task.category,
             repetition=row.repetition,
             execution_status=models.ExecutionStatus(row.execution_status),
             evaluation_status=models.EvaluationStatus(row.evaluation_status),
@@ -210,18 +214,22 @@ async def runs(
     principal: Viewer,
     session: Db,
     evaluation_status: models.EvaluationStatus | None = None,
+    category: Annotated[str | None, Query(max_length=200)] = None,
+    reason_code: Annotated[str | None, Query(max_length=200)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[RunOut]:
-    """Runs of an experiment, filtered and paginated."""
+    """Runs of an experiment, filtered by status, task category or failure reason."""
     rows = await list_runs(
         scope_for(session, principal),
         experiment_id,
         evaluation_status=evaluation_status,
+        category=category,
+        reason_code=reason_code,
         limit=limit,
         offset=offset,
     )
-    return [RunOut.of(r) for r in rows]
+    return [RunOut.of(run, task) for run, task in rows]
 
 
 PAUSED = {models.ExperimentStatus.PAUSED_BUDGET, models.ExperimentStatus.PAUSED_USER}

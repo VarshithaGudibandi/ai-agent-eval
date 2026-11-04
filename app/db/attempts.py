@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,3 +85,13 @@ async def scores_for_attempt(scope: WorkspaceScope, attempt_id: str) -> list[mod
         .where(models.Score.attempt_id == attempt_id)
         .order_by(models.Score.evaluator_name, models.Score.dimension)
     )
+
+
+async def snapshots_for_attempt(
+    scope: WorkspaceScope, attempt_id: str
+) -> dict[str, dict[str, Any]]:
+    """The initial and final environment state of an attempt, by kind."""
+    rows = await scope.all(
+        scope.query(models.EnvSnapshot).where(models.EnvSnapshot.attempt_id == attempt_id)
+    )
+    return {row.kind: row.state for row in rows}

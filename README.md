@@ -311,7 +311,7 @@ Creating a workspace, inviting, joining, creating or revoking a token, importing
 | `POST /api/v1/datasets/import`, `GET /api/v1/datasets` | Import tasks as a new dataset version, list datasets | member, viewer |
 | `POST /api/v1/agent-configs`, `GET /api/v1/agent-configs` | Register an agent config, list them with how many runs each has had on held-out tasks | member, viewer |
 | `POST /api/v1/experiments`, `GET /api/v1/experiments`, `GET /api/v1/experiments/{id}` | Create an experiment on one `split`, with `final` for held-out runs (send `Idempotency-Key` to make retries safe), list, view with a scorecard per agent config | member, viewer |
-| `GET /api/v1/experiments/{id}/runs` | Runs of an experiment, filtered by `evaluation_status`, paginated | viewer |
+| `GET /api/v1/experiments/{id}/runs` | Runs of an experiment, filtered by `evaluation_status`, `category` or `reason_code`, paginated | viewer |
 | `GET /api/v1/experiments/{id}/export?format=json` or `csv` | A reproducible report: the manifest, configs, a scorecard per config and every run. CSV is one row per run. Demo experiments are refused | viewer |
 | `POST /api/v1/experiments/{id}/pause`, `/resume`, `/close` | Pause, resume, or close a paused experiment as partial | member |
 | `POST /api/v1/experiments/{id}/cancel` | Stop an experiment for good. Running agents are stopped at their next step | member |
@@ -321,7 +321,7 @@ Creating a workspace, inviting, joining, creating or revoking a token, importing
 | `POST /gw/v1/attempts/{id}/tools/{tool}` | The tool gateway for external agents. Takes the arguments as a JSON object | the attempt's run token |
 | `POST /gw/v1/attempts/{id}/result` | Where an agent that answered `202` posts its final answer | the attempt's run token |
 | `PATCH /api/v1/experiments/{id}/budget` | Change the caps. Never below what is used | owner |
-| `GET /api/v1/runs/{id}`, `GET /api/v1/attempts/{id}/events` | A run with its scores, the ordered trace of an attempt | viewer |
+| `GET /api/v1/runs/{id}`, `GET /api/v1/attempts/{id}/events` | A run with its task, hidden ground truth, scores and what changed in the environment; the ordered trace of an attempt | viewer |
 | `POST /api/v1/comparisons`, `GET /api/v1/comparisons`, `GET /api/v1/comparisons/{id}` | Compare two agent configs task by task, list, view. Refused with the differing `field` unless only the config differs | member, viewer |
 | `GET`, `POST /api/v1/provider-credentials`, `DELETE .../{id}` | Manage encrypted provider keys | owner |
 | `GET`, `POST /api/v1/price-versions` | List and add model prices | viewer, owner |

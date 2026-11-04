@@ -7,7 +7,13 @@ from pydantic import BaseModel
 from app.api.dependencies import Db, Viewer, scope_for
 from app.api.experiments import RunOut
 from app.db import models
-from app.db.attempts import attempts_for_run, scores_for_attempt, trace_events
+from app.db.attempts import (
+    attempts_for_run,
+    scores_for_attempt,
+    snapshots_for_attempt,
+    trace_events,
+)
+from app.reports.state_diff import RecordChange, state_diff
 
 router = APIRouter(prefix="/api/v1", tags=["runs"])
 
@@ -35,9 +41,32 @@ class AttemptOut(BaseModel):
     duration_ms: int | None
 
 
+class TaskOut(BaseModel):
+    task_key: str
+    category: str
+    environment: str
+    split: str
+    # Exactly what the agent was given.
+    agent_input: dict[str, Any]
+
+
+class GroundTruthOut(BaseModel):
+    """What the agent never saw: the hidden world, how it is graded and the faults injected."""
+
+    fixture: dict[str, Any]
+    evaluator_spec: dict[str, Any]
+    faults: list[dict[str, Any]]
+    expected_outcome: str | None
+    rationale: str | None
+
+
 class RunDetailOut(RunOut):
+    task: TaskOut
+    ground_truth: GroundTruthOut
     attempts: list[AttemptOut]
     scores: list[ScoreOut]
+    # What the latest attempt changed in its environment.
+    state_diff: list[RecordChange]
 
 
 class EventOut(BaseModel):
@@ -51,13 +80,33 @@ class EventOut(BaseModel):
 
 @router.get("/runs/{run_id}")
 async def run(run_id: str, principal: Viewer, session: Db) -> RunDetailOut:
-    """A run with its attempts and the scores of the latest one."""
+    """A run with its task, hidden ground truth, attempts, latest scores and state changes."""
     scope = scope_for(session, principal)
     row = await scope.require(models.Run, run_id)
+    task = await scope.require(models.TaskVersion, row.task_version_id)
     attempts = await attempts_for_run(scope, row.id)
     scores = await scores_for_attempt(scope, attempts[-1].id) if attempts else []
+    snapshots = await snapshots_for_attempt(scope, attempts[-1].id) if attempts else {}
+    final = snapshots.get(models.SnapshotKind.FINAL)
     return RunDetailOut(
-        **RunOut.of(row).model_dump(),
+        **RunOut.of(row, task).model_dump(),
+        task=TaskOut(
+            task_key=task.task_key,
+            category=task.category,
+            environment=task.environment,
+            split=task.split,
+            agent_input=task.agent_input,
+        ),
+        ground_truth=GroundTruthOut(
+            fixture=task.fixture,
+            evaluator_spec=task.evaluator_spec,
+            faults=task.faults,
+            expected_outcome=task.review.get("expected_outcome"),
+            rationale=task.review.get("rationale"),
+        ),
+        state_diff=state_diff(snapshots.get(models.SnapshotKind.INITIAL, {}), final)
+        if final is not None
+        else [],
         attempts=[
             AttemptOut(
                 id=a.id,

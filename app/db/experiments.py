@@ -220,18 +220,47 @@ async def list_runs(
     experiment_id: str,
     *,
     evaluation_status: str | None,
+    category: str | None = None,
+    reason_code: str | None = None,
     limit: int,
     offset: int,
-) -> list[models.Run]:
+) -> list[tuple[models.Run, models.TaskVersion]]:
     experiment = await scope.require(models.Experiment, experiment_id)
-    query = scope.query(models.Run).where(models.Run.experiment_id == experiment.id)
+    ws = scope.workspace_id
+    query = (
+        select(models.Run, models.TaskVersion)
+        .join(
+            models.TaskVersion,
+            (models.TaskVersion.id == models.Run.task_version_id)
+            & (models.TaskVersion.workspace_id == models.Run.workspace_id),
+        )
+        .where(models.Run.workspace_id == ws, models.Run.experiment_id == experiment.id)
+    )
     if evaluation_status is not None:
         query = query.where(models.Run.evaluation_status == evaluation_status)
-    return await scope.all(
-        query.order_by(models.Run.repetition, models.Run.task_version_id, models.Run.id)
+    if category is not None:
+        query = query.where(models.TaskVersion.category == category)
+    if reason_code is not None:
+        failed_with = (
+            select(models.Attempt.run_id)
+            .join(
+                models.Score,
+                (models.Score.attempt_id == models.Attempt.id)
+                & (models.Score.workspace_id == models.Attempt.workspace_id),
+            )
+            .where(
+                models.Attempt.workspace_id == ws,
+                models.Score.status == "fail",
+                models.Score.reason_code == reason_code,
+            )
+        )
+        query = query.where(models.Run.id.in_(failed_with))
+    rows = await scope.session.execute(
+        query.order_by(models.TaskVersion.task_key, models.Run.repetition, models.Run.id)
         .limit(limit)
         .offset(offset)
     )
+    return [(run, task) for run, task in rows]
 
 
 async def pause_for_budget(scope: WorkspaceScope, experiment_id: str) -> bool:
