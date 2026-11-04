@@ -15,6 +15,9 @@ from app.settings import Settings
 
 SESSION_COOKIE = "agent_eval_session"
 CSRF_HEADER = "x-csrf-token"
+# Readable by our own pages so they can echo it in CSRF_HEADER. Another site cannot read it,
+# and the server still checks it against the session.
+CSRF_COOKIE = "agent_eval_csrf"
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 

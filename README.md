@@ -292,7 +292,7 @@ Every workspace is sealed off from the others. Every row in the database carries
 
 | How you call the API | How it works |
 | --- | --- |
-| Signed in (browser) | `POST /api/v1/auth/login` sets an HTTP-only cookie and returns a `csrf_token`. Any request that changes something must send it back in the `X-CSRF-Token` header |
+| Signed in (browser) | `POST /api/v1/auth/login` sets an HTTP-only session cookie and returns a `csrf_token`, also set as the readable `agent_eval_csrf` cookie for the pages. Any request that changes something must send it back in the `X-CSRF-Token` header. The cookie alone is not enough |
 | API token (scripts, CI) | Send `Authorization: Bearer aet_...`. A token belongs to one workspace and one role. Its secret is shown once, only its hash is kept, and it can be revoked |
 
 Owners invite people with `POST /api/v1/workspaces/{id}/invites`, which returns a one-time token. The invited person joins with `POST /api/v1/invites/accept`.

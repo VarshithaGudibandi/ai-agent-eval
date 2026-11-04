@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator, Callable
 import httpx
 import pytest
 
-from app.api.dependencies import SESSION_COOKIE
+from app.api.dependencies import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE
 from app.api.main import create_app
 from app.settings import Settings
 from tests.api.conftest import PASSWORD, SignIn
@@ -49,6 +49,22 @@ async def test_session_cookie_is_http_only_and_same_site(new_owner: SignIn) -> N
     cookie = next(c for c in owner.client.cookies.jar if c.name == SESSION_COOKIE)
     assert cookie.has_nonstandard_attr("HttpOnly")
     assert cookie.get_nonstandard_attr("SameSite", "").lower() == "lax"
+
+
+async def test_the_csrf_cookie_matches_the_token_and_only_echoing_it_works(
+    new_owner: SignIn,
+) -> None:
+    owner = await new_owner()
+    cookie = next(c for c in owner.client.cookies.jar if c.name == CSRF_COOKIE)
+    # Our own pages read it to echo it, so it is not HttpOnly; another site cannot read it.
+    assert not cookie.has_nonstandard_attr("HttpOnly")
+    assert cookie.get_nonstandard_attr("SameSite", "").lower() == "strict"
+    assert cookie.value == owner.headers[CSRF_HEADER]
+    # The cookie alone proves nothing: a cross-site request carries it but cannot echo it.
+    bare = await owner.client.post("/api/v1/api-tokens", json={"name": "x", "role": "viewer"})
+    assert bare.status_code == 403
+    echoed = await owner.post("/api/v1/api-tokens", json={"name": "x", "role": "viewer"})
+    assert echoed.status_code == 201
 
 
 async def test_wrong_password_and_unknown_email_look_the_same(

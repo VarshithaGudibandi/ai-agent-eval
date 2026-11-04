@@ -4,7 +4,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel, Field
 
-from app.api.dependencies import SESSION_COOKIE, CurrentPrincipal, Db, get_settings_dep
+from app.api.dependencies import (
+    CSRF_COOKIE,
+    SESSION_COOKIE,
+    CurrentPrincipal,
+    Db,
+    get_settings_dep,
+)
 from app.auth.passwords import MIN_PASSWORD_LENGTH
 from app.auth.sessions import end_session, start_session
 from app.auth.users import authenticate, setup_first_owner
@@ -69,6 +75,15 @@ async def login(
         secure=settings.session_cookie_secure,
         path="/",
     )
+    response.set_cookie(
+        CSRF_COOKIE,
+        new.csrf_token,
+        max_age=int(ttl.total_seconds()),
+        httponly=False,
+        samesite="strict",
+        secure=settings.session_cookie_secure,
+        path="/",
+    )
     return LoginResponse(
         user_id=user.id,
         workspace_id=new.row.workspace_id,
@@ -83,3 +98,4 @@ async def logout(principal: CurrentPrincipal, response: Response, session: Db) -
     if principal.session_id is not None:
         await end_session(session, principal.session_id)
     response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(CSRF_COOKIE, path="/")
