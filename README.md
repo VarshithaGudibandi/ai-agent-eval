@@ -283,6 +283,8 @@ Creating a workspace, inviting, joining, creating or revoking a token, importing
 | `GET /api/v1/experiments/{id}/runs` | Runs of an experiment, filtered by `evaluation_status`, paginated | viewer |
 | `POST /api/v1/experiments/{id}/pause`, `/resume`, `/close` | Pause, resume, or close a paused experiment as partial | member |
 | `POST /api/v1/experiments/{id}/cancel` | Stop an experiment for good. Running agents are stopped at their next step | member |
+| `POST /gw/v1/attempts/{id}/tools/{tool}` | The tool gateway for external agents. Takes the arguments as a JSON object | the attempt's run token |
+| `POST /gw/v1/attempts/{id}/result` | Where an agent that answered `202` posts its final answer | the attempt's run token |
 | `PATCH /api/v1/experiments/{id}/budget` | Change the caps. Never below what is used | owner |
 | `GET /api/v1/runs/{id}`, `GET /api/v1/attempts/{id}/events` | A run with its scores, the ordered trace of an attempt | viewer |
 | `GET`, `POST /api/v1/provider-credentials`, `DELETE .../{id}` | Manage encrypted provider keys | owner |

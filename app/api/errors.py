@@ -9,9 +9,11 @@ from app.auth.errors import (
     SetupAlreadyDoneError,
     UserRequiredError,
 )
+from app.db.attempts import AttemptNotLiveError
 from app.db.budgets import LimitBelowUsageError
 from app.db.content import DatasetRejectedError
 from app.db.experiments import ExperimentRejectedError, InvalidTransitionError
+from app.db.run_tokens import InvalidRunTokenError, ResultAlreadyPostedError
 from app.db.scope import NotFoundError
 from app.execution.launch import PriceUnknownError, ProviderKeyRequiredError
 from app.providers.registry import UnknownProviderError
@@ -32,6 +34,9 @@ _ERRORS: dict[type[Exception], tuple[int, str]] = {
     UnknownProviderError: (422, "provider_unknown"),
     InvalidTransitionError: (409, "invalid_transition"),
     LimitBelowUsageError: (422, "limit_below_usage"),
+    InvalidRunTokenError: (401, "invalid_run_token"),
+    AttemptNotLiveError: (409, "attempt_not_live"),
+    ResultAlreadyPostedError: (409, "result_already_posted"),
 }
 _SHOW_MESSAGE = (
     ExperimentRejectedError,

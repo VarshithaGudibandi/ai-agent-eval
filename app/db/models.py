@@ -408,6 +408,12 @@ class Attempt(WorkspaceScoped, Base):
     lease_token: Mapped[str | None]
     lease_expires_at: Mapped[datetime | None]
     worker_id: Mapped[str | None]
+    # An external agent's credential for the gateway. Only its hash is kept, and it works only
+    # while the lease above holds, so losing or revoking the lease also locks the agent out.
+    run_token_hash: Mapped[str | None]
+    run_token_expires_at: Mapped[datetime | None]
+    # What an external agent posted back after answering 202 to the worker's request.
+    external_result: Mapped[dict[str, Any] | None]
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
     duration_ms: Mapped[int | None]

@@ -9,6 +9,7 @@ from app.api import (
     auth,
     datasets,
     experiments,
+    gateway,
     health,
     prices,
     provider_credentials,
@@ -19,6 +20,7 @@ from app.api.errors import register_error_handlers
 from app.db.engine import create_engine, create_sessionmaker
 from app.environments.registry import default_registry
 from app.evaluators.registry import default_evaluators
+from app.gateway.tool_gateway import ToolGateway
 from app.providers.registry import default_providers
 from app.settings import Settings, get_settings
 from app.structured_logging import configure_logging
@@ -32,6 +34,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         configure_logging(settings.log_level, settings.log_format)
         app.state.engine = create_engine(settings)
         app.state.sessionmaker = create_sessionmaker(app.state.engine)
+        app.state.gateway = ToolGateway(app.state.sessionmaker, app.state.environments)
         try:
             yield
         finally:
@@ -54,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         agent_configs,
         experiments,
         runs,
+        gateway,
     ):
         app.include_router(module.router)
     return app
