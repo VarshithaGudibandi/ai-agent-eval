@@ -5,7 +5,14 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
 from app.api.auth import EMAIL_PATTERN
-from app.api.dependencies import CurrentPrincipal, Db, Owner, get_settings_dep, scope_for
+from app.api.dependencies import (
+    CurrentPrincipal,
+    Db,
+    Owner,
+    Viewer,
+    get_settings_dep,
+    scope_for,
+)
 from app.auth.errors import UserRequiredError
 from app.auth.passwords import MIN_PASSWORD_LENGTH
 from app.auth.users import authenticate, create_user, find_user, user_by_id
@@ -13,6 +20,7 @@ from app.auth.workspaces import (
     accept_invite,
     create_invite,
     create_workspace,
+    members_of,
     memberships_of,
     workspace_by_id,
 )
@@ -27,6 +35,13 @@ class WorkspaceOut(BaseModel):
     id: str
     name: str
     role: Role
+
+
+class MemberOut(BaseModel):
+    user_id: str
+    email: str
+    role: Role
+    joined_at: datetime
 
 
 class CreateWorkspaceRequest(BaseModel):
@@ -112,3 +127,14 @@ async def accept(body: AcceptInviteRequest, session: Db) -> AcceptInviteOut:
     return AcceptInviteOut(
         user_id=user.id, workspace_id=member.workspace_id, role=Role(member.role)
     )
+
+
+@router.get("/members")
+async def members(principal: Viewer, session: Db) -> list[MemberOut]:
+    """Everyone in the current workspace and their role."""
+    return [
+        MemberOut(
+            user_id=user.id, email=user.email, role=Role(member.role), joined_at=member.created_at
+        )
+        for member, user in await members_of(scope_for(session, principal))
+    ]

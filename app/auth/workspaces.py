@@ -113,3 +113,16 @@ async def accept_invite(session: AsyncSession, user: models.User, secret: str) -
 
 async def workspace_by_id(session: AsyncSession, workspace_id: str) -> models.Workspace:
     return await session.get_one(models.Workspace, workspace_id)
+
+
+async def members_of(
+    scope: WorkspaceScope,
+) -> list[tuple[models.Membership, models.User]]:
+    """Everyone in the workspace with their role, earliest first."""
+    rows = await scope.session.execute(
+        select(models.Membership, models.User)
+        .join(models.User, models.User.id == models.Membership.user_id)
+        .where(models.Membership.workspace_id == scope.workspace_id)
+        .order_by(models.Membership.created_at, models.User.email)
+    )
+    return [(m, u) for m, u in rows]

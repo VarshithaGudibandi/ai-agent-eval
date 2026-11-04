@@ -178,6 +178,7 @@ def _b_ids(w: World) -> list[str]:
         w.b_token_id,
         w.b_demo.experiment_id,
         w.b_comparison_id,
+        str(w.b_person.email),
     ]
 
 
@@ -289,6 +290,7 @@ LIST_ROUTES = [
     "/api/v1/agent-signing-secret",
     "/api/v1/comparisons",
     "/api/v1/evaluators",
+    "/api/v1/members",
 ]
 BODY_ROUTES = {
     ("POST", "/api/v1/datasets/import"),

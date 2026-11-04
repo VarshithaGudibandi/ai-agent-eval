@@ -29,6 +29,8 @@ async def test_invite_flow_adds_a_viewer_who_can_read_but_not_write(
         "/api/v1/workspaces/" + owner.workspace_id + "/invites", json={"role": "viewer"}
     )
     assert refused.status_code == 403
+    members = (await guest.get("/api/v1/members")).json()
+    assert [(m["email"], m["role"]) for m in members] == [(owner.email, "owner"), (email, "viewer")]
 
 
 async def test_existing_user_must_give_their_password_to_accept(
