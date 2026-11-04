@@ -296,3 +296,18 @@ def test_idempotency_key_depends_on_attempt_tool_and_arguments() -> None:
     assert key == idempotency_key("att_1", "issue_refund", IssueRefundArgs.model_validate(REFUND))
     assert key != idempotency_key("att_2", "issue_refund", args)
     assert key != idempotency_key("att_1", "issue_refund", other)
+
+
+async def test_the_gateway_refuses_calls_past_the_runs_limit(
+    gateway: ToolGateway,
+    ctx: AttemptContext,
+    recorder: TraceRecorder,
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    limited = ctx.model_copy(update={"max_tool_calls": 2})
+    first = await gateway.call(limited, recorder, "request_refund_approval", APPROVAL)
+    second = await gateway.call(limited, recorder, "get_order", {"order_id": "ord_1001"})
+    third = await gateway.call(limited, recorder, "issue_refund", REFUND)
+    assert (first.status, second.status) == ("ok", "ok")
+    assert (third.status, third.error_code) == ("rejected", "TOOL_LIMIT_REACHED")
+    assert await _refunds(sessionmaker, ctx) == []

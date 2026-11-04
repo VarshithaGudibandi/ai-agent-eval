@@ -11,7 +11,7 @@ from app.db.attempts import AttemptNotLiveError
 from app.db.hashing import content_hash
 from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
-from app.db.tool_calls import count_tool_calls
+from app.db.tool_calls import TOOL_LIMIT_REACHED, count_all_tool_calls, count_tool_calls
 from app.environments.contract import CallContext, FaultSpec, ToolArgs, ToolResult, ToolSchema
 from app.environments.registry import EnvironmentRegistry
 from app.environments.state_store import EnvStateStore
@@ -33,6 +33,9 @@ class AttemptContext(BaseModel):
     task_context: dict[str, Any]
     allowed_tools: frozenset[str] | None = None
     faults: tuple[FaultSpec, ...] = ()
+    # Enforced here rather than trusted to the agent, because an external agent can call the
+    # gateway as often as it likes.
+    max_tool_calls: int | None = None
 
 
 # Successful results of state-changing calls, kept with the attempt's environment state so
@@ -142,6 +145,13 @@ class ToolGateway:
         tool: str,
         arguments: dict[str, Any],
     ) -> _Executed:
+        scope = WorkspaceScope(session, ctx.workspace_id)
+        if ctx.max_tool_calls is not None and (
+            await count_all_tool_calls(scope, ctx.attempt_id) >= ctx.max_tool_calls
+        ):
+            return _rejected(
+                tool_call_id, TOOL_LIMIT_REACHED, f"The run allows {ctx.max_tool_calls} calls."
+            )
         store = EnvStateStore(session, ctx.workspace_id)
         env = self._environments.create(ctx.environment, store)
         schema = allowed_tools(env.tool_schemas(), ctx.allowed_tools).get(tool)
@@ -155,7 +165,6 @@ class ToolGateway:
                 "INVALID_ARGUMENTS",
                 exc.errors(include_url=False, include_input=False, include_context=False),
             )
-        scope = WorkspaceScope(session, ctx.workspace_id)
         occurrence = await count_tool_calls(scope, ctx.attempt_id, tool) + 1
         fault = next((f for f in ctx.faults if f.tool == tool and f.occurrence == occurrence), None)
         if fault is not None and fault.when == "before_effect":

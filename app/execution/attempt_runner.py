@@ -18,6 +18,7 @@ from app.db.experiments import complete_if_done
 from app.db.ids import new_id
 from app.db.queue import finish_job
 from app.db.scope import WorkspaceScope
+from app.db.tool_calls import count_limit_refusals
 from app.environments.contract import AgentTaskInput, FaultSpec, TaskVersion
 from app.environments.registry import EnvironmentRegistry
 from app.environments.state_store import EnvStateStore
@@ -156,6 +157,7 @@ async def _execute(platform: Platform, loaded: _Loaded, started: float) -> model
         environment=loaded.task.environment,
         task_context=agent_input.context,
         faults=loaded.task.faults,
+        max_tool_calls=loaded.limits.max_tool_calls,
     )
     tools = InProcessToolSession(platform.gateway, ctx, recorder, schemas)
     model_unavailable: str | None = None
@@ -164,6 +166,10 @@ async def _execute(platform: Platform, loaded: _Loaded, started: float) -> model
     except _ModelUnavailableError as exc:
         model_unavailable = str(exc)
         result = AgentResult("", "agent_error", {"model_unavailable": model_unavailable})
+    if model_unavailable is None and await _hit_tool_limit(platform, loaded):
+        # The gateway refused a call past the limit. Whatever the agent did next, the run hit
+        # a hard stop, exactly as if the agent had stopped itself.
+        result = AgentResult(result.final_response, "max_tool_calls", result.metadata)
     await recorder.record(
         "agent_finished",
         {
@@ -246,6 +252,12 @@ async def _run_agent(
             # The agent's own failure is a result to grade, not a platform error.
             logger.warning("agent raised", exc_info=True, extra={"attempt_id": loaded.attempt_id})
             return AgentResult("", "agent_error", {"error": type(exc).__name__})
+
+
+async def _hit_tool_limit(platform: Platform, loaded: _Loaded) -> bool:
+    async with platform.sessionmaker() as session:
+        scope = WorkspaceScope(session, loaded.workspace_id)
+        return await count_limit_refusals(scope, loaded.attempt_id) > 0
 
 
 async def _evaluate(
