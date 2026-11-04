@@ -20,6 +20,7 @@ from app.db.scope import NotFoundError
 from app.execution.launch import PriceUnknownError, ProviderKeyRequiredError
 from app.providers.registry import UnknownProviderError
 from app.reports.comparison import IncompatibleError, NotFinishedError
+from app.reports.export import DemoNotExportableError
 
 # Another workspace's rows answer exactly like missing rows, so ids cannot be probed.
 _ERRORS: dict[type[Exception], tuple[int, str]] = {
@@ -43,6 +44,7 @@ _ERRORS: dict[type[Exception], tuple[int, str]] = {
     ResultAlreadyPostedError: (409, "result_already_posted"),
     SideUnclearError: (422, "comparison_side_unclear"),
     NotFinishedError: (409, "experiment_not_finished"),
+    DemoNotExportableError: (409, "demo_not_exportable"),
 }
 _SHOW_MESSAGE = (
     SigningSecretRequiredError,
@@ -54,6 +56,7 @@ _SHOW_MESSAGE = (
     LimitBelowUsageError,
     SideUnclearError,
     NotFinishedError,
+    DemoNotExportableError,
 )
 
 

@@ -1,5 +1,7 @@
 from fastapi import FastAPI
+from sqlalchemy import select, update
 
+from app.db import models
 from tests.api.conftest import SCRIPT, TASK, Caller, SignIn, seed_and_run
 from tests.conftest import GOOD_SCRIPT, UNAPPROVED_SCRIPT, RunDemo
 
@@ -200,3 +202,50 @@ async def test_the_experiment_detail_carries_a_scorecard_per_config(
     assert unapproved["passed_all_repetitions"]["value"] == 0.0
     assert unapproved["failure_reasons"][0]["runs"] == 2
     assert "scorecards" not in (await owner.get("/api/v1/experiments")).json()[0]
+
+
+async def test_demo_experiments_are_never_exported(
+    new_owner: SignIn, app: FastAPI, run_demo: RunDemo
+) -> None:
+    owner = await new_owner()
+    demo = await run_demo(app.state.sessionmaker, owner.workspace_id, [GOOD_SCRIPT])
+    for fmt in ("json", "csv"):
+        response = await owner.get(f"/api/v1/experiments/{demo.experiment_id}/export?format={fmt}")
+        assert (response.status_code, response.json()["error"]) == (409, "demo_not_exportable")
+
+
+async def test_a_real_experiment_exports_as_json_and_csv_and_is_audited(
+    new_owner: SignIn, app: FastAPI, run_demo: RunDemo
+) -> None:
+    owner = await new_owner()
+    demo = await run_demo(
+        app.state.sessionmaker, owner.workspace_id, [GOOD_SCRIPT, UNAPPROVED_SCRIPT]
+    )
+    # Real agents need a model or an endpoint. Relabeling a finished experiment exercises the
+    # same export path without either.
+    async with app.state.sessionmaker.begin() as session:
+        await session.execute(
+            update(models.Experiment)
+            .where(models.Experiment.id == demo.experiment_id)
+            .values(mode=models.ExperimentMode.REAL)
+        )
+    path = f"/api/v1/experiments/{demo.experiment_id}/export"
+    report = await owner.get(path)
+    assert report.status_code == 200
+    assert f'filename="{demo.experiment_id}.json"' in report.headers["content-disposition"]
+    body = report.json()
+    assert body["manifest"]["agent_configs"][0]["id"] == demo.config_ids[0]
+    assert [c["agent_config_id"] for c in body["scorecards"]] == demo.config_ids
+    assert {r["evaluation_status"] for r in body["runs"]} == {"pass", "fail"}
+    table = await owner.get(path, params={"format": "csv"})
+    assert table.headers["content-type"].startswith("text/csv")
+    assert len(table.text.strip().splitlines()) == 3
+    async with app.state.sessionmaker() as session:
+        actions = list(
+            await session.scalars(
+                select(models.AuditEntry.action).where(
+                    models.AuditEntry.target_id == demo.experiment_id
+                )
+            )
+        )
+    assert actions.count("experiment.exported") == 2

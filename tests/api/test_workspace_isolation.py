@@ -136,6 +136,7 @@ def _foreign_id_attacks(w: World) -> list[tuple[str, str, Any]]:
         ("POST", f"/api/v1/experiments/{b.experiment_id}/cancel", None),
         ("POST", f"/api/v1/agent-configs/{b.agent_config_id}/check", None),
         ("GET", f"/api/v1/comparisons/{w.b_comparison_id}", None),
+        ("GET", f"/api/v1/experiments/{b.experiment_id}/export", None),
         (
             "POST",
             "/api/v1/comparisons",
@@ -274,6 +275,7 @@ FOREIGN_ID_ROUTES = {
     ("POST", "/api/v1/agent-configs/{config_id}/check"),
     ("PATCH", "/api/v1/experiments/{experiment_id}/budget"),
     ("GET", "/api/v1/comparisons/{comparison_id}"),
+    ("GET", "/api/v1/experiments/{experiment_id}/export"),
     ("POST", "/api/v1/comparisons"),
 }
 LIST_ROUTES = [

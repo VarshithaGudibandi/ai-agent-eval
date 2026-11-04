@@ -1,7 +1,9 @@
 from datetime import datetime
+from enum import StrEnum
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import Db, Member, Owner, Viewer, scope_for
@@ -18,9 +20,10 @@ from app.db.experiments import (
     transition,
 )
 from app.db.jobs import CANCELLABLE, cancel_work
-from app.db.reports import run_facts
+from app.db.reports import held_out_runs, run_facts
 from app.db.scope import WorkspaceScope
 from app.execution.launch import launch_prices
+from app.reports.export import DemoNotExportableError, csv_report, json_report
 from app.reports.metrics import Scorecard, scorecards
 
 router = APIRouter(prefix="/api/v1/experiments", tags=["experiments"])
@@ -333,3 +336,51 @@ async def change_budget(
         body.model_dump(),
     )
     return await _one(scope, experiment)
+
+
+class ExportFormat(StrEnum):
+    JSON = "json"
+    CSV = "csv"
+
+
+@router.get("/{experiment_id}/export", response_model=None)
+async def export(
+    experiment_id: str,
+    principal: Viewer,
+    session: Db,
+    format: ExportFormat = ExportFormat.JSON,
+) -> Response:
+    """A reproducible report: the manifest, a scorecard per config and every run.
+
+    Demo experiments are refused, so canned results can never leave as a real report.
+    """
+    scope = scope_for(session, principal)
+    experiment = await scope.require(models.Experiment, experiment_id)
+    if experiment.mode == models.ExperimentMode.DEMO:
+        raise DemoNotExportableError("demo results are canned and cannot be exported as a report")
+    config_ids = [c["id"] for c in experiment.manifest["agent_configs"]]
+    configs = [await scope.require(models.AgentConfig, c) for c in config_ids]
+    runs = await run_facts(scope, experiment.id)
+    record_audit(
+        scope,
+        principal.actor_type,
+        principal.actor_id,
+        "experiment.exported",
+        "experiment",
+        experiment.id,
+        {"format": format},
+    )
+    name = f"{experiment.id}.{format}"
+    headers = {"content-disposition": f'attachment; filename="{name}"'}
+    if format == ExportFormat.CSV:
+        return Response(
+            csv_report(experiment, configs, runs), media_type="text/csv", headers=headers
+        )
+    report = json_report(
+        experiment,
+        configs,
+        await held_out_runs(scope, config_ids),
+        scorecards(config_ids, runs),
+        runs,
+    )
+    return JSONResponse(report, headers=headers)
