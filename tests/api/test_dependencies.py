@@ -1,6 +1,10 @@
 from collections.abc import Callable
 
 import httpx
+from fastapi import FastAPI
+from sqlalchemy import event
+from sqlalchemy.orm import Session
+from starlette.types import Message, Receive, Scope, Send
 
 from app.api.dependencies import CSRF_HEADER
 from tests.api.conftest import SignIn, token_caller
@@ -50,3 +54,43 @@ async def test_roles_gate_routes(
     member = await token_caller(owner, clients(), role="member")
     response = await member.get("/api/v1/api-tokens")
     assert (response.status_code, response.json()["detail"]) == (403, {"error": "forbidden"})
+
+
+async def test_a_write_is_committed_before_the_response_goes_out(
+    new_owner: SignIn, app: FastAPI
+) -> None:
+    owner = await new_owner()
+    order: list[str] = []
+
+    def committed(session: Session) -> None:
+        order.append("commit")
+
+    async def recording(scope: Scope, receive: Receive, send: Send) -> None:
+        async def watched(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                order.append("response")
+            await send(message)
+
+        await app(scope, receive, watched)
+
+    event.listen(Session, "after_commit", committed)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=recording),
+            base_url="http://test",
+            cookies=owner.client.cookies,
+        ) as client:
+            response = await client.post(
+                "/api/v1/agent-configs",
+                json={
+                    "name": "s",
+                    "adapter_type": "http",
+                    "settings": {"url": "https://a.example"},
+                },
+                headers=owner.headers,
+            )
+    finally:
+        event.remove(Session, "after_commit", committed)
+    assert response.status_code == 201
+    # A client that gets 201 can rely on the row being there for its very next request.
+    assert order.index("commit") < order.index("response")

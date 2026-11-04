@@ -45,7 +45,9 @@ async def db_session(request: Request) -> AsyncIterator[AsyncSession]:
         yield session
 
 
-Db = Annotated[AsyncSession, Depends(db_session)]
+# Function scope commits before the response is sent. With the default, a client could get
+# 201 for a write that is not committed yet, or that then fails to commit.
+Db = Annotated[AsyncSession, Depends(db_session, scope="function")]
 
 
 async def current_principal(request: Request, session: Db) -> Principal:
