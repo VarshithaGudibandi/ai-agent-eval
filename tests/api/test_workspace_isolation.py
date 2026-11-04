@@ -286,6 +286,7 @@ LIST_ROUTES = [
     "/api/v1/price-versions",
     "/api/v1/agent-signing-secret",
     "/api/v1/comparisons",
+    "/api/v1/evaluators",
 ]
 BODY_ROUTES = {
     ("POST", "/api/v1/datasets/import"),

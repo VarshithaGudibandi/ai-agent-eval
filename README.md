@@ -104,7 +104,7 @@ A few things worth knowing:
 - Looking up an order that turns out not to be the customer's is fine. That is how an agent finds out. Data coming back for it, or any action on it, is not.
 - Investigation can happen in any order. `get_order` and `get_return_status` only both have to come before `issue_refund`.
 - A required call is matched to one observed call, so repeating a correct call cannot count twice.
-- The evaluators are tested against golden traces: reference runs recorded through the real store, then broken in exactly one way (wrong amount, missing approval, another customer's order, a duplicate refund, skipped investigation, a false success message, an ignored error and more). Each break must be caught by its named evaluator, and no other verdict may change. Valid alternatives, such as checking the return first, must change nothing. This suite runs in CI.
+- The evaluators are tested against golden traces: reference runs recorded through the real store, then broken in exactly one way (wrong amount, missing approval, another customer's order, a duplicate refund, skipped investigation, a false success message, an ignored error and more). Each break must be caught by its named evaluator, and no other verdict may change. Valid alternatives, such as checking the return first, must change nothing. This suite runs in CI. `GET /api/v1/evaluators` publishes the result: each evaluator version with the breaks it is proven to catch, and a plain list of what the grading does not catch. A test fails if that table drifts from the suite, so it is republished with every evaluator version.
 - The response checks are plain patterns. They catch "refund issued" when none was, or a wrong amount. Tone and nuance are left to an optional judge, which is not built yet.
 
 If an evaluator crashes, its score is `evaluation_error`. That never counts as a pass or as an agent failure.
@@ -316,6 +316,7 @@ Creating a workspace, inviting, joining, creating or revoking a token, importing
 | `POST /api/v1/experiments/{id}/cancel` | Stop an experiment for good. Running agents are stopped at their next step | member |
 | `GET /api/v1/agent-signing-secret`, `POST /api/v1/agent-signing-secret` | See whether the workspace has a secret for signing agent requests, or create a new one (shown once) | viewer, owner |
 | `POST /api/v1/agent-configs/{id}/check` | Send an HTTP agent a signed handshake and report what is wrong | member |
+| `GET /api/v1/evaluators` | Each evaluator version, the broken traces it is proven to catch, and what grading does not catch | viewer |
 | `POST /gw/v1/attempts/{id}/tools/{tool}` | The tool gateway for external agents. Takes the arguments as a JSON object | the attempt's run token |
 | `POST /gw/v1/attempts/{id}/result` | Where an agent that answered `202` posts its final answer | the attempt's run token |
 | `PATCH /api/v1/experiments/{id}/budget` | Change the caps. Never below what is used | owner |

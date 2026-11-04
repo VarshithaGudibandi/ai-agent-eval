@@ -9,6 +9,7 @@ from app.api import (
     auth,
     comparisons,
     datasets,
+    evaluators,
     experiments,
     gateway,
     health,
@@ -60,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         experiments,
         runs,
         comparisons,
+        evaluators,
         signing_secret,
         gateway,
     ):
