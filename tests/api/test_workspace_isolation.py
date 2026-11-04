@@ -24,6 +24,7 @@ from tests.api.conftest import (
     sign_in,
     token_caller,
 )
+from tests.conftest import GOOD_SCRIPT, UNAPPROVED_SCRIPT, DemoExperiment, RunDemo
 
 
 @dataclass
@@ -37,6 +38,8 @@ class World:
     b_token_id: str
     b_credential_id: str
     b_price_id: str
+    b_demo: DemoExperiment
+    b_comparison_id: str
 
 
 PRICE = {
@@ -50,7 +53,9 @@ PRICE = {
 
 
 @pytest.fixture
-async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.AsyncClient]) -> World:
+async def world(
+    new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.AsyncClient], run_demo: RunDemo
+) -> World:
     a_person, b_person = await new_owner(), await new_owner()
     a, b = await seed_and_run(a_person, app), await seed_and_run(b_person, app)
     a_token = await token_caller(a_person, clients(), role="owner")
@@ -61,6 +66,16 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         json={"provider": "gemini", "label": "b", "api_key": "AIzaB-secret-key-0000"},
     )
     price = await b_person.post("/api/v1/price-versions", json=PRICE)
+    b_demo = await run_demo(
+        app.state.sessionmaker, b_person.workspace_id, [GOOD_SCRIPT, UNAPPROVED_SCRIPT]
+    )
+    baseline, candidate = (
+        {"experiment_id": b_demo.experiment_id, "agent_config_id": c} for c in b_demo.config_ids
+    )
+    comparison = await b_person.post(
+        "/api/v1/comparisons", json={"baseline": baseline, "candidate": candidate}
+    )
+    assert comparison.status_code == 201, comparison.text
     return World(
         a_person,
         a_token,
@@ -71,6 +86,8 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         b_token_id,
         credential.json()["id"],
         price.json()["id"],
+        b_demo,
+        comparison.json()["id"],
     )
 
 
@@ -118,6 +135,23 @@ def _foreign_id_attacks(w: World) -> list[tuple[str, str, Any]]:
         ("PATCH", f"/api/v1/experiments/{b.experiment_id}/budget", {"requests": 1}),
         ("POST", f"/api/v1/experiments/{b.experiment_id}/cancel", None),
         ("POST", f"/api/v1/agent-configs/{b.agent_config_id}/check", None),
+        ("GET", f"/api/v1/comparisons/{w.b_comparison_id}", None),
+        (
+            "POST",
+            "/api/v1/comparisons",
+            {
+                "baseline": {"experiment_id": w.b_demo.experiment_id},
+                "candidate": {"experiment_id": w.b_demo.experiment_id},
+            },
+        ),
+        (
+            "POST",
+            "/api/v1/comparisons",
+            {
+                "baseline": {"experiment_id": w.a.experiment_id},
+                "candidate": {"experiment_id": b.experiment_id},
+            },
+        ),
     ]
 
 
@@ -141,6 +175,8 @@ def _b_ids(w: World) -> list[str]:
         b.run_id,
         b.attempt_id,
         w.b_token_id,
+        w.b_demo.experiment_id,
+        w.b_comparison_id,
     ]
 
 
@@ -151,6 +187,8 @@ async def _b_view(w: World) -> dict[str, Any]:
         "/api/v1/experiments",
         f"/api/v1/runs/{w.b.run_id}",
         f"/api/v1/attempts/{w.b.attempt_id}/events",
+        "/api/v1/comparisons",
+        f"/api/v1/comparisons/{w.b_comparison_id}",
     ]
     view = {p: (await w.b_person.get(p)).json() for p in paths}
     tokens = (await w.b_person.get("/api/v1/api-tokens")).json()
@@ -235,6 +273,8 @@ FOREIGN_ID_ROUTES = {
     ("POST", "/api/v1/experiments/{experiment_id}/cancel"),
     ("POST", "/api/v1/agent-configs/{config_id}/check"),
     ("PATCH", "/api/v1/experiments/{experiment_id}/budget"),
+    ("GET", "/api/v1/comparisons/{comparison_id}"),
+    ("POST", "/api/v1/comparisons"),
 }
 LIST_ROUTES = [
     "/api/v1/workspaces",
@@ -245,6 +285,7 @@ LIST_ROUTES = [
     "/api/v1/provider-credentials",
     "/api/v1/price-versions",
     "/api/v1/agent-signing-secret",
+    "/api/v1/comparisons",
 ]
 BODY_ROUTES = {
     ("POST", "/api/v1/datasets/import"),
@@ -286,6 +327,8 @@ def test_every_foreign_id_route_is_really_attacked() -> None:
         b_person=SimpleNamespace(workspace_id="x"),
         b_token_id="x",
         b_credential_id="x",
+        b_comparison_id="x",
+        b_demo=DemoExperiment("x", ["x", "x"]),
     )
     sent = {(method, path) for method, path, _ in _foreign_id_attacks(fake)}
     templates = {(method, re.sub(r"\{[a-z_]+\}", "x", path)) for method, path in FOREIGN_ID_ROUTES}

@@ -7,6 +7,7 @@ from app.api import (
     agent_configs,
     api_tokens,
     auth,
+    comparisons,
     datasets,
     experiments,
     gateway,
@@ -58,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         agent_configs,
         experiments,
         runs,
+        comparisons,
         signing_secret,
         gateway,
     ):

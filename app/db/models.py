@@ -683,3 +683,25 @@ class ModelCall(WorkspaceScoped, Base):
     cost_micros: Mapped[int | None] = mapped_column(BigInteger)
     duration_ms: Mapped[int]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Comparison(WorkspaceScoped, Base):
+    """A paired comparison of two configs, frozen when made so a report never shifts."""
+
+    __tablename__ = "comparisons"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        workspace_fk("baseline_experiment_id", "experiments"),
+        workspace_fk("candidate_experiment_id", "experiments"),
+        workspace_fk("baseline_config_id", "agent_configs"),
+        workspace_fk("candidate_config_id", "agent_configs"),
+        Index("ix_comparisons_workspace_created", "workspace_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    baseline_experiment_id: Mapped[str]
+    baseline_config_id: Mapped[str]
+    candidate_experiment_id: Mapped[str]
+    candidate_config_id: Mapped[str]
+    result: Mapped[dict[str, Any]]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())

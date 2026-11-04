@@ -129,6 +129,17 @@ Each experiment shows one scorecard per agent config. It is a set of numbers, no
 
 The scorecard also breaks verified success down by task category and ranks failure reasons by how many runs they hit.
 
+## Comparisons
+
+A comparison puts two agent configs side by side on the same tasks. Each side is one config in one finished experiment. Putting both configs in one experiment is the cleanest way: they run on the same queue, with the same faults, at the same time.
+
+- Only the config may differ. The dataset version, split, environment versions, evaluator versions, limits and mode must all match, or the request is refused with the `field` that differs.
+- Each task is one row. A task's repetitions stay together as its pass rate, and the task is a win, a loss or a tie for the candidate. A task with nothing scorable on one side is left unpaired, never counted as a loss.
+- Regressed tasks come first, worst first, with the failing run ids and reason codes, so you can open the exact run.
+- The success difference has a 95% bootstrap interval over tasks. The seed comes from the two sides, so the same comparison always gives the same interval.
+- The report says when the difference may be noise: fewer than 30 paired tasks, or an interval that includes zero. It also notes when a side ran on more than one model version, which happens when a model alias moves.
+- A comparison is frozen when it is made. Reading it later shows exactly what was shown then.
+
 ## Environments
 
 `support-retail@1` is a made-up electronics store. Its tools:
@@ -309,6 +320,7 @@ Creating a workspace, inviting, joining, creating or revoking a token, importing
 | `POST /gw/v1/attempts/{id}/result` | Where an agent that answered `202` posts its final answer | the attempt's run token |
 | `PATCH /api/v1/experiments/{id}/budget` | Change the caps. Never below what is used | owner |
 | `GET /api/v1/runs/{id}`, `GET /api/v1/attempts/{id}/events` | A run with its scores, the ordered trace of an attempt | viewer |
+| `POST /api/v1/comparisons`, `GET /api/v1/comparisons`, `GET /api/v1/comparisons/{id}` | Compare two agent configs task by task, list, view. Refused with the differing `field` unless only the config differs | member, viewer |
 | `GET`, `POST /api/v1/provider-credentials`, `DELETE .../{id}` | Manage encrypted provider keys | owner |
 | `GET`, `POST /api/v1/price-versions` | List and add model prices | viewer, owner |
 | `GET /health/live`, `GET /health/ready` | Process is up; database is reachable and migrated | none |
