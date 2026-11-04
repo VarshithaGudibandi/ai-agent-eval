@@ -169,8 +169,23 @@ class HttpAgentAdapter:
             return AgentResult("", "agent_error", {"error": "the reply was not valid JSON"})
         # Usage comes from the agent itself and cannot be checked, so it is labeled as such.
         return AgentResult(
-            reply.final_response, "model_final", {"usage_self_reported": reply.usage}
+            reply.final_response, "model_final", {"usage_self_reported": _counts(reply.usage)}
         )
+
+
+MAX_USAGE_KEYS = 20
+
+
+def _counts(usage: dict[str, Any] | None) -> dict[str, int] | None:
+    """Keep only flat, non-negative counts, so an agent cannot bloat or break the trace."""
+    if not usage:
+        return None
+    kept = {
+        key: value
+        for key, value in usage.items()
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0 and len(key) <= 64
+    }
+    return dict(sorted(kept.items())[:MAX_USAGE_KEYS]) or None
 
 
 class HandshakeResult(BaseModel):

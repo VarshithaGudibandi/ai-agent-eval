@@ -186,6 +186,9 @@ async def _execute(platform: Platform, loaded: _Loaded, started: float) -> model
             "final_response": result.final_response,
             "stop_reason": result.stop_reason,
             "model_unavailable": model_unavailable,
+            # An external agent's own account of its model usage. It cannot be checked, so it
+            # is kept apart from the platform's metered calls and never charged to a budget.
+            "usage_self_reported": result.metadata.get("usage_self_reported"),
         },
     )
 

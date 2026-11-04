@@ -7,9 +7,11 @@ import pytest
 
 from app.agents.contract import RunLimits
 from app.agents.http import (
+    MAX_USAGE_KEYS,
     ExternalAgentUnavailableError,
     HttpAgentAdapter,
     HttpAgentSettings,
+    _counts,
     handshake,
 )
 from app.agents.http_guard import GuardPolicy
@@ -163,3 +165,20 @@ async def test_handshake_reports_what_is_wrong() -> None:
     assert ok.ok and ok.status_code == 200
     assert not wrong.ok and "protocol_version" in (wrong.problem or "")
     assert not blocked.ok and (blocked.problem or "").startswith("blocked")
+
+
+def test_only_flat_counts_of_reported_usage_are_kept() -> None:
+    reported = {
+        "input_tokens": 10,
+        "cost": 0.5,
+        "nested": {"a": 1},
+        "negative": -1,
+        "flag": True,
+        "x" * 65: 1,
+        **{f"k{i:02}": i for i in range(30)},
+    }
+    kept = _counts(reported)
+    assert kept is not None and len(kept) == MAX_USAGE_KEYS
+    assert set(kept) <= {"input_tokens"} | {f"k{i:02}" for i in range(30)}
+    assert _counts({"nested": {"a": 1}}) is None
+    assert _counts(None) is None

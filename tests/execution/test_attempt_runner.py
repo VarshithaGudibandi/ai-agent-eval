@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agents.contract import RunLimits
+from app.agents.contract import AgentResult, RunLimits
 from app.budget.pricing import create_price_version
 from app.db import models
 from app.db.attempts import AttemptNotLiveError
@@ -17,6 +17,7 @@ from app.environments.contract import TaskVersion
 from app.environments.registry import default_registry
 from app.evaluators.contract import EvalContext, Layer, Score
 from app.evaluators.registry import default_evaluators
+from app.execution import attempt_runner
 from app.execution.attempt_runner import Platform, run_attempt
 from app.execution.experiment_runner import run_experiment
 from app.providers.contract import Retryable
@@ -256,3 +257,23 @@ async def test_unreachable_model_leaves_the_run_unscored(
     assert (run.execution_status, run.evaluation_status) == ("infrastructure_error", "pending")
     assert attempt_id is not None
     assert await _scores(sessionmaker, attempt_id) == {}
+
+
+async def test_usage_an_agent_reports_is_kept_in_the_trace(
+    platform: Platform, workspace_id: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Reporting:
+        async def run(self, *_: Any) -> AgentResult:
+            return AgentResult("Done.", "model_final", {"usage_self_reported": {"tokens": 42}})
+
+    monkeypatch.setattr(attempt_runner, "build_adapter", lambda *_: Reporting())
+    _, attempt = await _run_one(platform, workspace_id, CORRECT)
+    async with platform.sessionmaker() as session:
+        finished = await session.scalar(
+            select(models.TraceEvent).where(
+                models.TraceEvent.attempt_id == attempt.id,
+                models.TraceEvent.event_type == "agent_finished",
+            )
+        )
+    assert finished is not None
+    assert finished.payload["usage_self_reported"] == {"tokens": 42}
