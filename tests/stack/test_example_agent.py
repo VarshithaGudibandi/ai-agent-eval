@@ -10,7 +10,7 @@ import os
 import shutil
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import httpx
@@ -32,8 +32,13 @@ def _until(check: Callable[[], bool], seconds: float = 90) -> None:
     raise AssertionError("timed out")
 
 
-def test_the_example_agent_runs_in_its_own_container_and_is_graded() -> None:
-    api = httpx.Client(base_url=str(STACK_URL), timeout=30)
+@pytest.fixture
+def api() -> Iterator[httpx.Client]:
+    with httpx.Client(base_url=str(STACK_URL), timeout=30) as client:
+        yield client
+
+
+def test_the_example_agent_runs_in_its_own_container_and_is_graded(api: httpx.Client) -> None:
     email = f"stack-{int(time.time())}@example.com"
     password = "stack-check-password"
     setup = api.post(
