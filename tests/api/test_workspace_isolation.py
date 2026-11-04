@@ -4,8 +4,10 @@ Rows in another workspace must answer exactly like rows that do not exist (404),
 nothing in B may change. The last test fails if a route is added without a case here.
 """
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -114,6 +116,8 @@ def _foreign_id_attacks(w: World) -> list[tuple[str, str, Any]]:
         ("POST", f"/api/v1/experiments/{b.experiment_id}/resume", None),
         ("POST", f"/api/v1/experiments/{b.experiment_id}/close", None),
         ("PATCH", f"/api/v1/experiments/{b.experiment_id}/budget", {"requests": 1}),
+        ("POST", f"/api/v1/experiments/{b.experiment_id}/cancel", None),
+        ("POST", f"/api/v1/agent-configs/{b.agent_config_id}/check", None),
     ]
 
 
@@ -272,3 +276,17 @@ def test_every_route_has_an_isolation_case(app: FastAPI) -> None:
     )
     assert routes - covered == set(), "add an isolation case for these routes"
     assert covered - routes == set(), "these cases name routes that no longer exist"
+
+
+def test_every_foreign_id_route_is_really_attacked() -> None:
+    # Listing a route as covered is not enough: an attack must actually send it.
+    fake: Any = SimpleNamespace(
+        a=Seeded(*"xxxxx"),
+        b=Seeded(*"xxxxx"),
+        b_person=SimpleNamespace(workspace_id="x"),
+        b_token_id="x",
+        b_credential_id="x",
+    )
+    sent = {(method, path) for method, path, _ in _foreign_id_attacks(fake)}
+    templates = {(method, re.sub(r"\{[a-z_]+\}", "x", path)) for method, path in FOREIGN_ID_ROUTES}
+    assert templates - sent == set(), "these foreign-id routes have no attack"
