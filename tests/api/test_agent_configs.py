@@ -32,3 +32,13 @@ async def test_bad_settings_are_rejected(new_owner: SignIn) -> None:
     )
     assert (bad.status_code, bad.json()["detail"]["error"]) == (422, "settings_invalid")
     assert [no_url.status_code, not_http.status_code, good.status_code] == [422, 422, 201]
+
+
+async def test_configs_show_how_often_they_have_seen_held_out_tasks(new_owner: SignIn) -> None:
+    owner = await new_owner()
+    await owner.post(
+        "/api/v1/agent-configs",
+        json={"name": "fresh", "adapter_type": "scripted", "settings": SCRIPT},
+    )
+    [config] = (await owner.get("/api/v1/agent-configs")).json()
+    assert config["held_out_runs"] == 0

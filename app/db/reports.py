@@ -191,3 +191,30 @@ async def run_facts(scope: WorkspaceScope, experiment_id: str) -> list[RunFacts]
                     totals[key] += value
             run.self_reported = dict(totals)
     return list(facts.values())
+
+
+async def held_out_runs(scope: WorkspaceScope, config_ids: list[str]) -> dict[str, int]:
+    """How many runs each config has had on held-out tasks.
+
+    Every look at held-out tasks spends some of their value as an unbiased test, so the count
+    travels with the config.
+    """
+    if not config_ids:
+        return {}
+    rows = await scope.session.execute(
+        select(models.Run.agent_config_id, func.count())
+        .join(
+            models.TaskVersion,
+            (models.TaskVersion.id == models.Run.task_version_id)
+            & (models.TaskVersion.workspace_id == models.Run.workspace_id),
+        )
+        .where(
+            models.Run.workspace_id == scope.workspace_id,
+            models.Run.agent_config_id.in_(config_ids),
+            models.TaskVersion.split == models.Split.HELD_OUT,
+        )
+        .group_by(models.Run.agent_config_id)
+    )
+    counts = {config_id: 0 for config_id in config_ids}
+    counts.update({config_id: count for config_id, count in rows})
+    return counts

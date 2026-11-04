@@ -14,6 +14,7 @@ from app.auth.signing_secrets import signing_secret
 from app.db import models
 from app.db.audit import record_audit
 from app.db.content import create_agent_config, list_agent_configs
+from app.db.reports import held_out_runs
 
 router = APIRouter(prefix="/api/v1/agent-configs", tags=["agent configs"])
 
@@ -33,9 +34,11 @@ class ConfigOut(BaseModel):
     limits: RunLimits
     config_hash: str
     created_at: datetime
+    # Runs this config has had on held-out tasks. Each one makes them a little less unseen.
+    held_out_runs: int = 0
 
     @classmethod
-    def of(cls, row: models.AgentConfig) -> "ConfigOut":
+    def of(cls, row: models.AgentConfig, held_out: int = 0) -> "ConfigOut":
         return cls(
             id=row.id,
             name=row.name,
@@ -44,6 +47,7 @@ class ConfigOut(BaseModel):
             limits=RunLimits.model_validate(row.limits),
             config_hash=row.config_hash,
             created_at=row.created_at,
+            held_out_runs=held_out,
         )
 
 
@@ -85,7 +89,10 @@ async def new_config(
 @router.get("")
 async def configs(principal: Viewer, session: Db) -> list[ConfigOut]:
     """Agent configs in this workspace, newest first."""
-    return [ConfigOut.of(c) for c in await list_agent_configs(scope_for(session, principal))]
+    scope = scope_for(session, principal)
+    rows = await list_agent_configs(scope)
+    held_out = await held_out_runs(scope, [c.id for c in rows])
+    return [ConfigOut.of(c, held_out[c.id]) for c in rows]
 
 
 @router.post("/{config_id}/check")

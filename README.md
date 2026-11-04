@@ -309,7 +309,7 @@ Creating a workspace, inviting, joining, creating or revoking a token, importing
 | `POST /api/v1/workspaces/{id}/invites`, `POST /api/v1/invites/accept` | Invite someone, join with an invite | owner, none |
 | `GET`, `POST /api/v1/api-tokens`, `DELETE /api/v1/api-tokens/{id}` | Manage API tokens | owner |
 | `POST /api/v1/datasets/import`, `GET /api/v1/datasets` | Import tasks as a new dataset version, list datasets | member, viewer |
-| `POST /api/v1/agent-configs`, `GET /api/v1/agent-configs` | Register an agent config, list them | member, viewer |
+| `POST /api/v1/agent-configs`, `GET /api/v1/agent-configs` | Register an agent config, list them with how many runs each has had on held-out tasks | member, viewer |
 | `POST /api/v1/experiments`, `GET /api/v1/experiments`, `GET /api/v1/experiments/{id}` | Create an experiment on one `split`, with `final` for held-out runs (send `Idempotency-Key` to make retries safe), list, view with a scorecard per agent config | member, viewer |
 | `GET /api/v1/experiments/{id}/runs` | Runs of an experiment, filtered by `evaluation_status`, paginated | viewer |
 | `POST /api/v1/experiments/{id}/pause`, `/resume`, `/close` | Pause, resume, or close a paused experiment as partial | member |
