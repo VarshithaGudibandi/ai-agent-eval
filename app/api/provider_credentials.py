@@ -1,14 +1,11 @@
 from datetime import datetime
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, status
 from pydantic import BaseModel, Field, SecretStr
 
-from app.api.dependencies import Db, Owner, get_settings_dep, scope_for
+from app.api.dependencies import Db, Owner, Vault, scope_for
 from app.db import models
 from app.providers.credentials import create_credential, list_credentials, revoke_credential
-from app.providers.key_vault import KeyVault, MasterKeyMissingError, key_vault_from_settings
-from app.settings import Settings
 
 router = APIRouter(prefix="/api/v1/provider-credentials", tags=["provider keys"])
 
@@ -18,15 +15,6 @@ FREE_TIER_WARNING = {
         "Send only synthetic data through a free-tier key."
     ),
 }
-
-
-def key_vault(settings: Annotated[Settings, Depends(get_settings_dep)]) -> KeyVault:
-    try:
-        return key_vault_from_settings(settings)
-    except MasterKeyMissingError as exc:
-        raise HTTPException(
-            status_code=503, detail={"error": "master_key_missing", "message": str(exc)}
-        ) from None
 
 
 class NewCredentialRequest(BaseModel):
@@ -75,7 +63,7 @@ async def new_credential(
     body: NewCredentialRequest,
     principal: Owner,
     session: Db,
-    vault: Annotated[KeyVault, Depends(key_vault)],
+    vault: Vault,
 ) -> CredentialOut:
     """Store a provider key, encrypted. It is never shown again.
 

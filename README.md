@@ -283,6 +283,8 @@ Creating a workspace, inviting, joining, creating or revoking a token, importing
 | `GET /api/v1/experiments/{id}/runs` | Runs of an experiment, filtered by `evaluation_status`, paginated | viewer |
 | `POST /api/v1/experiments/{id}/pause`, `/resume`, `/close` | Pause, resume, or close a paused experiment as partial | member |
 | `POST /api/v1/experiments/{id}/cancel` | Stop an experiment for good. Running agents are stopped at their next step | member |
+| `GET /api/v1/agent-signing-secret`, `POST /api/v1/agent-signing-secret` | See whether the workspace has a secret for signing agent requests, or create a new one (shown once) | viewer, owner |
+| `POST /api/v1/agent-configs/{id}/check` | Send an HTTP agent a signed handshake and report what is wrong | member |
 | `POST /gw/v1/attempts/{id}/tools/{tool}` | The tool gateway for external agents. Takes the arguments as a JSON object | the attempt's run token |
 | `POST /gw/v1/attempts/{id}/result` | Where an agent that answered `202` posts its final answer | the attempt's run token |
 | `PATCH /api/v1/experiments/{id}/budget` | Change the caps. Never below what is used | owner |
@@ -351,6 +353,10 @@ All settings are in `.env.example`. The main ones:
 | `HEARTBEAT_SECONDS` | `10` | How often a worker renews its leases. At most half of `LEASE_SECONDS` |
 | `RECONCILE_SECONDS` | `15` | How often a worker looks for expired leases |
 | `MAX_ATTEMPTS_PER_RUN` | `3` | Interrupted attempts a run may have before it is given up as an infrastructure error |
+| `GATEWAY_PUBLIC_URL` | `http://127.0.0.1:8000` | Where external agents reach the tool gateway. Compose sets `http://api:8000` |
+| `ALLOW_LOCAL_AGENTS` | `false` | Let agents on localhost or a private network be called. Compose turns it on. Keep it off when hosted |
+| `REQUIRE_HTTPS_AGENTS` | `false` | Refuse agent URLs that are not `https`. Turn on when hosted |
+| `AGENT_RESPONSE_MAX_BYTES` | `1000000` | Largest reply an external agent may send |
 
 ## Connect your own agent
 

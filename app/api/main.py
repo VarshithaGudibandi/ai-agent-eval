@@ -14,6 +14,7 @@ from app.api import (
     prices,
     provider_credentials,
     runs,
+    signing_secret,
     workspaces,
 )
 from app.api.errors import register_error_handlers
@@ -57,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         agent_configs,
         experiments,
         runs,
+        signing_secret,
         gateway,
     ):
         app.include_router(module.router)

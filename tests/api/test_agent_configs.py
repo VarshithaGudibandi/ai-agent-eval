@@ -13,14 +13,22 @@ async def test_scripted_config_is_stored_and_listed(new_owner: SignIn) -> None:
     ]
 
 
-async def test_bad_settings_and_unbuilt_adapters_are_rejected(new_owner: SignIn) -> None:
+async def test_bad_settings_are_rejected(new_owner: SignIn) -> None:
     owner = await new_owner()
     bad = await owner.post(
         "/api/v1/agent-configs",
         json={"name": "s", "adapter_type": "scripted", "settings": {"script": {"steps": "no"}}},
     )
-    unbuilt = await owner.post(
+    no_url = await owner.post(
         "/api/v1/agent-configs", json={"name": "h", "adapter_type": "http", "settings": {}}
     )
+    not_http = await owner.post(
+        "/api/v1/agent-configs",
+        json={"name": "h", "adapter_type": "http", "settings": {"url": "ftp://agent.example"}},
+    )
+    good = await owner.post(
+        "/api/v1/agent-configs",
+        json={"name": "h", "adapter_type": "http", "settings": {"url": "https://agent.example"}},
+    )
     assert (bad.status_code, bad.json()["detail"]["error"]) == (422, "settings_invalid")
-    assert (unbuilt.status_code, unbuilt.json()["detail"]["error"]) == (422, "adapter_unsupported")
+    assert [no_url.status_code, not_http.status_code, good.status_code] == [422, 422, 201]

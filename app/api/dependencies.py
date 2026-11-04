@@ -10,6 +10,7 @@ from app.auth.principal import Principal, role_at_least
 from app.auth.sessions import csrf_valid, resolve_session
 from app.db.models import Role
 from app.db.scope import WorkspaceScope
+from app.providers.key_vault import KeyVault, MasterKeyMissingError, key_vault_from_settings
 from app.settings import Settings
 
 SESSION_COOKIE = "agent_eval_session"
@@ -24,6 +25,18 @@ def _fail(code: int, error: str) -> HTTPException:
 def get_settings_dep(request: Request) -> Settings:
     settings: Settings = request.app.state.settings
     return settings
+
+
+def key_vault(settings: Annotated[Settings, Depends(get_settings_dep)]) -> KeyVault:
+    try:
+        return key_vault_from_settings(settings)
+    except MasterKeyMissingError as exc:
+        raise HTTPException(
+            status_code=503, detail={"error": "master_key_missing", "message": str(exc)}
+        ) from None
+
+
+Vault = Annotated[KeyVault, Depends(key_vault)]
 
 
 async def db_session(request: Request) -> AsyncIterator[AsyncSession]:

@@ -9,6 +9,7 @@ from app.auth.errors import (
     SetupAlreadyDoneError,
     UserRequiredError,
 )
+from app.auth.signing_secrets import SigningSecretRequiredError
 from app.db.attempts import AttemptNotLiveError
 from app.db.budgets import LimitBelowUsageError
 from app.db.content import DatasetRejectedError
@@ -34,11 +35,13 @@ _ERRORS: dict[type[Exception], tuple[int, str]] = {
     UnknownProviderError: (422, "provider_unknown"),
     InvalidTransitionError: (409, "invalid_transition"),
     LimitBelowUsageError: (422, "limit_below_usage"),
+    SigningSecretRequiredError: (409, "signing_secret_required"),
     InvalidRunTokenError: (401, "invalid_run_token"),
     AttemptNotLiveError: (409, "attempt_not_live"),
     ResultAlreadyPostedError: (409, "result_already_posted"),
 }
 _SHOW_MESSAGE = (
+    SigningSecretRequiredError,
     ExperimentRejectedError,
     DatasetRejectedError,
     ProviderKeyRequiredError,

@@ -155,6 +155,11 @@ class Workspace(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     name: Mapped[str]
+    # Signs every request to the workspace's external agents, encrypted like provider keys.
+    signing_secret_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    signing_secret_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
+    signing_secret_last4: Mapped[str | None]
+    signing_secret_created_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 

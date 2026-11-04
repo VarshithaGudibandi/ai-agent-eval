@@ -8,6 +8,9 @@ x-app: &app
       required: false
   environment:
     DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-agent_eval}:${POSTGRES_PASSWORD:-agent_eval}@postgres:5432/${POSTGRES_DB:-agent_eval}
+    # On a laptop, agents run next to the platform, on this Compose network.
+    ALLOW_LOCAL_AGENTS: ${ALLOW_LOCAL_AGENTS:-true}
+    GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-http://api:8000}
 
 services:
   postgres:

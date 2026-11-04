@@ -229,6 +229,7 @@ FOREIGN_ID_ROUTES = {
     ("POST", "/api/v1/experiments/{experiment_id}/resume"),
     ("POST", "/api/v1/experiments/{experiment_id}/close"),
     ("POST", "/api/v1/experiments/{experiment_id}/cancel"),
+    ("POST", "/api/v1/agent-configs/{config_id}/check"),
     ("PATCH", "/api/v1/experiments/{experiment_id}/budget"),
 }
 LIST_ROUTES = [
@@ -239,6 +240,7 @@ LIST_ROUTES = [
     "/api/v1/api-tokens",
     "/api/v1/provider-credentials",
     "/api/v1/price-versions",
+    "/api/v1/agent-signing-secret",
 ]
 BODY_ROUTES = {
     ("POST", "/api/v1/datasets/import"),
@@ -254,6 +256,7 @@ NO_WORKSPACE_INPUT = {
     ("POST", "/api/v1/auth/logout"),
     ("POST", "/api/v1/workspaces"),
     ("POST", "/api/v1/invites/accept"),
+    ("POST", "/api/v1/agent-signing-secret"),
 }
 
 

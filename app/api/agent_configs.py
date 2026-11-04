@@ -6,8 +6,11 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.agents.contract import RunLimits
 from app.agents.factory import UnsupportedAdapterError, validate_settings
+from app.agents.http import HandshakeResult, HttpAgentSettings, handshake
+from app.agents.http_guard import GuardPolicy
 from app.agents.tool_loop import ToolLoopSettings
-from app.api.dependencies import Db, Member, Viewer, scope_for
+from app.api.dependencies import Db, Member, Vault, Viewer, scope_for
+from app.auth.signing_secrets import signing_secret
 from app.db import models
 from app.db.audit import record_audit
 from app.db.content import create_agent_config, list_agent_configs
@@ -83,3 +86,24 @@ async def new_config(
 async def configs(principal: Viewer, session: Db) -> list[ConfigOut]:
     """Agent configs in this workspace, newest first."""
     return [ConfigOut.of(c) for c in await list_agent_configs(scope_for(session, principal))]
+
+
+@router.post("/{config_id}/check")
+async def check(
+    config_id: str, request: Request, principal: Member, session: Db, vault: Vault
+) -> HandshakeResult:
+    """Send an HTTP agent a signed handshake, to find setup problems before a real run."""
+    scope = scope_for(session, principal)
+    config = await scope.require(models.AgentConfig, config_id)
+    if config.adapter_type != models.AdapterType.HTTP:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "not_an_http_agent", "message": "only HTTP agents can be checked"},
+        )
+    settings = request.app.state.settings
+    secret = await signing_secret(session, principal.workspace_id, vault)
+    return await handshake(
+        HttpAgentSettings.model_validate(config.settings).url,
+        secret,
+        GuardPolicy.of(settings),
+    )

@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from app.agents.tool_loop import ToolLoopSettings
+from app.auth.signing_secrets import SigningSecretRequiredError, signing_secret_info
 from app.budget.pricing import Price, latest_price
 from app.db import models
 from app.db.budgets import BudgetLimits
@@ -38,6 +39,11 @@ async def launch_prices(
         raise NotFoundError("agent_configs")
     prices: dict[str, dict[str, Any] | None] = {}
     for config in configs:
+        if config.adapter_type == models.AdapterType.HTTP:
+            # Requests to an external agent are signed. Without a secret none can be sent.
+            if not (await signing_secret_info(scope.session, scope.workspace_id)).configured:
+                raise SigningSecretRequiredError()
+            continue
         if config.adapter_type != models.AdapterType.TOOL_LOOP:
             continue
         settings = ToolLoopSettings.model_validate(config.settings)

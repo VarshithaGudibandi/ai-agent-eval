@@ -10,6 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.contract import HARD_STOPS, AgentResult, RunLimits
 from app.agents.factory import build_adapter
+from app.agents.http import ExternalAgentUnavailableError
+from app.agents.http_guard import GuardPolicy
+from app.auth.signing_secrets import SigningSecretRequiredError, signing_secret
 from app.budget.reservations import BudgetExhaustedError
 from app.db import models
 from app.db.attempts import AttemptNotLiveError, load_attempt, require_live, trace_events
@@ -23,6 +26,7 @@ from app.environments.contract import AgentTaskInput, FaultSpec, TaskVersion
 from app.environments.registry import EnvironmentRegistry
 from app.environments.state_store import EnvStateStore
 from app.evaluators.contract import EvalContext, Evaluator, Score, TraceEvent
+from app.execution.external_link import GatewayLink
 from app.execution.launch import ProviderKeyRequiredError
 from app.execution.model_access import AttemptModels
 from app.execution.trace_recorder import TraceRecorder
@@ -33,7 +37,11 @@ from app.gateway.tool_gateway import (
     public_schemas,
 )
 from app.providers.contract import ContentBlocked, ProviderError
-from app.providers.key_vault import KeyUnreadableError, MasterKeyMissingError
+from app.providers.key_vault import (
+    KeyUnreadableError,
+    MasterKeyMissingError,
+    key_vault_from_settings,
+)
 from app.providers.registry import ProviderRegistry, UnknownProviderError, default_providers
 from app.settings import Settings
 
@@ -47,6 +55,8 @@ _MODEL_UNAVAILABLE = (
     KeyUnreadableError,
     MasterKeyMissingError,
     UnknownProviderError,
+    ExternalAgentUnavailableError,
+    SigningSecretRequiredError,
 )
 
 EXECUTION_STATUS_BY_STOP = {"timeout": models.ExecutionStatus.TIMED_OUT}
@@ -232,8 +242,15 @@ async def _run_agent(
         lease_token=loaded.lease_token,
     )
     async with models_for_attempt:
-        adapter = build_adapter(loaded.adapter_type, loaded.adapter_settings, models_for_attempt)
         try:
+            link = (
+                await _gateway_link(platform, loaded)
+                if loaded.adapter_type == models.AdapterType.HTTP
+                else None
+            )
+            adapter = build_adapter(
+                loaded.adapter_type, loaded.adapter_settings, models_for_attempt, link
+            )
             async with asyncio.timeout(loaded.limits.timeout_seconds):
                 return await adapter.run(agent_input, tools, recorder, loaded.limits)
         except TimeoutError:
@@ -252,6 +269,23 @@ async def _run_agent(
             # The agent's own failure is a result to grade, not a platform error.
             logger.warning("agent raised", exc_info=True, extra={"attempt_id": loaded.attempt_id})
             return AgentResult("", "agent_error", {"error": type(exc).__name__})
+
+
+async def _gateway_link(platform: Platform, loaded: _Loaded) -> GatewayLink:
+    settings = platform.settings
+    async with platform.sessionmaker() as session:
+        secret = await signing_secret(
+            session, loaded.workspace_id, key_vault_from_settings(settings)
+        )
+    return GatewayLink(
+        sessionmaker=platform.sessionmaker,
+        workspace_id=loaded.workspace_id,
+        attempt_id=loaded.attempt_id,
+        lease_token=loaded.lease_token,
+        gateway_url=settings.gateway_public_url,
+        signing_secret=secret,
+        policy=GuardPolicy.of(settings),
+    )
 
 
 async def _hit_tool_limit(platform: Platform, loaded: _Loaded) -> bool:
