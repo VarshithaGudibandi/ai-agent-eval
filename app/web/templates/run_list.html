@@ -1,0 +1,20 @@
+{% if runs %}
+<div class="scroll"><table class="list">
+  <thead><tr><th>Task</th><th>Category</th><th>Config</th><th>Rep</th><th>Execution</th><th>Result</th></tr></thead>
+  <tbody>
+  {% for r in runs %}
+  <tr>
+    <td><a href="/runs/{{ r.id }}">{{ r.task_key }}</a></td>
+    <td>{{ r.category }}</td>
+    <td>{{ config_names.get(r.agent_config_id, r.agent_config_id) }}</td>
+    <td>{{ r.repetition }}</td>
+    <td class="small">{{ r.execution_status }}</td>
+    <td><span class="badge result-{{ r.evaluation_status }}">{{ r.evaluation_status }}</span></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% if runs | length == 200 %}<p class="muted small">Showing the first 200. Narrow the filters to see the rest.</p>{% endif %}
+{% else %}
+<p class="muted">No runs match.</p>
+{% endif %}

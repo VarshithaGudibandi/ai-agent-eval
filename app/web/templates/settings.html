@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Settings · AI Agent Eval{% endblock %}
+{% block main %}
+<h1>Settings</h1>
+
+<section>
+  <h2>Members</h2>
+  <table class="compact">
+    {% for m in members %}
+    <tr><th>{{ m.email }}</th><td>{{ m.role }}</td><td class="muted small">joined {{ m.joined_at | when }}</td></tr>
+    {% endfor %}
+  </table>
+  {% if is_owner %}
+  <form data-api="/api/v1/workspaces/{{ principal.workspace_id }}/invites" data-method="POST" data-show="token" class="inline">
+    <label>Invite a
+      <select name="role"><option>member</option><option>viewer</option><option>owner</option></select>
+    </label>
+    <button type="submit">Make invite link</button>
+    <p class="error" role="alert"></p>
+    <p class="secret" hidden>Send this one-time invite token to the person. It is shown only now: <code></code></p>
+  </form>
+  {% endif %}
+</section>
+
+{% if is_owner %}
+<section>
+  <h2>API tokens</h2>
+  <p class="muted small">For scripts and CI, such as <code>evalctl</code>. Each token belongs to this workspace and one role.</p>
+  <table class="compact">
+    {% for t in tokens %}
+    <tr>
+      <th>{{ t.name }}</th><td>{{ t.role }}</td><td><code>{{ t.prefix }}…</code></td>
+      <td class="muted small">{% if t.revoked %}revoked{% else %}last used {{ t.last_used_at | when or "never" }}{% endif %}</td>
+      <td>{% if not t.revoked %}<button class="link danger" data-api="/api/v1/api-tokens/{{ t.id }}" data-method="DELETE" data-confirm="Revoke {{ t.name }}?">Revoke</button>{% endif %}</td>
+    </tr>
+    {% else %}<tr><td class="muted">None yet.</td></tr>{% endfor %}
+  </table>
+  <form data-api="/api/v1/api-tokens" data-method="POST" data-show="token" class="inline">
+    <label>Name <input name="name" required maxlength="200"></label>
+    <label>Role <select name="role"><option>member</option><option>viewer</option><option>owner</option></select></label>
+    <button type="submit">Create token</button>
+    <p class="error" role="alert"></p>
+    <p class="secret" hidden>Copy it now. It is shown only once: <code></code></p>
+  </form>
+</section>
+
+<section>
+  <h2>Provider keys</h2>
+  <p class="muted small">Encrypted at rest and never shown again. Free-tier Gemini traffic may be used by Google to improve its products, so send only synthetic data through a free-tier key.</p>
+  <table class="compact">
+    {% for k in keys %}
+    <tr>
+      <th>{{ k.label }}</th><td>{{ k.provider }}</td><td><code>…{{ k.last4 }}</code></td>
+      <td class="muted small">{% if k.revoked %}revoked{% else %}added {{ k.created_at | when }}{% endif %}</td>
+      <td>{% if not k.revoked %}<button class="link danger" data-api="/api/v1/provider-credentials/{{ k.id }}" data-method="DELETE" data-confirm="Revoke {{ k.label }}?">Revoke</button>{% endif %}</td>
+    </tr>
+    {% else %}<tr><td class="muted">None yet.</td></tr>{% endfor %}
+  </table>
+  <form data-api="/api/v1/provider-credentials" data-method="POST" class="inline">
+    <input type="hidden" name="provider" value="gemini">
+    <label>Label <input name="label" required maxlength="200"></label>
+    <label>Gemini API key <input name="api_key" type="password" required autocomplete="off"></label>
+    <button type="submit">Save key</button>
+    <p class="error" role="alert"></p>
+  </form>
+</section>
+{% endif %}
+
+<section>
+  <h2>Agent signing secret</h2>
+  <p class="muted small">Every request to your HTTP agents is signed with it, so they can reject anything else.</p>
+  {% if signing.configured %}
+  <p>Set, ending in <code>{{ signing.last4 }}</code>, since {{ signing.created_at | when }}.</p>
+  {% else %}
+  <p class="warn-text">Not set. Real experiments with HTTP agents need one.</p>
+  {% endif %}
+  {% if is_owner %}
+  <form data-api="/api/v1/agent-signing-secret" data-method="POST" data-show="secret" data-confirm="{% if signing.configured %}Rotate the secret? Agents using the old one stop working until you update them.{% endif %}" class="inline">
+    <button type="submit">{% if signing.configured %}Rotate{% else %}Create{% endif %} secret</button>
+    <p class="error" role="alert"></p>
+    <p class="secret" hidden>Give this to your agents. It is shown only once: <code></code></p>
+  </form>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Agent endpoints</h2>
+  {% if endpoints %}
+  <table class="compact">
+    {% for c in endpoints %}
+    <tr>
+      <th>{{ c.name }}</th>
+      <td><code>{{ c.settings.url }}</code></td>
+      <td class="muted small">{{ c.held_out_runs }} held-out run{{ "s" if c.held_out_runs != 1 }}</td>
+      <td>
+        {% if can_change %}<button data-api="/api/v1/agent-configs/{{ c.id }}/check" data-method="POST" data-show-check>Check</button>{% endif %}
+        <span class="check-result small"></span>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No HTTP agents registered. See "Connect your own agent" in the README.</p>
+  {% endif %}
+</section>
+{% endblock %}

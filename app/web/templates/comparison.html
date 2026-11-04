@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{{ comparison.id }} · AI Agent Eval{% endblock %}
+{% block main %}
+{% set r = comparison.result %}
+{% set base, cand = r.baseline, r.candidate %}
+<header class="page">
+  <h1>{{ base.config_name }} → {{ cand.config_name }}</h1>
+  <div class="muted small">
+    baseline <a href="/experiments/{{ base.experiment_id }}">{{ base.experiment_id }}</a> ·
+    candidate <a href="/experiments/{{ cand.experiment_id }}">{{ cand.experiment_id }}</a> ·
+    made {{ comparison.created_at | when }}
+  </div>
+</header>
+
+<section class="summary">
+  <div class="stat {% if r.losses %}bad{% endif %}"><span>{{ r.losses }}</span>regressed</div>
+  <div class="stat"><span>{{ r.wins }}</span>improved</div>
+  <div class="stat"><span>{{ r.ties }}</span>unchanged</div>
+  <div class="stat"><span>{{ r.unscored }}</span>unpaired</div>
+</section>
+
+<section>
+  <h2>Success</h2>
+  {% set s = r.success %}
+  <p>
+    Mean per-task pass rate: {{ s.baseline | percent }} → <strong>{{ s.candidate | percent }}</strong>,
+    a change of <strong>{{ "%+.0f" | format((s.delta or 0) * 100) }} points</strong>
+    {% if s.low is not none %}(95% interval {{ "%+.0f" | format(s.low * 100) }} to {{ "%+.0f" | format(s.high * 100) }}, {{ r.paired_tasks }} paired tasks){% endif %}.
+  </p>
+  {% if r.may_be_noise %}<p class="banner">This difference may be noise.</p>{% endif %}
+  {% for note in r.notes %}<p class="small muted">{{ note }}</p>{% endfor %}
+</section>
+
+<section>
+  <h2>Side by side</h2>
+  <div class="scroll"><table class="scorecard">
+    <thead><tr><th></th><th>{{ base.config_name }}</th><th>{{ cand.config_name }}</th></tr></thead>
+    <tbody>
+      {% for label, key in [("Verified success", "verified_success"), ("Coverage", "coverage"), ("Executed violation rate", "executed_violation_rate"), ("Unsafe attempt rate", "unsafe_attempt_rate"), ("Required-call recall", "required_call_recall")] %}
+      <tr class="{% if key == 'executed_violation_rate' %}hard{% endif %}">
+        <th>{{ label }}</th>
+        <td>{{ base.scorecard[key].value | percent }} <span class="muted small">{{ base.scorecard[key].numerator }} / {{ base.scorecard[key].denominator }}</span></td>
+        <td>{{ cand.scorecard[key].value | percent }} <span class="muted small">{{ cand.scorecard[key].numerator }} / {{ cand.scorecard[key].denominator }}</span></td>
+      </tr>
+      {% endfor %}
+      <tr><th>Execution time p50</th><td>{{ base.scorecard.execution_latency.p50_ms | duration }}</td><td>{{ cand.scorecard.execution_latency.p50_ms | duration }}</td></tr>
+      <tr><th>Spend per success</th><td>{{ base.scorecard.cost.money_per_success_micros | money }}</td><td>{{ cand.scorecard.cost.money_per_success_micros | money }}</td></tr>
+      <tr><th>Tokens</th><td>{{ base.scorecard.cost.tokens }}</td><td>{{ cand.scorecard.cost.tokens }}</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Task by task</h2>
+  <div class="scroll"><table class="list">
+    <thead><tr><th>Task</th><th>Outcome</th><th>Baseline</th><th>Candidate</th><th>Why the candidate failed</th><th>Runs</th></tr></thead>
+    <tbody>
+    {% for t in r.tasks %}
+    <tr class="row-{{ t.outcome }}">
+      <td>{{ t.task_key }} <span class="muted small">{{ t.category }}</span></td>
+      <td><span class="badge outcome-{{ t.outcome }}">{{ {"loss": "regressed", "win": "improved", "tie": "same", "unscored": "unpaired"}[t.outcome] }}</span></td>
+      <td>{{ t.baseline.passed }} / {{ t.baseline.scorable }}</td>
+      <td>{{ t.candidate.passed }} / {{ t.candidate.scorable }}</td>
+      <td class="small">{{ t.candidate.reason_codes | join(", ") }}</td>
+      <td class="small">
+        <div>candidate {% for id in t.candidate.run_ids %}<a href="/runs/{{ id }}">#{{ loop.index }}</a> {% endfor %}</div>
+        <div class="muted">baseline {% for id in t.baseline.run_ids %}<a href="/runs/{{ id }}">#{{ loop.index }}</a> {% endfor %}</div>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

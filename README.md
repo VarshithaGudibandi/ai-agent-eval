@@ -2,7 +2,7 @@
 
 Runs an AI agent many times inside controlled environments, grades the resulting state, and compares configurations task by task.
 
-Status: real model agents run end to end, with costs tracked and capped. A scripted agent or a model (Gemini, or a local Ollama model) works in two mock environments: an electronics store with 50 support tasks, and a company IT helpdesk with 10. Every model call and tool call is traced, faults can be injected, and each run is graded on outcome, policy, trajectory and response from the environment's real state. People sign in, work in separate workspaces, and use API tokens for scripts. Workers run experiments in the background from a Postgres job queue, survive crashes and can be cancelled. Teams can plug in their own agents over HTTP. Comparison reports and the web pages come next.
+Status: real model agents run end to end, with costs tracked and capped. A scripted agent or a model (Gemini, or a local Ollama model) works in two mock environments: an electronics store with 50 support tasks, and a company IT helpdesk with 10. Every model call and tool call is traced, faults can be injected, and each run is graded on outcome, policy, trajectory and response from the environment's real state. People sign in, work in separate workspaces, and use API tokens for scripts. Workers run experiments in the background from a Postgres job queue, survive crashes and can be cancelled. Teams can plug in their own agents over HTTP. Each experiment has a scorecard, two configs can be compared task by task, results export as JSON or CSV, and web pages show all of it.
 
 ## How a run flows
 
@@ -140,6 +140,20 @@ A comparison puts two agent configs side by side on the same tasks. Each side is
 - The report says when the difference may be noise: fewer than 30 paired tasks, or an interval that includes zero. It also notes when a side ran on more than one model version, which happens when a model alias moves.
 - A comparison is frozen when it is made. Reading it later shows exactly what was shown then.
 
+
+## Web pages
+
+Open the API's address in a browser and sign in. The pages read the same data as the API, and every change they make is a call to `/api/v1`, so anything you can do on a page a script can do too.
+
+| Page | Shows |
+| --- | --- |
+| Experiments | Every experiment with its configs, progress, success, spend and budget bar. Demo ones are marked |
+| Experiment | The scorecard per config, results by category, failure reasons ranked and linked to their runs, timing and token charts, budget caps, and the run list with filters |
+| Run | What the agent saw next to the hidden ground truth, each failing check with a link to the exact call, the full trace and what changed in the environment |
+| Comparisons | Make a comparison and see past ones. A comparison puts regressed tasks first |
+| Settings | Members and invites, API tokens, provider keys, the agent signing secret, and a Check button for each HTTP agent |
+
+The fastest path to a cause: an experiment, then a failure reason, then a failed run, then "jump to the call". Pages load no outside scripts and run no inline ones, so text from an agent or a tool can only ever show up as text.
 ## Environments
 
 `support-retail@1` is a made-up electronics store. Its tools:
@@ -240,7 +254,7 @@ On a fresh install, create the first account. That person becomes the owner of t
 curl -X POST http://127.0.0.1:8000/api/v1/auth/setup -H 'content-type: application/json' -d '{"email": "you@example.com", "password": "at least twelve characters", "workspace_name": "My team"}'
 ```
 
-Then sign in with `POST /api/v1/auth/login`, or create an API token for scripts.
+Then open http://127.0.0.1:8000 and sign in, or use `POST /api/v1/auth/login`, or create an API token for scripts.
 
 Create an experiment through the API and the `worker` service runs it in the background. `make up` starts one worker. Start more with `docker compose up -d --scale worker=3`.
 
@@ -361,7 +375,8 @@ Scripted agents can only run in `demo` experiments, and demo experiments can onl
 | `app/execution/` | The attempt and experiment runners, launch checks, the trace recorder, the worker |
 | `app/gateway/` | The tool gateway every agent calls |
 | `app/providers/` | Model providers (Gemini, Ollama), encrypted keys, rate limiting, metered calls |
-| `app/reports/` | Scorecards and the numbers behind them |
+| `app/reports/` | Scorecards, comparisons, exports and state diffs |
+| `app/web/` | The web pages, their templates and static files |
 | `datasets/` | Tasks, one JSON file each |
 | `examples/` | A minimal external agent that talks to the platform over HTTP |
 | `migrations/` | Alembic migrations |

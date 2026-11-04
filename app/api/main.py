@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.api import (
     agent_configs,
@@ -27,6 +28,7 @@ from app.gateway.tool_gateway import ToolGateway
 from app.providers.registry import default_providers
 from app.settings import Settings, get_settings
 from app.structured_logging import configure_logging
+from app.web.pages import STATIC_DIR, register_pages
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -66,4 +68,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         gateway,
     ):
         app.include_router(module.router)
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    register_pages(app)
     return app

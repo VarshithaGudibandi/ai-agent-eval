@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Experiments · AI Agent Eval{% endblock %}
+{% block main %}
+<h1>Experiments</h1>
+{% if not experiments %}
+<p class="muted">No experiments yet. Create one with <code>POST /api/v1/experiments</code> or <code>evalctl run</code>.</p>
+{% else %}
+<div class="scroll"><table class="list">
+  <thead>
+    <tr>
+      <th>Experiment</th><th>Configs</th><th>Dataset</th><th>Progress</th>
+      <th>Verified success</th><th>Spend</th><th>Budget</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for e in experiments %}
+    {% set counts = e.runs_by_evaluation_status %}
+    {% set planned = counts.values() | sum %}
+    {% set done = planned - counts.get("pending", 0) %}
+    {% set scorable = counts.get("pass", 0) + counts.get("fail", 0) + counts.get("partial", 0) %}
+    {% set budget = e.budget %}
+    <tr>
+      <td>
+        <a href="/experiments/{{ e.id }}">{{ e.id }}</a>
+        <div class="tags">
+          <span class="badge mode-{{ e.mode }}">{{ e.mode }}</span>
+          <span class="badge">{{ e.split }}{% if e.final %} · final{% endif %}</span>
+          <span class="badge status-{{ e.status }}">{{ e.status }}</span>
+        </div>
+        <div class="muted small">{{ e.created_at | when }}</div>
+      </td>
+      <td>{% for c in e.manifest.agent_configs %}<div>{{ config_names.get(c.id, c.id) }}</div>{% endfor %}</td>
+      <td class="small">{{ e.dataset_version_id }}</td>
+      <td>
+        <progress value="{{ done }}" max="{{ planned or 1 }}" title="{{ done }} of {{ planned }} runs finished"></progress>
+        <div class="small">{{ done }} / {{ planned }}</div>
+      </td>
+      <td>{{ (counts.get("pass", 0) / scorable) | percent if scorable else "n/a" }}</td>
+      <td class="small">
+        {{ budget.money_used_micros | money(budget.currency) }}<br>
+        {{ budget.tokens_used }} tokens · {{ budget.requests_used }} requests
+      </td>
+      <td>
+        {% if budget.money_limit_micros %}
+          {% set used, limit = budget.money_used_micros, budget.money_limit_micros %}
+        {% elif budget.tokens_limit %}
+          {% set used, limit = budget.tokens_used, budget.tokens_limit %}
+        {% elif budget.requests_limit %}
+          {% set used, limit = budget.requests_used, budget.requests_limit %}
+        {% else %}
+          {% set used, limit = 0, None %}
+        {% endif %}
+        {% if limit %}
+        <progress class="{% if budget.warning %}warn{% endif %}" value="{{ [used, limit] | min }}" max="{{ limit }}" title="{{ used }} of {{ limit }}"></progress>
+        <div class="small">{{ bar(used, limit) }}% used</div>
+        {% else %}<span class="muted small">no cap</span>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endif %}
+{% endblock %}
