@@ -11,6 +11,7 @@ x-app: &app
     # On a laptop, agents run next to the platform, on this Compose network.
     ALLOW_LOCAL_AGENTS: ${ALLOW_LOCAL_AGENTS:-true}
     GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-http://api:8000}
+    APP_MASTER_KEY: ${APP_MASTER_KEY:-}
 
 services:
   postgres:
@@ -66,6 +67,16 @@ services:
     # Time to finish in-flight attempts on stop. Anything still running after this is killed,
     # its lease expires and another worker retries it.
     stop_grace_period: 90s
+
+  # The minimal external agent from examples/. Start it with the workspace's signing secret:
+  # AGENT_SIGNING_SECRET=whsec_... docker compose --profile example up -d example-agent
+  example-agent:
+    build: ./examples/minimal_agent
+    image: agent-eval-example:local
+    profiles: ["example"]
+    environment:
+      AGENT_SIGNING_SECRET: ${AGENT_SIGNING_SECRET:-}
+    restart: unless-stopped
 
 volumes:
   postgres-data:

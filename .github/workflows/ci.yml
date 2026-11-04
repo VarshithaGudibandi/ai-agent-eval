@@ -39,9 +39,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Make a master key for this run
+        run: echo "APP_MASTER_KEY=$(python3 -c 'import base64, secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())')" >> "$GITHUB_ENV"
       - run: make up
       - run: curl --fail --silent --show-error http://127.0.0.1:8000/health/ready
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.11.32"
+      - run: uv sync --locked
+      - name: Run the example agent in its own container and grade it
+        run: uv run pytest tests/stack
+        env:
+          STACK_URL: http://127.0.0.1:8000
       - if: failure()
-        run: docker compose logs
+        run: docker compose --profile example logs
       - if: always()
-        run: docker compose down --volumes
+        run: docker compose --profile example down --volumes

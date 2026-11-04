@@ -2,7 +2,7 @@
 
 Runs an AI agent many times inside controlled environments, grades the resulting state, and compares configurations task by task.
 
-Status: real model agents run end to end, with costs tracked and capped. A scripted agent or a model (Gemini, or a local Ollama model) works in two mock environments: an electronics store with 50 support tasks, and a company IT helpdesk with 10. Every model call and tool call is traced, faults can be injected, and each run is graded on outcome, policy, trajectory and response from the environment's real state. People sign in, work in separate workspaces, and use API tokens for scripts. Workers run experiments in the background from a Postgres job queue, survive crashes and can be cancelled. External agents over HTTP, and the web pages, come next.
+Status: real model agents run end to end, with costs tracked and capped. A scripted agent or a model (Gemini, or a local Ollama model) works in two mock environments: an electronics store with 50 support tasks, and a company IT helpdesk with 10. Every model call and tool call is traced, faults can be injected, and each run is graded on outcome, policy, trajectory and response from the environment's real state. People sign in, work in separate workspaces, and use API tokens for scripts. Workers run experiments in the background from a Postgres job queue, survive crashes and can be cancelled. Teams can plug in their own agents over HTTP. Comparison reports and the web pages come next.
 
 ## How a run flows
 
@@ -327,6 +327,7 @@ Scripted agents can only run in `demo` experiments, and demo experiments can onl
 | `app/gateway/` | The tool gateway every agent calls |
 | `app/providers/` | Model providers (Gemini, Ollama), encrypted keys, rate limiting, metered calls |
 | `datasets/` | Tasks, one JSON file each |
+| `examples/` | A minimal external agent that talks to the platform over HTTP |
 | `migrations/` | Alembic migrations |
 | `tests/` | Tests, laid out like `app/` |
 
@@ -360,7 +361,45 @@ All settings are in `.env.example`. The main ones:
 
 ## Connect your own agent
 
-Not built yet. External agents will connect over HTTP and call the tool gateway with a short-lived run token. A minimal example agent will live in `examples/`.
+Your agent runs wherever you like and talks to the platform over HTTP. The platform can only grade what happens through its tool gateway, so the agent must act only through it.
+
+```mermaid
+sequenceDiagram
+    participant W as Worker
+    participant A as Your agent
+    participant G as Tool gateway
+    W->>A: Signed POST: task, tools, gateway URL, run token, limits
+    A->>G: POST /gw/v1/attempts/{id}/tools/{tool} with the run token
+    G-->>A: Tool result
+    A-->>W: {"final_response": "..."}
+```
+
+1. As owner, create the workspace's signing secret with `POST /api/v1/agent-signing-secret`. It is shown once. Give it to your agent.
+2. Register the agent: `POST /api/v1/agent-configs` with `{"adapter_type": "http", "settings": {"url": "https://your-agent/run"}}`.
+3. Check it: `POST /api/v1/agent-configs/{id}/check` sends a signed handshake and tells you what is wrong.
+4. Launch a `real` experiment with that config, like any other.
+
+What your agent receives and must do:
+
+| Part | Detail |
+| --- | --- |
+| Signature | Header `x-agent-eval-signature: t=<unix time>,v1=<hex>`, an HMAC-SHA256 of `"<t>." + body` with the signing secret. Refuse anything that does not verify or is over 5 minutes old |
+| Handshake | A body with `"kind": "handshake"`. Answer `200` with `{"protocol_version": "1"}` |
+| Task | A body with `"kind": "task"`, the `task` (message and context), `tools` (names and JSON Schemas), `tool_gateway` (URL and run token), `callback_url` and `limits` (tool calls and a deadline) |
+| Tools | `POST <tool_gateway.url>/<tool>` with the arguments as JSON and `authorization: Bearer <token>`. `401` means a bad or expired token. `409 attempt_not_live` means the run was stopped: stop acting |
+| Answer | `200` with `{"final_response": "...", "usage": {...}}`. Usage is optional and shown as self-reported. A slow agent can answer `202` and later POST the same body to `callback_url` with the run token |
+
+The run token works only for that attempt, only until its deadline, and only while the attempt is live. Calls past the run's tool-call limit are refused and end the run as a hard stop. An agent that cannot be reached, or answers with a server error, leaves the run unscored instead of failed.
+
+The platform resolves your agent's address before every call and refuses private, loopback, link-local and cloud metadata addresses. `ALLOW_LOCAL_AGENTS=true` lets localhost and private-network agents through; the Compose file turns it on for laptops.
+
+`examples/minimal_agent/` is a complete agent in one file, using only the Python standard library. Run it in its own container next to the stack:
+
+```bash
+AGENT_SIGNING_SECRET=whsec_your_secret docker compose --profile example up -d example-agent
+```
+
+Then register it with the URL `http://example-agent:8080/`.
 
 ## License
 
