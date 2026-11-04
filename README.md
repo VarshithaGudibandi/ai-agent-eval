@@ -154,6 +154,33 @@ Open the API's address in a browser and sign in. The pages read the same data as
 | Settings | Members and invites, API tokens, provider keys, the agent signing secret, and a Check button for each HTTP agent |
 
 The fastest path to a cause: an experiment, then a failure reason, then a failed run, then "jump to the call". Pages load no outside scripts and run no inline ones, so text from an agent or a tool can only ever show up as text.
+
+## Gate a deploy with evalctl
+
+`evalctl` runs an evaluation from a terminal or a CI pipeline and exits non-zero when the agent is not good enough. Point it at the platform with `EVALCTL_URL` and a member API token in `EVALCTL_TOKEN`.
+
+```bash
+uv run evalctl import datasets/support_retail --name support-retail
+uv run evalctl config --name my-agent --url https://my-agent.example.com/run
+uv run evalctl run --config my-agent --baseline my-agent-prod --dataset support-retail --split validation --wait --min-success 0.8 --max-regressions 0
+```
+
+`run` blocks the deploy when any of these hold for the candidate config:
+
+| Gate | Default |
+| --- | --- |
+| Verified success below `--min-success` | 0.8. A run with nothing scorable never passes |
+| Executed violations above `--max-executed-violations` | 0, so any executed violation blocks |
+| Tasks regressed against `--baseline` above `--max-regressions` | Off until you set it. Regressed tasks are always printed |
+
+With `--baseline`, both configs run in the same experiment, so they get the same tasks, faults and moment, and the comparison is made for you. Configs are found by name, newest first, and the dataset's newest version is used unless you pass `--version`. Other commands: `compare EXPERIMENT[:CONFIG] EXPERIMENT[:CONFIG]` and `export EXPERIMENT --format csv -o report.csv`.
+
+| Exit code | Means |
+| --- | --- |
+| 0 | Every gate passed |
+| 1 | A gate failed |
+| 2 | A usage or API error, printed in one line |
+| 3 | The experiment did not finish in time, or was paused by its budget |
 ## Environments
 
 `support-retail@1` is a made-up electronics store. Its tools:
@@ -377,6 +404,7 @@ Scripted agents can only run in `demo` experiments, and demo experiments can onl
 | `app/providers/` | Model providers (Gemini, Ollama), encrypted keys, rate limiting, metered calls |
 | `app/reports/` | Scorecards, comparisons, exports and state diffs |
 | `app/web/` | The web pages, their templates and static files |
+| `cli/` | `evalctl`, the command line for CI pipelines |
 | `datasets/` | Tasks, one JSON file each |
 | `examples/` | A minimal external agent that talks to the platform over HTTP |
 | `migrations/` | Alembic migrations |
