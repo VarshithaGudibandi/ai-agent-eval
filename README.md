@@ -100,7 +100,7 @@ A dataset file is JSON Lines, one case a line: `{"key": "refund-1", "input": {..
 uv run --with google-genai python -m examples.refund_agent.eval
 ```
 
-A scorer is a `key`, a `check` and its `params`. It is `hard` by default; a `soft` one adds to the quality score and fails the run only below its `threshold`. `applies_when` limits it to runs with given `tags`, runs that used one of `tools_used`, or runs with or without an expected outcome (`has_expected`); a scorer that does not apply is left out, not failed.
+A scorer is a `key`, a `check` and its `params`. Checks are `hard` by default and judges `soft`; a `soft` one adds to the quality score and fails the run only below its `threshold`. `applies_when` limits it to runs with given `tags`, runs that used one of `tools_used`, or runs with or without an expected outcome (`has_expected`); a scorer that does not apply is left out, not failed.
 
 | Check | Kind | Fails when |
 | --- | --- | --- |
@@ -113,6 +113,8 @@ A scorer is a `key`, a `check` and its `params`. It is `hard` by default; a `sof
 | `tool_call_limit` | rule | `tool` is called more than `max_calls` times |
 | `reply_contains`, `reply_excludes` | rule | The final reply lacks, or contains, `text` (plain text, any case) |
 | `matches_expected` | rule | `tool`'s `argument` differs from the case's expected `field`. An expected `null` means the tool must not be called |
+| `checklist` | judge | A trusted question is answered no often enough to fall below the threshold (0.7). `params.questions`: 1 to 5 `{"id", "text"}`, or `params.pack`: `support`, `tool_use` or `retrieval` |
+| `claim_check` | judge | Too few of the reply's claims are backed by a quoted tool result |
 
 Outside `Eval`, `agent_eval.save_eval_spec(agent, scorers)` saves a spec for an agent the platform already knows.
 
@@ -197,7 +199,7 @@ The response lists which traces were `accepted`, which were `duplicates`, and wh
 | `make migrate` | Run database migrations |
 | `make db` | Start only Postgres, for running tests on the host |
 | `make test` | Start Postgres, migrate, run the tests. Needs no network or key |
-| `make test-paid` | Run the test that calls the real Gemini API. Needs `GEMINI_API_KEY` |
+| `make test-paid` | Run the tests that call the real Gemini API: the provider and both judges. Needs `GEMINI_API_KEY` |
 | `make lint` | Check lint and formatting |
 | `make format` | Fix formatting and safe lint issues |
 | `make typecheck` | Run mypy in strict mode on `app/` and the SDK |
