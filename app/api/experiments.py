@@ -10,6 +10,7 @@ from app.db.audit import record_audit
 from app.db.datasets import cases_of
 from app.db.experiments import finish_experiment, runs_received, start_experiment
 from app.db.scope import WorkspaceScope
+from app.db.scores import experiment_scoring
 from app.db.traces import agent_version
 from app.ingest.redact import redact_value
 from app.scoring.specs import ensure_default_spec
@@ -44,6 +45,10 @@ class ExperimentOut(BaseModel):
     # Cases times repetitions, against how many runs have arrived so far.
     expected_runs: int
     runs_received: int
+    # From each run's newest verdict. Scoring runs on the worker, so it trails behind.
+    runs_scored: int
+    runs_passed: int
+    failures: dict[str, int]
 
 
 class StartedExperimentOut(ExperimentOut):
@@ -51,6 +56,7 @@ class StartedExperimentOut(ExperimentOut):
 
 
 async def _out(scope: WorkspaceScope, row: models.Experiment, cases: int) -> ExperimentOut:
+    scoring = await experiment_scoring(scope, row.id)
     return ExperimentOut(
         id=row.id,
         agent_version_id=row.agent_version_id,
@@ -61,6 +67,9 @@ async def _out(scope: WorkspaceScope, row: models.Experiment, cases: int) -> Exp
         finished_at=row.finished_at,
         expected_runs=cases * row.repetitions,
         runs_received=await runs_received(scope, row.id),
+        runs_scored=scoring.runs_scored,
+        runs_passed=scoring.runs_passed,
+        failures=scoring.failures,
     )
 
 

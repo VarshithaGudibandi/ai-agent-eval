@@ -32,6 +32,8 @@ class World:
     b_dataset_id: str
     b_version_id: str
     b_experiment_id: str
+    b_agent_id: str
+    b_run_id: str
 
 
 PRICE = {
@@ -61,6 +63,17 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         "/api/v1/experiments",
         json={"agent": "b-bot", "config": {}, "dataset_version_id": b_version_id},
     )
+    await b_person.post("/api/v1/traces", json={"traces": [support_trace("b-trace")]})
+    async with app.state.sessionmaker() as session:
+        b_agent_id = await session.scalar(
+            select(models.Agent.id).where(
+                models.Agent.workspace_id == b_person.workspace_id,
+                models.Agent.name == "support-bot",
+            )
+        )
+        b_run_id = await session.scalar(
+            select(models.Run.id).where(models.Run.workspace_id == b_person.workspace_id)
+        )
     return World(
         a_person,
         a_token,
@@ -72,6 +85,8 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         b_dataset_id,
         b_version_id,
         experiment.json()["id"],
+        str(b_agent_id),
+        str(b_run_id),
     )
 
 
@@ -85,6 +100,11 @@ def _foreign_id_attacks(w: Any) -> list[tuple[str, str, Any]]:
         ("GET", f"/api/v1/dataset-versions/{w.b_version_id}", None),
         ("GET", f"/api/v1/experiments/{w.b_experiment_id}", None),
         ("POST", f"/api/v1/experiments/{w.b_experiment_id}/finish", None),
+        ("GET", f"/api/v1/agents/{w.b_agent_id}", None),
+        ("GET", f"/api/v1/agents/{w.b_agent_id}/eval-spec", None),
+        ("PUT", f"/api/v1/agents/{w.b_agent_id}/eval-spec", {"scorers": []}),
+        ("POST", f"/api/v1/agents/{w.b_agent_id}/rescore", {}),
+        ("GET", f"/api/v1/runs/{w.b_run_id}", None),
         # A body naming B's dataset version must not start an experiment on it.
         (
             "POST",
@@ -99,6 +119,8 @@ async def _send(caller: Caller, method: str, path: str, body: Any) -> httpx.Resp
         return await caller.get(path)
     if method == "DELETE":
         return await caller.delete(path)
+    if method == "PUT":
+        return await caller.put(path, json=body)
     return await caller.post(path, json=body)
 
 
@@ -111,6 +133,8 @@ def _b_ids(w: World) -> list[str]:
         w.b_dataset_id,
         w.b_version_id,
         w.b_experiment_id,
+        w.b_agent_id,
+        w.b_run_id,
         str(w.b_person.email),
     ]
 
@@ -124,6 +148,8 @@ async def _b_view(w: World) -> dict[str, Any]:
     view["tokens"] = [{k: t[k] for k in ("id", "revoked")} for t in tokens]
     view["keys"] = (await w.b_person.get("/api/v1/provider-credentials")).json()
     view["experiment"] = (await w.b_person.get(f"/api/v1/experiments/{w.b_experiment_id}")).json()
+    view["spec"] = (await w.b_person.get(f"/api/v1/agents/{w.b_agent_id}/eval-spec")).json()
+    view["agents"] = (await w.b_person.get("/api/v1/agents")).json()
     return view
 
 
@@ -168,6 +194,15 @@ async def test_workspace_ids_in_bodies_are_ignored(world: World) -> None:
     ]
     assert [r.status_code for r in responses] == [201, 201, 201, 201]
     assert await _b_view(world) == before
+
+
+async def test_rescoring_cannot_name_another_workspaces_experiment(world: World) -> None:
+    await world.a_token.post("/api/v1/traces", json={"traces": [support_trace("a-trace")]})
+    [agent] = (await world.a_token.get("/api/v1/agents")).json()
+    response = await world.a_token.post(
+        f"/api/v1/agents/{agent['id']}/rescore", json={"experiment_id": world.b_experiment_id}
+    )
+    assert (response.status_code, response.json()) == (404, {"error": "not_found"})
 
 
 async def test_cannot_sign_in_to_a_workspace_you_do_not_belong_to(
@@ -215,7 +250,10 @@ async def test_traces_belong_only_to_the_workspace_that_sent_them(
                 select(models.Trace).where(models.Trace.workspace_id == world.b_person.workspace_id)
             )
         )
-    assert [(t.trace_id, t.agent_name) for t in b_traces] == [("t-1", "support-bot")]
+    assert sorted((t.trace_id, t.agent_name) for t in b_traces) == [
+        ("b-trace", "support-bot"),
+        ("t-1", "support-bot"),
+    ]
 
 
 async def test_feedback_ids_are_per_workspace(world: World, app: FastAPI) -> None:
@@ -247,8 +285,14 @@ FOREIGN_ID_ROUTES = {
     ("GET", "/api/v1/dataset-versions/{version_id}"),
     ("GET", "/api/v1/experiments/{experiment_id}"),
     ("POST", "/api/v1/experiments/{experiment_id}/finish"),
+    ("GET", "/api/v1/agents/{agent_id}"),
+    ("GET", "/api/v1/agents/{agent_id}/eval-spec"),
+    ("PUT", "/api/v1/agents/{agent_id}/eval-spec"),
+    ("POST", "/api/v1/agents/{agent_id}/rescore"),
+    ("GET", "/api/v1/runs/{run_id}"),
 }
 LIST_ROUTES = [
+    "/api/v1/agents",
     "/api/v1/workspaces",
     "/api/v1/members",
     "/api/v1/datasets",
@@ -298,6 +342,8 @@ def test_every_foreign_id_route_is_really_attacked() -> None:
         b_dataset_id="x",
         b_version_id="x",
         b_experiment_id="x",
+        b_agent_id="x",
+        b_run_id="x",
     )
     sent = {(method, path) for method, path, _ in _foreign_id_attacks(fake)}
     templates = {(method, re.sub(r"\{[a-z_]+\}", "x", path)) for method, path in FOREIGN_ID_ROUTES}

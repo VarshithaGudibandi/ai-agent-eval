@@ -40,6 +40,13 @@ async def current_spec(scope: WorkspaceScope, agent_id: str) -> models.EvalSpec 
     )
 
 
+async def require_current_spec(scope: WorkspaceScope, agent_id: str) -> models.EvalSpec:
+    spec = await current_spec(scope, agent_id)
+    if spec is None:
+        raise NotFoundError(f"eval_specs:{agent_id}")
+    return spec
+
+
 async def spec_version(scope: WorkspaceScope, agent_id: str, version: int) -> models.EvalSpec:
     spec = await scope.first(
         scope.query(models.EvalSpec).where(

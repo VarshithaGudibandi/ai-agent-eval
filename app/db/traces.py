@@ -156,3 +156,18 @@ async def spans_of(scope: WorkspaceScope, run_id: str) -> list[models.Span]:
         .where(models.Span.run_id == run_id)
         .order_by(models.Span.started_at, models.Span.span_id)
     )
+
+
+async def agents_with_versions(
+    scope: WorkspaceScope, agent_id: str | None = None
+) -> list[tuple[models.Agent, list[models.AgentVersion]]]:
+    statement = scope.query(models.Agent).order_by(models.Agent.name)
+    if agent_id is not None:
+        statement = statement.where(models.Agent.id == agent_id)
+    agents = await scope.all(statement)
+    versions = await scope.all(
+        scope.query(models.AgentVersion)
+        .where(models.AgentVersion.agent_id.in_([a.id for a in agents]))
+        .order_by(models.AgentVersion.created_at)
+    )
+    return [(a, [v for v in versions if v.agent_id == a.id]) for a in agents]

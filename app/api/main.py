@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api import (
+    agents,
     api_tokens,
     auth,
     datasets,
@@ -13,6 +14,7 @@ from app.api import (
     health,
     prices,
     provider_credentials,
+    runs,
     traces,
     workspaces,
 )
@@ -50,6 +52,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         experiments,
         traces,
         feedback,
+        agents,
+        runs,
     ):
         app.include_router(module.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

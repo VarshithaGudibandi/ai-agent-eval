@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import distinct_on, insert
 
 from app.db import models
 from app.db.ids import new_id
@@ -92,3 +93,74 @@ async def save_verdict(
         )
         .on_conflict_do_nothing(index_elements=["run_id", "eval_spec_id"])
     )
+
+
+@dataclass(frozen=True)
+class StoredScore:
+    score: models.Score
+    scorer: models.Scorer
+
+
+async def scores_of(scope: WorkspaceScope, run_id: str) -> list[StoredScore]:
+    rows = await scope.session.execute(
+        select(models.Score, models.Scorer)
+        .join(models.Scorer, models.Scorer.id == models.Score.scorer_id)
+        .where(models.Score.workspace_id == scope.workspace_id, models.Score.run_id == run_id)
+        .order_by(models.Scorer.key, models.Score.span_id)
+    )
+    return [StoredScore(score, scorer) for score, scorer in rows]
+
+
+async def verdicts_of(
+    scope: WorkspaceScope, run_id: str
+) -> list[tuple[models.Verdict, models.EvalSpec]]:
+    rows = await scope.session.execute(
+        select(models.Verdict, models.EvalSpec)
+        .join(models.EvalSpec, models.EvalSpec.id == models.Verdict.eval_spec_id)
+        .where(models.Verdict.workspace_id == scope.workspace_id, models.Verdict.run_id == run_id)
+        .order_by(models.EvalSpec.version)
+    )
+    return [(verdict, spec) for verdict, spec in rows]
+
+
+@dataclass(frozen=True)
+class ExperimentScoring:
+    runs_scored: int
+    runs_passed: int
+    # How many runs each scorer failed, by scorer key.
+    failures: dict[str, int]
+
+
+async def experiment_scoring(scope: WorkspaceScope, experiment_id: str) -> ExperimentScoring:
+    """Counts over each run's newest verdict, so a rescored run counts once."""
+    newest = (
+        select(models.Verdict.status, models.Verdict.failed)
+        .join(models.Run, models.Run.id == models.Verdict.run_id)
+        .where(
+            models.Verdict.workspace_id == scope.workspace_id,
+            models.Run.experiment_id == experiment_id,
+        )
+        .ext(distinct_on(models.Verdict.run_id))
+        .order_by(models.Verdict.run_id, models.Verdict.created_at.desc())
+    )
+    rows = (await scope.session.execute(newest)).all()
+    failures: dict[str, int] = {}
+    for _, failed in rows:
+        for key in failed:
+            failures[key] = failures.get(key, 0) + 1
+    passed = sum(1 for status, _ in rows if status == models.VerdictStatus.PASSED)
+    return ExperimentScoring(len(rows), passed, dict(sorted(failures.items())))
+
+
+async def run_ids(scope: WorkspaceScope, agent_id: str, experiment_id: str | None) -> list[str]:
+    statement = (
+        select(models.Run.id)
+        .join(models.AgentVersion, models.AgentVersion.id == models.Run.agent_version_id)
+        .where(
+            models.Run.workspace_id == scope.workspace_id, models.AgentVersion.agent_id == agent_id
+        )
+        .order_by(models.Run.created_at)
+    )
+    if experiment_id is not None:
+        statement = statement.where(models.Run.experiment_id == experiment_id)
+    return list(await scope.session.scalars(statement))

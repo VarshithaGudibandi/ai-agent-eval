@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.dependencies import CSRF_HEADER
@@ -14,7 +15,10 @@ from app.auth.users import create_user
 from app.auth.workspaces import create_workspace
 from app.db import models
 from app.db.ids import new_id
+from app.db.jobs import Claim, finish
 from app.db.scope import WorkspaceScope
+from app.jobs.worker import JobContext
+from app.scoring.job import SCORE_RUN, score_run_job
 from app.settings import Settings
 
 PASSWORD = "a long enough password"
@@ -36,6 +40,9 @@ class Caller:
     async def post(self, path: str, json: Any = None, **kwargs: Any) -> httpx.Response:
         headers = {**self.headers, **kwargs.pop("headers", {})}
         return await self.client.post(path, json=json, headers=headers, **kwargs)
+
+    async def put(self, path: str, json: Any = None) -> httpx.Response:
+        return await self.client.put(path, json=json, headers=self.headers)
 
     async def delete(self, path: str) -> httpx.Response:
         return await self.client.delete(path, headers=self.headers)
@@ -126,3 +133,38 @@ async def add_dataset(app: FastAPI, workspace_id: str, name: str) -> tuple[str, 
             )
         )
     return dataset_id, version_id
+
+
+async def score_now(app: FastAPI, workspace_id: str) -> int:
+    """Run this workspace's waiting scoring jobs, as the worker would. Returns how many.
+
+    The worker claims the oldest job of any workspace, and other tests leave theirs queued,
+    so tests take their own workspace's jobs directly.
+    """
+    sessionmaker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
+    done = 0
+    while True:
+        async with sessionmaker.begin() as session:
+            job = await session.scalar(
+                select(models.Job)
+                .where(
+                    models.Job.workspace_id == workspace_id,
+                    models.Job.kind == SCORE_RUN,
+                    models.Job.status == models.JobStatus.QUEUED,
+                )
+                .order_by(models.Job.created_at)
+                .limit(1)
+                .with_for_update()
+            )
+            if job is None:
+                return done
+            job.status, job.lease_token = models.JobStatus.RUNNING, new_id("lease")
+            job.lease_expires_at = func.now() + func.make_interval(0, 0, 0, 0, 0, 1)
+            job.attempts += 1
+            claim = Claim(
+                workspace_id, job.id, job.kind, job.subject_id, job.payload, job.lease_token, 1
+            )
+        await score_run_job(JobContext(claim, sessionmaker))
+        async with sessionmaker.begin() as session:
+            await finish(session, workspace_id, claim.job_id, claim.lease_token)
+        done += 1
