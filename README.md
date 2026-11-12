@@ -68,6 +68,24 @@ pip install ./sdk
 export AGENT_EVAL_URL=http://127.0.0.1:8000 AGENT_EVAL_TOKEN=aet_...
 ```
 
+While you build, `Eval` runs the agent on every case of a dataset, a few times each, and sends each run as one trace:
+
+```python
+from agent_eval import Eval
+
+Eval(
+    agent="support-bot",
+    task=handle_request,  # called with each case's input
+    dataset="cases.jsonl",  # or the name of a dataset already on the platform
+    config={"model": MODEL, "prompt": PROMPT, "tools": TOOLS},
+    repetitions=3,
+)
+```
+
+A dataset file is JSON Lines, one case a line: `{"key": "refund-1", "input": {...}, "expected": {...}, "tags": {...}}`. Only `key` and `input` are required, and keys must stay the same across versions so results can be compared case by case. The file is uploaded first; a new dataset version is made only when its cases changed. A case that raises is recorded with its error and the rest still run. At the end `Eval` prints how many runs arrived and a link to the experiment.
+
+If the platform goes down mid-run, the remaining traces are written to `.agent_eval/pending/` and nothing is lost. They are sent at the end if the platform is back, by the next `Eval`, or by `agent_eval.flush()`. Sending a trace twice is safe.
+
 In a live app, call `init` once at startup and put `@traced` on the request handler and your tools. Each call of the handler becomes one trace.
 
 ```python

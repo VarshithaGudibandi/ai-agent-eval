@@ -2,10 +2,14 @@ import asyncio
 import base64
 import os
 import secrets
+import socket
+import subprocess
 import sys
+import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
+import httpx
 import pytest
 from sqlalchemy import make_url, text
 from sqlalchemy.ext.asyncio import (
@@ -15,6 +19,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from app.auth.api_tokens import create_api_token
+from app.auth.principal import Principal
+from app.auth.users import create_user
+from app.auth.workspaces import create_workspace
 from app.db import models
 from app.db.budgets import BudgetLimits, create_budget
 from app.db.datasets import CaseData, save_version
@@ -128,3 +136,71 @@ def make_experiment(
         return experiment
 
     return make
+
+
+class LivePlatform:
+    """The real API in its own process on a local port, for SDK tests that need a server
+    they can stop and start again."""
+
+    def __init__(self, database_url: str) -> None:
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            self.port = probe.getsockname()[1]
+        self.url = f"http://127.0.0.1:{self.port}"
+        self._env = {**os.environ, "DATABASE_URL": database_url, "LOG_FORMAT": "text"}
+        self._process: subprocess.Popen[bytes] | None = None
+
+    def start(self) -> None:
+        self._process = subprocess.Popen(  # noqa: S603
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "app.api.main:create_app",
+                "--factory",
+                *("--host", "127.0.0.1", "--port", str(self.port), "--log-level", "warning"),
+            ],
+            env=self._env,
+        )
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            try:
+                if httpx.get(f"{self.url}/health/ready", timeout=1).status_code == 200:
+                    return
+            except httpx.HTTPError:
+                pass
+            time.sleep(0.1)
+        raise AssertionError("the API did not start")
+
+    def stop(self) -> None:
+        if self._process is not None:
+            self._process.terminate()
+            self._process.wait(10)
+            self._process = None
+
+
+@pytest.fixture
+def live_platform(settings: Settings) -> Iterator[LivePlatform]:
+    platform = LivePlatform(settings.database_url)
+    platform.start()
+    yield platform
+    platform.stop()
+
+
+@pytest.fixture
+async def member_token(sessionmaker: async_sessionmaker[AsyncSession]) -> tuple[str, str]:
+    """A member API token for a fresh workspace, and that workspace's id."""
+    async with sessionmaker.begin() as session:
+        user = await create_user(session, f"{new_id('u')}@example.com", "a long enough password")
+        workspace = await create_workspace(session, user, "team")
+        owner = Principal(
+            actor_type=models.ActorType.USER,
+            actor_id=user.id,
+            user_id=user.id,
+            workspace_id=workspace.id,
+            role=models.Role.OWNER,
+        )
+        _, secret = await create_api_token(
+            WorkspaceScope(session, workspace.id), owner, "sdk", models.Role.MEMBER
+        )
+    return secret, workspace.id
