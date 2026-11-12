@@ -9,6 +9,7 @@ from app.api import (
     auth,
     datasets,
     experiments,
+    feedback,
     health,
     prices,
     provider_credentials,
@@ -48,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         datasets,
         experiments,
         traces,
+        feedback,
     ):
         app.include_router(module.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

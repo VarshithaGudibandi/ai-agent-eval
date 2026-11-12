@@ -567,3 +567,26 @@ class Span(WorkspaceScoped, Base):
     output: Mapped[Any] = mapped_column(JSONB)
     error: Mapped[str | None]
     attributes: Mapped[dict[str, Any]]
+
+
+class Feedback(WorkspaceScoped, Base):
+    """A user's rating of one trace, sent from the team's own product.
+
+    trace_id is not a foreign key: in live mode the feedback can arrive before its trace.
+    """
+
+    __tablename__ = "feedback"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("workspace_id", "feedback_id"),
+        CheckConstraint("score >= 0 AND score <= 1", name="score_range"),
+        Index("ix_feedback_workspace_id_trace_id", "workspace_id", "trace_id"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    # Chosen by the sender, so a retried send is stored once.
+    feedback_id: Mapped[str]
+    trace_id: Mapped[str]
+    score: Mapped[float]
+    comment: Mapped[str | None]
+    received_at: Mapped[datetime] = mapped_column(server_default=func.now())

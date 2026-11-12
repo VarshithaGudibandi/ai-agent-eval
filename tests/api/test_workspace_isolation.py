@@ -218,6 +218,26 @@ async def test_traces_belong_only_to_the_workspace_that_sent_them(
     assert [(t.trace_id, t.agent_name) for t in b_traces] == [("t-1", "support-bot")]
 
 
+async def test_feedback_ids_are_per_workspace(world: World, app: FastAPI) -> None:
+    body = {"feedback_id": "fb-1", "trace_id": "t-1", "score": 1}
+    b_sent = await world.b_person.post("/api/v1/feedback", json=body)
+    # The same feedback id from A is A's own feedback, not a duplicate of B's.
+    a_sent = await world.a_token.post(
+        "/api/v1/feedback",
+        json={**body, "score": 0, "workspace_id": world.b_person.workspace_id},
+    )
+    assert (b_sent.status_code, a_sent.status_code) == (201, 201)
+    async with app.state.sessionmaker() as session:
+        b_feedback = list(
+            await session.scalars(
+                select(models.Feedback).where(
+                    models.Feedback.workspace_id == world.b_person.workspace_id
+                )
+            )
+        )
+    assert [(f.feedback_id, f.score) for f in b_feedback] == [("fb-1", 1)]
+
+
 # Every /api/v1 route must be listed in exactly one of these groups.
 FOREIGN_ID_ROUTES = {
     ("POST", "/api/v1/workspaces/{workspace_id}/invites"),
@@ -238,6 +258,7 @@ LIST_ROUTES = [
 ]
 BODY_ROUTES = {
     ("POST", "/api/v1/traces"),
+    ("POST", "/api/v1/feedback"),
     ("POST", "/api/v1/datasets"),
     ("POST", "/api/v1/experiments"),
     ("POST", "/api/v1/api-tokens"),

@@ -27,6 +27,7 @@ What exists today:
 | Part | What it does |
 | --- | --- |
 | Trace ingest | `POST /api/v1/traces` takes up to 100 traces. Secrets are masked first, then each trace is checked, stored raw, and turned into a run with its span tree, tokens, cost and agent version. A trace sent twice is stored once. Each workspace has a per-minute limit; over it, the answer is `429` with `Retry-After` |
+| Feedback | `POST /api/v1/feedback` records a user's rating of a trace from the team's own product: a score from 0 (thumbs down) to 1 (thumbs up) and an optional comment, masked like traces. The sender picks the `feedback_id`, so a retried send is stored once. It may arrive before its trace |
 | Datasets | Versioned cases: an input, an optional expected outcome, tags and notes. `POST /api/v1/datasets` stores a new version; uploading the same cases again reuses the newest one. Case keys stay the same across versions, so results can be paired by case |
 | Experiments | One agent version run on one dataset version, each case a set number of times. `POST /api/v1/experiments` returns the cases to run; an `Idempotency-Key` header makes a retried start return the same experiment. Each run's trace names its slot with tags, and a trace that does not fit its slot is rejected |
 | Workspaces | Every row carries its workspace and every query is filtered by it. A row in another workspace answers exactly like a missing one (`404`) |
