@@ -80,16 +80,39 @@ Eval(
     dataset="cases.jsonl",  # or the name of a dataset already on the platform
     config={"model": MODEL, "prompt": PROMPT, "tools": TOOLS},
     repetitions=3,
+    scorers=[  # optional: saved as the agent's eval spec before any case runs
+        {
+            "key": "refund_after_lookup",
+            "check": "tool_order",
+            "params": {"tool": "issue_refund", "after": ["get_order"]},
+        },
+    ],
 )
 ```
 
-A dataset file is JSON Lines, one case a line: `{"key": "refund-1", "input": {...}, "expected": {...}, "tags": {...}}`. Only `key` and `input` are required, and keys must stay the same across versions so results can be compared case by case. The file is uploaded first; a new dataset version is made only when its cases changed. A case that raises is recorded with its error and the rest still run. At the end `Eval` prints how many runs arrived and a link to the experiment.
+A dataset file is JSON Lines, one case a line: `{"key": "refund-1", "input": {...}, "expected": {...}, "tags": {...}}`. Only `key` and `input` are required, and keys must stay the same across versions so results can be compared case by case. The file is uploaded first; a new dataset version is made only when its cases changed. A case that raises is recorded with its error and the rest still run. At the end `Eval` waits until every run is scored, then prints how many passed, which scorers failed and how often, and a link to the experiment.
 
 `examples/refund_agent/` is a small Gemini support agent wired up this way, with an 8-case dataset. With `GEMINI_API_KEY`, `AGENT_EVAL_URL` and `AGENT_EVAL_TOKEN` set, run it from the repository root:
 
 ```bash
 uv run --with google-genai python -m examples.refund_agent.eval
 ```
+
+A scorer is a `key`, a `check` and its `params`. It is `hard` by default; a `soft` one adds to the quality score and fails the run only below its `threshold`. `applies_when` limits it to runs with given `tags`, runs that used one of `tools_used`, or runs with or without an expected outcome (`has_expected`); a scorer that does not apply is left out, not failed.
+
+| Check | Kind | Fails when |
+| --- | --- | --- |
+| `run_completed` | built-in | The run ended with an error |
+| `tool_errors` | built-in | A tool call failed. Scored per call |
+| `valid_tool_arguments` | built-in | A tool the config does not declare is called, or arguments break its parameter schema. Scored per call |
+| `turn_limit` | built-in | More model calls than `max_turns` (default 10) |
+| `tool_order` | rule | `tool` is called before any of `after` has finished |
+| `tool_not_called` | rule | `tool` is called at all |
+| `tool_call_limit` | rule | `tool` is called more than `max_calls` times |
+| `reply_contains`, `reply_excludes` | rule | The final reply lacks, or contains, `text` (plain text, any case) |
+| `matches_expected` | rule | `tool`'s `argument` differs from the case's expected `field`. An expected `null` means the tool must not be called |
+
+Outside `Eval`, `agent_eval.save_eval_spec(agent, scorers)` saves a spec for an agent the platform already knows.
 
 If the platform goes down mid-run, the remaining traces are written to `.agent_eval/pending/` and nothing is lost. They are sent at the end if the platform is back, by the next `Eval`, or by `agent_eval.flush()`. Sending a trace twice is safe.
 

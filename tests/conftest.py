@@ -139,29 +139,31 @@ def make_experiment(
 
 
 class LivePlatform:
-    """The real API in its own process on a local port, for SDK tests that need a server
-    they can stop and start again."""
+    """The real API and a worker, each in its own process, on a fresh database. SDK tests
+    use it to stop and start the platform under a running Eval."""
 
     def __init__(self, database_url: str) -> None:
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             self.port = probe.getsockname()[1]
         self.url = f"http://127.0.0.1:{self.port}"
-        self._env = {**os.environ, "DATABASE_URL": database_url, "LOG_FORMAT": "text"}
-        self._process: subprocess.Popen[bytes] | None = None
+        self._env = {
+            **os.environ,
+            "DATABASE_URL": database_url,
+            "LOG_FORMAT": "text",
+            "WORKER_IDLE_SECONDS": "0.1",
+        }
+        self._processes: list[subprocess.Popen[bytes]] = []
 
     def start(self) -> None:
-        self._process = subprocess.Popen(  # noqa: S603
-            [
-                sys.executable,
-                "-m",
-                "uvicorn",
-                "app.api.main:create_app",
-                "--factory",
-                *("--host", "127.0.0.1", "--port", str(self.port), "--log-level", "warning"),
-            ],
-            env=self._env,
-        )
+        api = [
+            *("-m", "uvicorn", "app.api.main:create_app", "--factory"),
+            *("--host", "127.0.0.1", "--port", str(self.port), "--log-level", "warning"),
+        ]
+        for arguments in (api, ["-m", "app.jobs.worker"]):
+            self._processes.append(
+                subprocess.Popen([sys.executable, *arguments], env=self._env)  # noqa: S603
+            )
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             try:
@@ -173,24 +175,25 @@ class LivePlatform:
         raise AssertionError("the API did not start")
 
     def stop(self) -> None:
-        if self._process is not None:
-            self._process.terminate()
-            self._process.wait(10)
-            self._process = None
+        for process in self._processes:
+            process.terminate()
+        for process in self._processes:
+            process.wait(10)
+        self._processes = []
 
 
 @pytest.fixture
-def live_platform(settings: Settings) -> Iterator[LivePlatform]:
-    platform = LivePlatform(settings.database_url)
+def live_platform(fresh_database_url: str) -> Iterator[LivePlatform]:
+    platform = LivePlatform(fresh_database_url)
     platform.start()
     yield platform
     platform.stop()
 
 
 @pytest.fixture
-async def member_token(sessionmaker: async_sessionmaker[AsyncSession]) -> tuple[str, str]:
-    """A member API token for a fresh workspace, and that workspace's id."""
-    async with sessionmaker.begin() as session:
+async def member_token(fresh_sessionmaker: async_sessionmaker[AsyncSession]) -> tuple[str, str]:
+    """A member API token for a fresh workspace on the live platform's database."""
+    async with fresh_sessionmaker.begin() as session:
         user = await create_user(session, f"{new_id('u')}@example.com", "a long enough password")
         workspace = await create_workspace(session, user, "team")
         owner = Principal(

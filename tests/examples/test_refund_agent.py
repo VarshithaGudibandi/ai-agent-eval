@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from agent_eval import Eval
 from app.db import models
 from examples.refund_agent.agent import CONFIG, RefundAgent
-from examples.refund_agent.eval import DATASET
+from examples.refund_agent.eval import DATASET, SCORERS
 from tests.conftest import LivePlatform
 from tests.sdk.fake_gemini import FakeGemini, Response, reply
 
@@ -46,7 +46,7 @@ def scripted_gemini(model: str, contents: list[Any], config: Any) -> Response:
 async def test_the_example_agent_runs_eval_and_every_run_arrives(
     live_platform: LivePlatform,
     member_token: tuple[str, str],
-    sessionmaker: async_sessionmaker[AsyncSession],
+    fresh_sessionmaker: async_sessionmaker[AsyncSession],
     tmp_path: Path,
 ) -> None:
     token, _ = member_token
@@ -55,6 +55,7 @@ async def test_the_example_agent_runs_eval_and_every_run_arrives(
         Eval,
         agent="refund-agent",
         task=agent.handle,
+        scorers=SCORERS,
         dataset=DATASET,
         config=CONFIG,
         repetitions=2,
@@ -63,8 +64,10 @@ async def test_the_example_agent_runs_eval_and_every_run_arrives(
         pending_dir=tmp_path / "pending",
     )
     assert (result.expected_runs, result.runs_received, result.task_errors) == (16, 16, 0)
+    # A careful agent passes the built-ins and its own refund rules on every case.
+    assert (result.runs_scored, result.runs_passed, result.failures) == (16, 16, {})
     assert result.rejected == [] and result.saved == 0
-    async with sessionmaker() as session:
+    async with fresh_sessionmaker() as session:
         runs = list(
             await session.scalars(
                 select(models.Run).where(models.Run.experiment_id == result.experiment_id)

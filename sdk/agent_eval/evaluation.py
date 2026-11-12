@@ -2,12 +2,14 @@ import asyncio
 import inspect
 import json
 import logging
+import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from agent_eval.client import PlatformClient, PlatformError, encode, retrying, settings
+from agent_eval.eval_spec import save_spec_with
 from agent_eval.pending import FlushResult, PendingTraces, upload
 from agent_eval.recording import (
     RunContext,
@@ -52,6 +54,9 @@ class Eval:
     with the case's input; each call becomes one trace tagged with its experiment, case and
     repetition. Traces that cannot be sent are saved under .agent_eval/pending and sent at
     the end, by the next Eval, or by agent_eval.flush().
+
+    scorers, if given, are saved as the agent's eval spec before any case runs. At the end
+    Eval waits up to score_timeout seconds for every run to be scored.
     """
 
     def __init__(
@@ -66,6 +71,8 @@ class Eval:
         url: str | None = None,
         token: str | None = None,
         pending_dir: Path | None = None,
+        scorers: list[dict[str, Any]] | None = None,
+        score_timeout: float = 120.0,
     ) -> None:
         if not isinstance(repetitions, int) or not 1 <= repetitions <= 100:
             raise ValueError("repetitions must be a whole number from 1 to 100")
@@ -80,11 +87,18 @@ class Eval:
         self.task_errors = 0
         self.saved = 0
         self.rejected: list[dict[str, Any]] = []
+        self.runs_scored = 0
+        self.runs_passed = 0
+        self.failures: dict[str, int] = {}
+        self.score_timeout = score_timeout
         self._platform_down = False
         self._client = PlatformClient(base_url, api_token)
         try:
             self._flush_earlier()
             self._start(dataset)
+            if scorers is not None:
+                version = save_spec_with(self._client, agent, scorers)
+                print(f"agent_eval: {agent} is graded by eval spec version {version}")
             self._run()
             self._finish()
         finally:
@@ -189,12 +203,24 @@ class Eval:
                 retrying(lambda: self._client.finish_experiment(self.experiment_id))
             except PlatformError as exc:
                 logger.warning("agent_eval: could not finish the experiment: %s", exc)
-        try:
-            self.runs_received = retrying(lambda: self._client.experiment(self.experiment_id))[
-                "runs_received"
-            ]
-        except PlatformError as exc:
-            logger.warning("agent_eval: could not read the experiment back: %s", exc)
+        self._wait_for_scores()
+
+    def _wait_for_scores(self) -> None:
+        # Scoring runs on the platform's worker, a moment behind ingest.
+        deadline = time.monotonic() + self.score_timeout
+        while True:
+            try:
+                progress = retrying(lambda: self._client.experiment(self.experiment_id))
+            except PlatformError as exc:
+                logger.warning("agent_eval: could not read the experiment back: %s", exc)
+                return
+            self.runs_received = progress["runs_received"]
+            self.runs_scored = progress["runs_scored"]
+            self.runs_passed = progress["runs_passed"]
+            self.failures = progress["failures"]
+            if self.runs_scored >= self.runs_received or time.monotonic() >= deadline:
+                return
+            time.sleep(0.5)
 
     def summary(self) -> str:
         lines = [
@@ -203,6 +229,15 @@ class Eval:
             f"  {self.runs_received} of {self.expected_runs} runs received,"
             f" {self.task_errors} raised an error, {len(self.rejected)} rejected",
         ]
+        if self.runs_scored < self.runs_received:
+            lines.append(
+                f"  scoring is not finished: {self.runs_scored} of {self.runs_received} runs"
+                f" scored after {self.score_timeout:.0f} seconds"
+            )
+        elif self.runs_scored:
+            lines.append(f"  {self.runs_passed} of {self.runs_scored} runs passed")
+        for key, count in self.failures.items():
+            lines.append(f"  {key} failed in {count} runs")
         for rejected in self.rejected[:5]:
             lines.append(f"  rejected {rejected['trace_id']}: {rejected['error']}")
         if self.saved:

@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from agent_eval import Eval, flush, traced
+from agent_eval import Eval, flush, save_eval_spec, traced
 from app.db import models
 from tests.conftest import LivePlatform
 
@@ -42,8 +42,10 @@ async def _eval(**options: Any) -> Eval:
     return await asyncio.to_thread(Eval, **options)
 
 
-async def _runs(sessionmaker: async_sessionmaker[AsyncSession], experiment_id: str) -> list[Any]:
-    async with sessionmaker() as session:
+async def _runs(
+    fresh_sessionmaker: async_sessionmaker[AsyncSession], experiment_id: str
+) -> list[Any]:
+    async with fresh_sessionmaker() as session:
         rows = await session.execute(
             select(models.DatasetCase.case_key, models.Run.repetition)
             .join(models.DatasetCase, models.DatasetCase.id == models.Run.case_id)
@@ -55,7 +57,7 @@ async def _runs(sessionmaker: async_sessionmaker[AsyncSession], experiment_id: s
 async def test_eval_sends_one_run_per_case_and_repetition(
     live_platform: LivePlatform,
     member_token: tuple[str, str],
-    sessionmaker: async_sessionmaker[AsyncSession],
+    fresh_sessionmaker: async_sessionmaker[AsyncSession],
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -72,7 +74,10 @@ async def test_eval_sends_one_run_per_case_and_repetition(
     }
     first = await _eval(**options)
     assert (first.expected_runs, first.runs_received, first.task_errors) == (6, 6, 2)
-    assert await _runs(sessionmaker, first.experiment_id) == [
+    # The crash starts in a tool, so both built-ins catch it, on both repetitions.
+    assert (first.runs_scored, first.runs_passed) == (6, 4)
+    assert first.failures == {"run_completed": 2, "tool_errors": 2}
+    assert await _runs(fresh_sessionmaker, first.experiment_id) == [
         (key, rep) for key in ("fail-1", "late-1", "late-2") for rep in (1, 2)
     ]
     async with httpx.AsyncClient(headers={"authorization": f"Bearer {token}"}) as client:
@@ -80,11 +85,13 @@ async def test_eval_sends_one_run_per_case_and_repetition(
             await client.get(f"{live_platform.url}/api/v1/experiments/{first.experiment_id}")
         ).json()
     assert experiment["status"] == "finished"
-    assert "6 of 6 runs received, 2 raised an error" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "6 of 6 runs received, 2 raised an error" in out
+    assert "4 of 6 runs passed" in out and "run_completed failed in 2 runs" in out
     # Running the same file again makes a new experiment on the same versions.
     second = await _eval(**options, label=None)
     assert second.experiment_id != first.experiment_id
-    async with sessionmaker() as session:
+    async with fresh_sessionmaker() as session:
         rows = await session.execute(
             select(models.Experiment.dataset_version_id, models.Experiment.agent_version_id).where(
                 models.Experiment.id.in_([first.experiment_id, second.experiment_id])
@@ -135,7 +142,7 @@ async def test_an_async_task_and_a_platform_dataset_by_name(
 async def test_stopping_the_server_mid_run_loses_nothing(
     live_platform: LivePlatform,
     member_token: tuple[str, str],
-    sessionmaker: async_sessionmaker[AsyncSession],
+    fresh_sessionmaker: async_sessionmaker[AsyncSession],
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -169,12 +176,12 @@ async def test_stopping_the_server_mid_run_loses_nothing(
     uploaded = await asyncio.to_thread(flush, live_platform.url, token, pending)
     assert (uploaded.uploaded, uploaded.rejected, uploaded.remaining) == (4, 0, 0)
     assert not (pending / f"{result.experiment_id}.jsonl").exists()
-    runs = await _runs(sessionmaker, result.experiment_id)
+    runs = await _runs(fresh_sessionmaker, result.experiment_id)
     assert runs == [(key, rep) for key in ("fail-1", "late-1", "late-2") for rep in (1, 2)]
     # A second flush finds nothing left to send.
     again = await asyncio.to_thread(flush, live_platform.url, token, pending)
     assert again.uploaded == 0
-    async with sessionmaker() as session:
+    async with fresh_sessionmaker() as session:
         status = await session.scalar(
             select(models.Experiment.status).where(models.Experiment.id == result.experiment_id)
         )
@@ -197,4 +204,18 @@ def test_a_case_file_must_name_each_case(tmp_path: Path) -> None:
             token="aet_fake",
             url="http://127.0.0.1:1",
             pending_dir=tmp_path / "pending",
+        )
+
+
+async def test_saving_a_spec_for_an_agent_never_seen_says_what_to_do(
+    live_platform: LivePlatform, member_token: tuple[str, str]
+) -> None:
+    token, _ = member_token
+    with pytest.raises(ValueError, match="send it a trace or run an Eval first"):
+        await asyncio.to_thread(
+            save_eval_spec,
+            "nobody",
+            [{"key": "ran", "check": "run_completed"}],
+            live_platform.url,
+            token,
         )
