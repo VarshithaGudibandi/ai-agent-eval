@@ -18,11 +18,18 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "agent-eval-sdk",
     "mypy>=2.4.1",
     "pytest>=9.2.0",
     "pytest-asyncio>=1.4.1",
     "ruff>=0.17.3",
 ]
+
+[tool.uv.workspace]
+members = ["sdk"]
+
+[tool.uv.sources]
+agent-eval-sdk = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -44,6 +51,9 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "S", "RUF"]
 # The provider contract in the spec takes an explicit timeout, which each provider passes to HTTP.
 ignore = ["ASYNC109"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agent_eval", "app", "tests"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106"]

@@ -7,6 +7,12 @@ resolution-markers = [
     "python_full_version < '3.14'",
 ]
 
+[manifest]
+members = [
+    "agent-eval",
+    "agent-eval-sdk",
+]
+
 [[package]]
 name = "agent-eval"
 version = "0.1.0"
@@ -27,6 +33,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "agent-eval-sdk" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -50,11 +57,23 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "agent-eval-sdk", editable = "sdk" },
     { name = "mypy", specifier = ">=2.4.1" },
     { name = "pytest", specifier = ">=9.2.0" },
     { name = "pytest-asyncio", specifier = ">=1.4.1" },
     { name = "ruff", specifier = ">=0.17.3" },
 ]
+
+[[package]]
+name = "agent-eval-sdk"
+version = "0.1.0"
+source = { editable = "sdk" }
+dependencies = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "httpx", specifier = ">=0.28.1" }]
 
 [[package]]
 name = "alembic"

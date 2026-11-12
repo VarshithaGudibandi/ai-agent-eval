@@ -36,6 +36,6 @@ format:
 	uv run ruff check --fix .
 
 typecheck:
-	uv run mypy app
+	uv run mypy app sdk/agent_eval
 
 check: lint typecheck test

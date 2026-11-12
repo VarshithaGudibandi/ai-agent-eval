@@ -8,6 +8,8 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /srv
 
 COPY pyproject.toml uv.lock .python-version ./
+# The SDK is a workspace member, so the lock needs its metadata. The image does not install it.
+COPY sdk/pyproject.toml ./sdk/
 RUN uv sync --locked --no-dev --no-install-project
 
 COPY app ./app

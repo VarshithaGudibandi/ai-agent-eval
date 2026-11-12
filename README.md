@@ -2,7 +2,7 @@
 
 A platform for measuring how well an AI agent works, while you build it and after it goes live. It grades every run from the agent's own trace, tracks results per agent version, and explains why a new version got worse.
 
-Status: being rebuilt around traces. Today it takes traces in over the API and turns them into runs, span trees, costs and agent versions. It also has accounts and workspaces, API tokens, encrypted provider keys, prices and budgets, a Postgres job queue with leases, and a metered Gemini provider. Scoring, judges, metrics, the regression explainer, the SDK and the full web pages come next.
+Status: being rebuilt around traces. Today it takes traces in, from the Python SDK or straight over the API, and turns them into runs, span trees, costs and agent versions. It also has accounts and workspaces, API tokens, encrypted provider keys, prices and budgets, a Postgres job queue with leases, and a metered Gemini provider. Scoring, judges, metrics, the regression explainer and the full web pages come next.
 
 ## How it works
 
@@ -61,7 +61,50 @@ A demo with seeded data that needs no key is not built yet.
 
 ## Connect an agent
 
-Agents will send traces through a Python SDK, which is not built yet. Until then, a trace can be posted directly with a member API token:
+The SDK is the `agent_eval` package in `sdk/`. Its only dependency is `httpx`. Install it into your agent's environment and give it a member API token:
+
+```bash
+pip install ./sdk
+export AGENT_EVAL_URL=http://127.0.0.1:8000 AGENT_EVAL_TOKEN=aet_...
+```
+
+In a live app, call `init` once at startup and put `@traced` on the request handler and your tools. Each call of the handler becomes one trace.
+
+```python
+from agent_eval import current_trace_id, init, log_feedback, tag, traced, wrap_gemini
+
+init(
+    agent="support-bot",
+    config={"model": MODEL, "prompt": PROMPT, "tools": TOOLS},
+    environment="production",
+)
+client = wrap_gemini(genai.Client())  # records every generate_content call
+
+
+@traced
+def get_order(order_id): ...  # a tool, because it runs inside a trace
+
+
+@traced
+def handle_request(message, session_id):
+    tag(session=session_id)
+    ...
+    return reply, current_trace_id()  # keep the id to attach feedback later
+
+
+log_feedback(trace_id, 0, "Refunded the wrong order")  # 1 is thumbs up, 0 thumbs down
+```
+
+| Piece | What it does |
+| --- | --- |
+| `config` | What makes this version of the agent: model, prompt, tools, settings. A new config makes a new agent version. `wrap_gemini` warns once if a call uses a different model, system prompt or tools |
+| `@traced` | Records arguments, result, timing and any exception, which is re-raised unchanged. Top-level calls are `step`s, nested ones `tool`s; pass `kind=` or `name=` to change that |
+| Sending | A background thread sends batches. The app only puts traces on a bounded queue, so it never waits: if the queue is full or the platform is down, traces are dropped |
+| Privacy | Secrets are masked before anything leaves the process. Pass `redact=` to `init` to remove personal data too; it runs on every span input, output and error, and if it fails the value is hidden |
+
+The SDK never raises into your code. Its own problems are logged on the `agent_eval` logger.
+
+Other languages can post traces directly with a member API token:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/traces -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d @batch.json
@@ -107,7 +150,7 @@ The response lists which traces were `accepted`, which were `duplicates`, and wh
 | `make test-paid` | Run the test that calls the real Gemini API. Needs `GEMINI_API_KEY` |
 | `make lint` | Check lint and formatting |
 | `make format` | Fix formatting and safe lint issues |
-| `make typecheck` | Run mypy in strict mode on `app/` |
+| `make typecheck` | Run mypy in strict mode on `app/` and the SDK |
 | `make check` | Lint, typecheck and test |
 
 ## Folders
@@ -124,8 +167,9 @@ The response lists which traces were `accepted`, which were `duplicates`, and wh
 | `app/providers/` | The Gemini provider, encrypted keys, rate limiting, metered calls |
 | `app/traces/` | Turning a trace into a run, spans, cost and an agent version |
 | `app/web/` | The web pages, their templates and static files |
+| `sdk/` | The `agent_eval` Python package agents use to send traces |
 | `migrations/` | Alembic migrations |
-| `tests/` | Tests, laid out like `app/` |
+| `tests/` | Tests, laid out like `app/` and `sdk/` |
 
 ## Settings
 
