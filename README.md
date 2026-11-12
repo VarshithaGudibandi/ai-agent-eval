@@ -92,7 +92,7 @@ Eval(
 )
 ```
 
-A dataset file is JSON Lines, one case a line: `{"key": "refund-1", "input": {...}, "expected": {...}, "tags": {...}}`. Only `key` and `input` are required, and keys must stay the same across versions so results can be compared case by case. The file is uploaded first; a new dataset version is made only when its cases changed. A case that raises is recorded with its error and the rest still run. At the end `Eval` waits until every run is scored, then prints how many passed, which scorers failed and how often, and a link to the experiment.
+A dataset file is JSON Lines, one case a line: `{"key": "refund-1", "input": {...}, "expected": {...}, "tags": {...}}`. Only `key` and `input` are required, and keys must stay the same across versions so results can be compared case by case. The file is uploaded first; a new dataset version is made only when its cases changed. A case that raises is recorded with its error and the rest still run. At the end `Eval` waits until every run is scored, then prints how many passed, which scorers failed and how often, which could not grade some runs (a judge with no Gemini key, say), and a link to the experiment.
 
 `examples/refund_agent/` is a small Gemini support agent wired up this way, with an 8-case dataset. With `GEMINI_API_KEY`, `AGENT_EVAL_URL` and `AGENT_EVAL_TOKEN` set, run it from the repository root:
 

@@ -49,6 +49,7 @@ class ExperimentOut(BaseModel):
     runs_scored: int
     runs_passed: int
     failures: dict[str, int]
+    errors: dict[str, int]
 
 
 class StartedExperimentOut(ExperimentOut):
@@ -70,6 +71,7 @@ async def _out(scope: WorkspaceScope, row: models.Experiment, cases: int) -> Exp
         runs_scored=scoring.runs_scored,
         runs_passed=scoring.runs_passed,
         failures=scoring.failures,
+        errors=scoring.errors,
     )
 
 

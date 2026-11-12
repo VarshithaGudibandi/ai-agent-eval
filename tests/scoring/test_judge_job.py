@@ -261,6 +261,8 @@ async def test_without_a_key_the_rules_still_score_and_the_verdict_is_incomplete
         )
     await world.score(world.trace(1))
     assert await _verdicts(world) == [("incomplete", [])]
+    [(errored,)] = await world.one(select(models.Verdict.errored))
+    assert errored == ["manners"]
     rows = await world.one(
         select(models.Scorer.key, models.Score.passed, models.Score.error).join(models.Scorer)
     )

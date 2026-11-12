@@ -219,3 +219,27 @@ async def test_saving_a_spec_for_an_agent_never_seen_says_what_to_do(
             live_platform.url,
             token,
         )
+
+
+async def test_a_judge_that_cannot_run_is_reported_not_counted_as_a_failure(
+    live_platform: LivePlatform,
+    member_token: tuple[str, str],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    token, _ = member_token
+    result = await _eval(
+        agent="order-bot",
+        task=answer,
+        dataset=_dataset(tmp_path, CASES[:2]),
+        config=CONFIG,
+        repetitions=1,
+        url=live_platform.url,
+        token=token,
+        pending_dir=tmp_path / "pending",
+        scorers=[{"key": "support", "check": "checklist", "params": {"pack": "support"}}],
+    )
+    # The workspace has no Gemini key, so the judge grades nothing and says why.
+    assert (result.runs_scored, result.runs_passed, result.failures) == (2, 0, {})
+    assert result.errors == {"support": 2}
+    assert "support could not grade 2 runs" in capsys.readouterr().out

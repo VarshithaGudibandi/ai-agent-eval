@@ -90,6 +90,7 @@ class Eval:
         self.runs_scored = 0
         self.runs_passed = 0
         self.failures: dict[str, int] = {}
+        self.errors: dict[str, int] = {}
         self.score_timeout = score_timeout
         self._platform_down = False
         self._client = PlatformClient(base_url, api_token)
@@ -218,6 +219,7 @@ class Eval:
             self.runs_scored = progress["runs_scored"]
             self.runs_passed = progress["runs_passed"]
             self.failures = progress["failures"]
+            self.errors = progress["errors"]
             if self.runs_scored >= self.runs_received or time.monotonic() >= deadline:
                 return
             time.sleep(0.5)
@@ -238,6 +240,8 @@ class Eval:
             lines.append(f"  {self.runs_passed} of {self.runs_scored} runs passed")
         for key, count in self.failures.items():
             lines.append(f"  {key} failed in {count} runs")
+        for key, count in self.errors.items():
+            lines.append(f"  {key} could not grade {count} runs; see a run's scores for why")
         for rejected in self.rejected[:5]:
             lines.append(f"  rejected {rejected['trace_id']}: {rejected['error']}")
         if self.saved:

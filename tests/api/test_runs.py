@@ -61,3 +61,4 @@ async def test_experiment_progress_counts_scored_and_failed_runs(
         1,
         {"run_completed": 1},
     )
+    assert progress["errors"] == {}

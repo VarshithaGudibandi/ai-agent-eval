@@ -130,12 +130,14 @@ class ExperimentScoring:
     runs_passed: int
     # How many runs each scorer failed, by scorer key.
     failures: dict[str, int]
+    # How many runs each scorer could not grade, such as a judge with no key to call.
+    errors: dict[str, int]
 
 
 async def experiment_scoring(scope: WorkspaceScope, experiment_id: str) -> ExperimentScoring:
     """Counts over each run's newest verdict, so a rescored run counts once."""
     newest = (
-        select(models.Verdict.status, models.Verdict.failed)
+        select(models.Verdict.status, models.Verdict.failed, models.Verdict.errored)
         .join(models.Run, models.Run.id == models.Verdict.run_id)
         .where(
             models.Verdict.workspace_id == scope.workspace_id,
@@ -146,11 +148,16 @@ async def experiment_scoring(scope: WorkspaceScope, experiment_id: str) -> Exper
     )
     rows = (await scope.session.execute(newest)).all()
     failures: dict[str, int] = {}
-    for _, failed in rows:
+    errors: dict[str, int] = {}
+    for _, failed, errored in rows:
         for key in failed:
             failures[key] = failures.get(key, 0) + 1
-    passed = sum(1 for status, _ in rows if status == models.VerdictStatus.PASSED)
-    return ExperimentScoring(len(rows), passed, dict(sorted(failures.items())))
+        for key in errored:
+            errors[key] = errors.get(key, 0) + 1
+    passed = sum(1 for status, _, _ in rows if status == models.VerdictStatus.PASSED)
+    return ExperimentScoring(
+        len(rows), passed, dict(sorted(failures.items())), dict(sorted(errors.items()))
+    )
 
 
 async def run_ids(scope: WorkspaceScope, agent_id: str, experiment_id: str | None) -> list[str]:
