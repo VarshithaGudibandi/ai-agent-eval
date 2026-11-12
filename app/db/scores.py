@@ -47,6 +47,7 @@ class NewScore:
     reason: str
     evidence: list[str]
     error: str | None
+    confidence: float | None = None
 
 
 async def save_scores(scope: WorkspaceScope, run_id: str, scores: list[NewScore]) -> None:
@@ -164,3 +165,13 @@ async def run_ids(scope: WorkspaceScope, agent_id: str, experiment_id: str | Non
     if experiment_id is not None:
         statement = statement.where(models.Run.experiment_id == experiment_id)
     return list(await scope.session.scalars(statement))
+
+
+async def scores_by(
+    scope: WorkspaceScope, run_id: str, scorer_ids: list[str]
+) -> list[models.Score]:
+    return await scope.all(
+        scope.query(models.Score).where(
+            models.Score.run_id == run_id, models.Score.scorer_id.in_(scorer_ids)
+        )
+    )

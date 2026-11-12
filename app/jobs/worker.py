@@ -5,7 +5,7 @@ import socket
 import time
 import uuid
 from collections.abc import Callable, Coroutine, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -23,6 +23,7 @@ from app.db.jobs import (
 from app.db.schema_status import schema_status
 from app.jobs.leases import LeaseOutcome, hold_lease
 from app.scoring.job import SCORE_RUN, score_run_job
+from app.scoring.judge_job import JUDGE_RUN, judge_run_job
 from app.settings import Settings, get_settings
 from app.structured_logging import configure_logging
 
@@ -57,12 +58,13 @@ class JobContext:
 
     claim: Claim
     sessionmaker: async_sessionmaker[AsyncSession]
+    settings: Settings = field(default_factory=get_settings)
 
 
 Handler = Callable[[JobContext], Coroutine[Any, Any, None]]
 
 # Job kinds this platform runs, by name. Stages add theirs as they are built.
-HANDLERS: dict[str, Handler] = {SCORE_RUN: score_run_job}
+HANDLERS: dict[str, Handler] = {SCORE_RUN: score_run_job, JUDGE_RUN: judge_run_job}
 
 
 class Worker:
@@ -147,7 +149,7 @@ class Worker:
                     self.settings.lease_seconds,
                 )
 
-        work = self.handlers[claim.kind](JobContext(claim, self.sessionmaker))
+        work = self.handlers[claim.kind](JobContext(claim, self.sessionmaker, self.settings))
         extra = {"job_id": claim.job_id, "kind": claim.kind}
         try:
             try:

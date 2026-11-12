@@ -30,6 +30,7 @@ class ScoreResult:
     reason: str
     evidence: tuple[str, ...]
     error: str | None = None
+    confidence: float | None = None
 
 
 @dataclass(frozen=True)

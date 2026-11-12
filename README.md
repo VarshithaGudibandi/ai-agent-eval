@@ -2,7 +2,7 @@
 
 A platform for measuring how well an AI agent works, while you build it and after it goes live. It grades every run from the agent's own trace, tracks results per agent version, and explains why a new version got worse.
 
-Status: being rebuilt around traces. Today it takes traces in, from the Python SDK or straight over the API, turns them into runs, span trees, costs and agent versions, and scores every run with deterministic checks. It also has accounts and workspaces, API tokens, encrypted provider keys, prices and budgets, a Postgres job queue with leases, and a metered Gemini provider. LLM judges, metrics, the regression explainer and the full web pages come next.
+Status: being rebuilt around traces. Today it takes traces in, from the Python SDK or straight over the API, turns them into runs, span trees, costs and agent versions, and scores every run with deterministic checks and, in experiments, LLM judges. It also has accounts and workspaces, API tokens, encrypted provider keys, prices and budgets, a Postgres job queue with leases, and a metered Gemini provider. Metrics, the regression explainer and the full web pages come next.
 
 ## How it works
 
@@ -29,6 +29,7 @@ What exists today:
 | Trace ingest | `POST /api/v1/traces` takes up to 100 traces. Secrets are masked first, then each trace is checked, stored raw, and turned into a run with its span tree, tokens, cost and agent version. A trace sent twice is stored once. Each workspace has a per-minute limit; over it, the answer is `429` with `Retry-After` |
 | Feedback | `POST /api/v1/feedback` records a user's rating of a trace from the team's own product: a score from 0 (thumbs down) to 1 (thumbs up) and an optional comment, masked like traces. The sender picks the `feedback_id`, so a retried send is stored once. It may arrive before its trace |
 | Scoring | Each agent has a versioned eval spec: the scorers that grade its runs. A new agent starts with four built-in checks: the run finished, no tool call failed, tool arguments fit the declared schemas, and the run stayed under 10 model calls. Every new run is scored by a worker job under the spec in force when its trace arrived. Its verdict is `passed` when every hard scorer passes and every soft one meets its threshold. `PUT /api/v1/agents/{id}/eval-spec` saves a new spec version, `POST /api/v1/agents/{id}/rescore` grades old runs under it, and `GET /api/v1/runs/{id}` shows a run's spans, scores and verdicts |
+| Judges | `checklist` asks a model 1 to 5 yes/no questions about a run, or a built-in pack (`support`, `tool_use`, `retrieval`); `claim_check` checks each claim in the final reply against the tool results. Every answer must quote the run, and a quote not found in it turns the answer into "can't tell", which is left out of the score. Judges are soft, use the workspace's Gemini key and the experiment's budget, and run in their own job, so a judge outage never holds up rule scores. Live runs are graded by rules alone for now |
 | Datasets | Versioned cases: an input, an optional expected outcome, tags and notes. `POST /api/v1/datasets` stores a new version; uploading the same cases again reuses the newest one. Case keys stay the same across versions, so results can be paired by case |
 | Experiments | One agent version run on one dataset version, each case a set number of times. `POST /api/v1/experiments` returns the cases to run; an `Idempotency-Key` header makes a retried start return the same experiment. Each run's trace names its slot with tags, and a trace that does not fit its slot is rejected |
 | Workspaces | Every row carries its workspace and every query is filtered by it. A row in another workspace answers exactly like a missing one (`404`) |
@@ -245,6 +246,7 @@ All settings are in `.env.example`. The main ones:
 | `MAX_JOB_ATTEMPTS` | `3` | Times a job may be interrupted before it is marked failed |
 | `INGEST_MAX_BYTES` | `5000000` | Largest trace batch one request may carry |
 | `INGEST_TRACES_PER_MINUTE` | `1200` | Traces one workspace may send per minute |
+| `REVIEW_SAMPLE_SHARE` | `0.1` | Share of judged runs put in the review queue for people to label. Borderline runs always go in |
 
 ## License
 

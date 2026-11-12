@@ -33,6 +33,8 @@ class GenerationSettings(BaseModel):
     model: str = Field(min_length=1)
     temperature: float = Field(default=0.0, ge=0, le=2)
     max_output_tokens: int = Field(default=1024, gt=0)
+    # Ask the provider for a JSON reply, as judges need one they can parse.
+    json_output: bool = False
 
 
 class Usage(BaseModel):

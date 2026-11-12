@@ -187,6 +187,8 @@ class GeminiProvider:
                 "maxOutputTokens": settings.max_output_tokens,
             },
         }
+        if settings.json_output:
+            body["generationConfig"]["responseMimeType"] = "application/json"
         if instruction:
             body["systemInstruction"] = instruction
         if tools:

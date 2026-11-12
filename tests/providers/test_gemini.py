@@ -189,3 +189,15 @@ async def test_errors_never_contain_the_key() -> None:
     with pytest.raises(Fatal) as caught:
         await provider.generate(CONVERSATION[:2], [], SETTINGS, timeout=5)
     assert "AIza" not in str(caught.value)
+
+
+async def test_a_json_reply_can_be_asked_for() -> None:
+    provider, seen = _provider(
+        lambda r: httpx.Response(
+            200, json={"candidates": [{"content": {"parts": [{"text": "{}"}]}}]}
+        )
+    )
+    await provider.generate(
+        CONVERSATION[:2], [], SETTINGS.model_copy(update={"json_output": True}), timeout=5
+    )
+    assert json.loads(seen[0].content)["generationConfig"]["responseMimeType"] == "application/json"

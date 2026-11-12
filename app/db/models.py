@@ -92,6 +92,7 @@ class ModelCallStatus(StrEnum):
 class ScorerKind(StrEnum):
     BUILTIN = "builtin"
     RULE = "rule"
+    JUDGE = "judge"
 
 
 class ScorerScope(StrEnum):
@@ -111,6 +112,30 @@ class VerdictStatus(StrEnum):
     INCOMPLETE = "incomplete"
     # No scorer applied to the run.
     NOT_SCORED = "not_scored"
+
+
+class JudgeAnswerValue(StrEnum):
+    YES = "yes"
+    NO = "no"
+    CANT_TELL = "cant_tell"
+
+
+class HumanAnswer(StrEnum):
+    YES = "yes"
+    NO = "no"
+
+
+class ReviewReason(StrEnum):
+    # Picked at random from judged runs, so labels cover ordinary runs too.
+    SAMPLED = "sampled"
+    # The judge was unsure.
+    BORDERLINE = "borderline"
+    MANUAL = "manual"
+
+
+class ReviewStatus(StrEnum):
+    PENDING = "pending"
+    LABELED = "labeled"
 
 
 class KeyedProvider(StrEnum):
@@ -707,6 +732,8 @@ class Score(WorkspaceScoped, Base):
     reason: Mapped[str]
     evidence: Mapped[list[str]] = mapped_column(JSONB)
     error: Mapped[str | None]
+    # Judges only: how far repeated answers agreed. None when asked once.
+    confidence: Mapped[float | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
@@ -731,4 +758,81 @@ class Verdict(WorkspaceScoped, Base):
     quality: Mapped[float | None]
     failed: Mapped[list[str]] = mapped_column(JSONB)
     errored: Mapped[list[str]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class JudgeAnswer(WorkspaceScoped, Base):
+    """A judge's answer to one question about one run, with the quote it rests on."""
+
+    __tablename__ = "judge_answers"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("run_id", "scorer_id", "question_id"),
+        workspace_fk("run_id", "runs"),
+        workspace_fk("scorer_id", "scorers"),
+        one_of("answer", JudgeAnswerValue),
+        CheckConstraint("confidence >= 0 AND confidence <= 1", name="confidence_range"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    run_id: Mapped[str]
+    scorer_id: Mapped[str]
+    question_id: Mapped[str]
+    question_text: Mapped[str]
+    # Calibration follows the wording: a reworded question starts again from no labels.
+    question_hash: Mapped[str]
+    answer: Mapped[str]
+    quote: Mapped[str | None]
+    evidence: Mapped[list[str]] = mapped_column(JSONB)
+    confidence: Mapped[float | None]
+    # Whether the question was trusted when this answer was given, so counted in the score.
+    trusted: Mapped[bool]
+    model_version: Mapped[str]
+    # The claim check's claims, each with its verdict and quote.
+    details: Mapped[dict[str, Any]]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class ReviewItem(WorkspaceScoped, Base):
+    """A run waiting for, or given, a person's labels."""
+
+    __tablename__ = "review_items"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("run_id"),
+        workspace_fk("run_id", "runs"),
+        one_of("reason", ReviewReason),
+        one_of("status", ReviewStatus),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    run_id: Mapped[str]
+    reason: Mapped[str]
+    status: Mapped[str]
+    note: Mapped[str | None]
+    labeled_by: Mapped[str | None]
+    labeled_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class ReviewLabel(WorkspaceScoped, Base):
+    """A person's yes or no to one judge question about one run."""
+
+    __tablename__ = "review_labels"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("review_item_id", "scorer_id", "question_id"),
+        workspace_fk("review_item_id", "review_items"),
+        workspace_fk("run_id", "runs"),
+        workspace_fk("scorer_id", "scorers"),
+        one_of("answer", HumanAnswer),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    review_item_id: Mapped[str]
+    run_id: Mapped[str]
+    scorer_id: Mapped[str]
+    question_id: Mapped[str]
+    question_hash: Mapped[str]
+    answer: Mapped[str]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

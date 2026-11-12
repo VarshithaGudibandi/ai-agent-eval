@@ -5,6 +5,7 @@ from app.db.jobs import enqueue, require_lease
 from app.db.scope import WorkspaceScope
 from app.db.scores import NewScore, save_scores, save_verdict, scoring_input
 from app.scoring.engine import score, verdict
+from app.scoring.judge_job import queue_judging
 from app.scoring.run_view import RunView
 from app.scoring.specs import scorers_for
 
@@ -22,7 +23,10 @@ async def queue_scoring(scope: WorkspaceScope, run_id: str, spec_id: str | None 
 
 
 async def score_run_job(ctx: "JobContext") -> None:
-    """Score one run and store its verdict, all in one transaction fenced on the lease."""
+    """Score one run with its deterministic scorers, in one transaction fenced on the lease.
+
+    The verdict is stored here too, unless judges apply: then it waits for the judge job.
+    """
     claim = ctx.claim
     async with ctx.sessionmaker.begin() as session:
         await require_lease(session, claim.workspace_id, claim.job_id, claim.lease_token)
@@ -39,7 +43,6 @@ async def score_run_job(ctx: "JobContext") -> None:
             data.spans, data.run.tags, data.config, data.expected, data.has_expected
         )
         results = score(run, scorers)
-        result = verdict(scorers, results)
         await save_scores(
             scope,
             data.run.id,
@@ -50,6 +53,10 @@ async def score_run_job(ctx: "JobContext") -> None:
                 for r in results
             ],
         )
+        # With judges to come, the verdict waits for them; the judge job stores it.
+        if await queue_judging(scope, data.run, run, scorers, spec_id):
+            return
+        result = verdict(scorers, results)
         await save_verdict(
             scope,
             data.run.id,

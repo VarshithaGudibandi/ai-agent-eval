@@ -7,12 +7,13 @@ from app.scoring.engine import Scorer
 
 
 def _new(definition: ScorerDefinition) -> NewScorer:
-    check = CHECKS[definition.check]
+    check = CHECKS.get(definition.check)
     return NewScorer(
         key=definition.key,
         check=definition.check,
-        kind=check.kind,
-        scope=check.scope,
+        # A judge grades the whole run.
+        kind=check.kind if check else models.ScorerKind.JUDGE,
+        scope=check.scope if check else models.ScorerScope.RUN,
         severity=definition.level,
         threshold=definition.pass_mark,
         params=definition.params,

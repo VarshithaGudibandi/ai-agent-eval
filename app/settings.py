@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     model_call_max_retries: int = Field(default=4, ge=0, le=10)
     ingest_max_bytes: int = Field(default=5_000_000, gt=0)
     ingest_traces_per_minute: int = Field(default=1200, gt=0)
+    review_sample_share: float = Field(default=0.1, ge=0, le=1)
 
     @model_validator(mode="after")
     def _heartbeat_fits_the_lease(self) -> "Settings":
