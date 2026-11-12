@@ -189,3 +189,14 @@ def test_judges_are_soft_by_default_and_hard_only_on_purpose() -> None:
         "threshold": 1.0,
         "applies_when": {"tags": {}, "tools_used": [], "has_expected": None},
     }
+
+
+def test_a_pack_judge_reads_back_as_it_was_saved() -> None:
+    saved = ScorerDefinition(key="j", check="checklist", params={"pack": "tool_use"})
+    # What is stored holds the pack and its written-out questions; reading it back works.
+    again = ScorerDefinition.model_validate(saved.model_dump())
+    assert again.content_hash() == saved.content_hash()
+    assert ChecklistParams.model_validate(saved.params).questions == PACKS["tool_use"]
+    edited = {**saved.params, "questions": saved.params["questions"][:1]}
+    with pytest.raises(ValueError, match="either questions"):
+        ChecklistParams.model_validate(edited)

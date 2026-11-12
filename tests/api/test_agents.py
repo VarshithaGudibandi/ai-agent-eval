@@ -81,3 +81,17 @@ async def test_rescoring_grades_old_runs_under_the_new_spec(
     assert await score_now(app, owner.workspace_id) == 2
     assert (await owner.post(rescore, json={})).json()["queued"] == 2
     assert await score_now(app, owner.workspace_id) == 2
+
+
+async def test_a_judge_from_a_pack_can_be_saved_and_read(new_owner: SignIn) -> None:
+    owner = await new_owner()
+    await owner.post("/api/v1/traces", json={"traces": [support_trace("t-1")]})
+    [agent] = (await owner.get("/api/v1/agents")).json()
+    path = f"/api/v1/agents/{agent['id']}/eval-spec"
+    spec = {"scorers": [{"key": "support", "check": "checklist", "params": {"pack": "support"}}]}
+    saved = await owner.put(path, json=spec)
+    again = await owner.put(path, json=spec)
+    assert (saved.status_code, again.status_code) == (201, 200)
+    [judge] = (await owner.get(path)).json()["scorers"]
+    assert (judge["kind"], judge["severity"], judge["threshold"]) == ("judge", "soft", 0.7)
+    assert len(judge["params"]["questions"]) == 3

@@ -112,7 +112,10 @@ class ChecklistParams(_JudgeParams):
 
     @model_validator(mode="after")
     def _questions_or_pack(self) -> "ChecklistParams":
-        if bool(self.questions) == (self.pack is not None):
+        # A stored pack judge holds the pack and its written-out questions; anything else
+        # with both would be ambiguous.
+        stored_pack = self.pack is not None and self.questions == PACKS[self.pack]
+        if bool(self.questions) == (self.pack is not None) and not stored_pack:
             raise ValueError("give either questions (1 to 5) or a pack, not both")
         if self.pack is not None:
             # The pack's questions are written out, so the scorer's hash is what it asks.
