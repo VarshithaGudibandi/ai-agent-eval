@@ -13,6 +13,8 @@ from app.db.scope import WorkspaceScope
 from app.db.traces import ExperimentLink, agent_version, save_run, store_raw, trace_known
 from app.ingest.redact import redact_value
 from app.ingest.trace_format import Trace
+from app.scoring.job import queue_scoring
+from app.scoring.specs import ensure_default_spec
 from app.traces.normalize import fingerprint, normalize
 
 logger = logging.getLogger(__name__)
@@ -154,7 +156,9 @@ async def ingest(scope: WorkspaceScope, documents: list[dict[str, Any]]) -> Inge
                     scope, trace.agent, fingerprint(trace.config), trace.config, trace.label
                 )
                 run = normalize(trace, await _prices(scope, trace, known_prices))
-                await save_run(scope, row, version, trace.tags, run, link)
+                saved = await save_run(scope, row, version, trace.tags, run, link)
+                await ensure_default_spec(scope, version.agent_id)
+                await queue_scoring(scope, saved.id)
         except Exception as exc:
             logger.exception("could not normalize a trace", extra={"trace_id": trace.trace_id})
             row.status = models.TraceStatus.FAILED

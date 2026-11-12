@@ -89,6 +89,30 @@ class ModelCallStatus(StrEnum):
     CONTENT_BLOCKED = "content_blocked"
 
 
+class ScorerKind(StrEnum):
+    BUILTIN = "builtin"
+    RULE = "rule"
+
+
+class ScorerScope(StrEnum):
+    RUN = "run"
+    STEP = "step"
+
+
+class Severity(StrEnum):
+    HARD = "hard"
+    SOFT = "soft"
+
+
+class VerdictStatus(StrEnum):
+    PASSED = "passed"
+    FAILED = "failed"
+    # Nothing failed, but a scorer could not run, so the run cannot be called a pass.
+    INCOMPLETE = "incomplete"
+    # No scorer applied to the run.
+    NOT_SCORED = "not_scored"
+
+
 class KeyedProvider(StrEnum):
     GEMINI = "gemini"
 
@@ -590,3 +614,121 @@ class Feedback(WorkspaceScoped, Base):
     score: Mapped[float]
     comment: Mapped[str | None]
     received_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class EvalSpec(WorkspaceScoped, Base):
+    """One version of an agent's eval spec: the scorers that grade its runs."""
+
+    __tablename__ = "eval_specs"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("agent_id", "version"),
+        workspace_fk("agent_id", "agents"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    agent_id: Mapped[str]
+    version: Mapped[int]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Scorer(WorkspaceScoped, Base):
+    """One version of one scorer. Never changed: a different scorer is a new version, and
+    an unchanged one is shared by every spec version that keeps it, so its scores stay
+    comparable across them."""
+
+    __tablename__ = "scorers"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("agent_id", "key", "content_hash"),
+        UniqueConstraint("agent_id", "key", "version"),
+        workspace_fk("agent_id", "agents"),
+        one_of("kind", ScorerKind),
+        one_of("scope", ScorerScope),
+        one_of("severity", Severity),
+        CheckConstraint("threshold >= 0 AND threshold <= 1", name="threshold_range"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    agent_id: Mapped[str]
+    key: Mapped[str]
+    version: Mapped[int]
+    check: Mapped[str]
+    kind: Mapped[str]
+    scope: Mapped[str]
+    severity: Mapped[str]
+    threshold: Mapped[float]
+    params: Mapped[dict[str, Any]]
+    applies_when: Mapped[dict[str, Any]]
+    content_hash: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class EvalSpecScorer(WorkspaceScoped, Base):
+    __tablename__ = "eval_spec_scorers"
+    __table_args__ = (
+        PrimaryKeyConstraint("eval_spec_id", "scorer_id"),
+        UniqueConstraint("eval_spec_id", "position"),
+        workspace_fk("eval_spec_id", "eval_specs"),
+        workspace_fk("scorer_id", "scorers"),
+    )
+
+    eval_spec_id: Mapped[str]
+    scorer_id: Mapped[str]
+    position: Mapped[int]
+
+
+class Score(WorkspaceScoped, Base):
+    """One scorer's result for a run, or for one span of it when span_id is set."""
+
+    __tablename__ = "scores"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        # A rerun of the same scorer on the same target never adds a second score.
+        UniqueConstraint("run_id", "span_id", "scorer_id", postgresql_nulls_not_distinct=True),
+        workspace_fk("run_id", "runs"),
+        workspace_fk("scorer_id", "scorers"),
+        ForeignKeyConstraint(["run_id", "span_id"], ["spans.run_id", "spans.span_id"]),
+        CheckConstraint("value >= 0 AND value <= 1", name="value_range"),
+        # Either a result or an error: a scorer that crashed neither passed nor failed.
+        CheckConstraint(
+            "(error IS NULL AND value IS NOT NULL AND passed IS NOT NULL)"
+            " OR (error IS NOT NULL AND value IS NULL AND passed IS NULL)",
+            name="result_or_error",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    run_id: Mapped[str]
+    span_id: Mapped[str | None]
+    scorer_id: Mapped[str]
+    value: Mapped[float | None]
+    passed: Mapped[bool | None]
+    reason: Mapped[str]
+    evidence: Mapped[list[str]] = mapped_column(JSONB)
+    error: Mapped[str | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Verdict(WorkspaceScoped, Base):
+    """A run's verdict under one eval spec version."""
+
+    __tablename__ = "verdicts"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("run_id", "eval_spec_id"),
+        workspace_fk("run_id", "runs"),
+        workspace_fk("eval_spec_id", "eval_specs"),
+        one_of("status", VerdictStatus),
+        CheckConstraint("quality >= 0 AND quality <= 1", name="quality_range"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    run_id: Mapped[str]
+    eval_spec_id: Mapped[str]
+    status: Mapped[str]
+    # The average of the soft scores; none when no soft scorer applied.
+    quality: Mapped[float | None]
+    failed: Mapped[list[str]] = mapped_column(JSONB)
+    errored: Mapped[list[str]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())

@@ -12,6 +12,7 @@ from app.db.experiments import finish_experiment, runs_received, start_experimen
 from app.db.scope import WorkspaceScope
 from app.db.traces import agent_version
 from app.ingest.redact import redact_value
+from app.scoring.specs import ensure_default_spec
 from app.traces.normalize import fingerprint
 
 router = APIRouter(prefix="/api/v1/experiments", tags=["experiments"])
@@ -79,6 +80,7 @@ async def start(
     # Masked exactly as ingest masks it, so the experiment and its traces share a version.
     config = redact_value(body.config)
     version = await agent_version(scope, body.agent, fingerprint(config), config, body.label)
+    await ensure_default_spec(scope, version.agent_id)
     experiment, created = await start_experiment(
         scope, version, body.dataset_version_id, body.repetitions, idempotency_key
     )
