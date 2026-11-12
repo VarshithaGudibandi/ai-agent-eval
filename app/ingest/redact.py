@@ -11,7 +11,7 @@ _SECRET = re.compile(
         [
             # This platform's own tokens.
             r"\b(?:aet|ses|csrf|inv)_[A-Za-z0-9_-]{20,}",
-            # Provider keys with known shapes: Google, OpenAI and Anthropic style, AWS, GitHub,
+            # Provider keys with known shapes: Google, OpenAI style, AWS, GitHub,
             # Slack.
             r"\bAIza[0-9A-Za-z_-]{20,}",
             r"\bsk-[A-Za-z0-9_-]{20,}",
