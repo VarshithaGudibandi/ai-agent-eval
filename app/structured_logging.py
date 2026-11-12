@@ -1,22 +1,12 @@
 import json
 import logging
-import re
 import sys
 from datetime import UTC, datetime
 from typing import Any
 
+from app.ingest.redact import redact
+
 _RESERVED = set(vars(logging.makeLogRecord({})).keys()) | {"message", "asctime"}
-
-# Our own secrets have known prefixes, and Google keys start with AIza. Anything shaped
-# like one is masked in every log line, whatever code wrote it.
-_SECRET = re.compile(
-    r"\b(?:(?:aet|ses|csrf|inv)_[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{20,})"
-    r"|(?i:bearer\s+)[A-Za-z0-9._~+/=-]{8,}"
-)
-
-
-def redact(text: str) -> str:
-    return _SECRET.sub("[redacted]", text)
 
 
 class TextFormatter(logging.Formatter):
