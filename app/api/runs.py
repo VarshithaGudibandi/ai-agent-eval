@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app.api.dependencies import Db, Viewer, scope_for
 from app.db import models
+from app.db.reviews import questions_on
 from app.db.scores import scores_of, verdicts_of
 from app.db.traces import spans_of
 
@@ -39,6 +40,20 @@ class ScoreOut(BaseModel):
     error: str | None
 
 
+class JudgeAnswerOut(BaseModel):
+    scorer_key: str
+    question_id: str
+    question_text: str
+    answer: models.JudgeAnswerValue
+    quote: str | None
+    evidence: list[str]
+    confidence: float | None
+    # Whether the question was trusted, so counted, when the judge answered.
+    trusted: bool
+    model_version: str
+    claims: list[dict[str, Any]]
+
+
 class VerdictOut(BaseModel):
     eval_spec_version: int
     status: models.VerdictStatus
@@ -64,6 +79,7 @@ class RunOut(BaseModel):
     cost_known: bool
     spans: list[SpanOut]
     scores: list[ScoreOut]
+    judge_answers: list[JudgeAnswerOut]
     # One per eval spec version the run was graded by, oldest first.
     verdicts: list[VerdictOut]
 
@@ -118,6 +134,21 @@ async def run(run_id: str, principal: Viewer, session: Db) -> RunOut:
                 error=s.score.error,
             )
             for s in await scores_of(scope, run_id)
+        ],
+        judge_answers=[
+            JudgeAnswerOut(
+                scorer_key=key,
+                question_id=a.question_id,
+                question_text=a.question_text,
+                answer=models.JudgeAnswerValue(a.answer),
+                quote=a.quote,
+                evidence=a.evidence,
+                confidence=a.confidence,
+                trusted=a.trusted,
+                model_version=a.model_version,
+                claims=a.details.get("claims", []),
+            )
+            for a, key in await questions_on(scope, run_id)
         ],
         verdicts=[
             VerdictOut(

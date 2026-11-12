@@ -1,4 +1,3 @@
-import json
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -22,13 +21,6 @@ from app.db.traces import agent_version
 from app.ingest.redact import redact_value
 from app.ingest.service import ingest
 from app.jobs.worker import JobContext
-from app.providers.contract import (
-    GenerationSettings,
-    Message,
-    ModelResponse,
-    PublicToolSchema,
-    Usage,
-)
 from app.providers.credentials import create_credential
 from app.providers.key_vault import key_vault_from_settings
 from app.scoring import judge_job
@@ -40,6 +32,7 @@ from app.scoring.specs import ensure_default_spec, save_definitions
 from app.settings import Settings
 from app.traces.normalize import fingerprint
 from tests.scoring.golden import golden
+from tests.scoring.scripted_judge import AnsweringJudge
 
 Sessions = async_sessionmaker[AsyncSession]
 FAKE_KEY = "AIza" + "J" * 35
@@ -52,36 +45,6 @@ SPEC = [
     ScorerDefinition(key="ran", check="run_completed"),
     ScorerDefinition(key="manners", check="checklist", params={"questions": QUESTIONS}),
 ]
-
-
-class AnsweringJudge:
-    """Stands in for Gemini as a judge: answers each question as told, quoting the run."""
-
-    def __init__(self) -> None:
-        self.answers = {"looked_up": "yes", "apologised": "yes"}
-        self.calls = 0
-
-    async def generate(
-        self,
-        messages: list[Message],
-        tools: list[PublicToolSchema],
-        settings: GenerationSettings,
-        timeout: float,
-    ) -> ModelResponse:
-        assert settings.json_output and settings.temperature == 0
-        self.calls += 1
-        reply = {
-            "answers": [
-                {"id": qid, "answer": answer, "quote": QUOTES[qid]}
-                for qid, answer in self.answers.items()
-            ]
-        }
-        return ModelResponse(
-            text=json.dumps(reply),
-            tool_calls=[],
-            usage=Usage(input_tokens=900, output_tokens=60),
-            resolved_model="gemini-3.5-flash-lite-001",
-        )
 
 
 @dataclass
@@ -145,7 +108,7 @@ async def world(
     fresh_sessionmaker: Sessions, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> World:
     settings = settings.model_copy(update={"review_sample_share": 1.0})
-    judge = AnsweringJudge()
+    judge = AnsweringJudge({qid: ("yes", quote) for qid, quote in QUOTES.items()})
 
     @asynccontextmanager
     async def scripted(api_key: str, _: Settings) -> AsyncIterator[AnsweringJudge]:
@@ -242,7 +205,10 @@ async def test_a_question_below_the_agreement_bar_stays_untrusted(world: World) 
     await _label(
         world, runs, lambda n: {"looked_up": "yes", "apologised": "yes" if n < 6 else "no"}
     )
-    world.judge.answers = {"looked_up": "yes", "apologised": "no"}
+    world.judge.answers = {
+        "looked_up": ("yes", QUOTES["looked_up"]),
+        "apologised": ("no", QUOTES["apologised"]),
+    }
     [run_id] = await world.score(world.trace(11))
     trusted = await world.one(
         select(models.JudgeAnswer.question_id, models.JudgeAnswer.trusted).where(
@@ -262,7 +228,10 @@ async def test_a_question_below_the_agreement_bar_stays_untrusted(world: World) 
 async def test_once_trusted_a_failing_answer_fails_the_run(world: World) -> None:
     runs = await world.score(*(world.trace(n) for n in range(1, 11)))
     await _label(world, runs, lambda n: {"looked_up": "yes", "apologised": "yes"})
-    world.judge.answers = {"looked_up": "yes", "apologised": "no"}
+    world.judge.answers = {
+        "looked_up": ("yes", QUOTES["looked_up"]),
+        "apologised": ("no", QUOTES["apologised"]),
+    }
     calls_before = world.judge.calls
     [run_id] = await world.score(world.trace(11))
     [(status, failed)] = await world.one(

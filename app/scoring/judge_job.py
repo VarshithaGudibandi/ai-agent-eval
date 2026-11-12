@@ -38,7 +38,7 @@ from app.scoring.judges import (
     run_claim_check,
 )
 from app.scoring.run_view import RunView
-from app.scoring.specs import scorers_for
+from app.scoring.specs import matching_labels, scorers_for
 from app.settings import Settings
 
 if TYPE_CHECKING:
@@ -112,9 +112,7 @@ async def _prepare(ctx: "JobContext", spec_id: str) -> _Prepared | None:
                 for q in questions_of(params)
                 if calibrate(
                     (a.judge, a.human)
-                    for a in labelled
-                    if (a.scorer_key, a.question_id, a.question_hash)
-                    == (judge.definition.key, q.id, question_hash(q.text))
+                    for a in matching_labels(labelled, judge.definition.key, q.id, q.text)
                 ).trusted
             }
             if params.model not in prices:

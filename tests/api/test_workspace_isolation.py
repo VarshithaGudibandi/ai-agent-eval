@@ -34,6 +34,7 @@ class World:
     b_experiment_id: str
     b_agent_id: str
     b_run_id: str
+    b_review_item_id: str
 
 
 PRICE = {
@@ -74,6 +75,8 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         b_run_id = await session.scalar(
             select(models.Run.id).where(models.Run.workspace_id == b_person.workspace_id)
         )
+    await b_person.post("/api/v1/review-items", json={"run_id": str(b_run_id)})
+    [b_review] = (await b_person.get("/api/v1/review-queue")).json()
     return World(
         a_person,
         a_token,
@@ -87,6 +90,7 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         experiment.json()["id"],
         str(b_agent_id),
         str(b_run_id),
+        b_review["id"],
     )
 
 
@@ -105,6 +109,14 @@ def _foreign_id_attacks(w: Any) -> list[tuple[str, str, Any]]:
         ("PUT", f"/api/v1/agents/{w.b_agent_id}/eval-spec", {"scorers": []}),
         ("POST", f"/api/v1/agents/{w.b_agent_id}/rescore", {}),
         ("GET", f"/api/v1/runs/{w.b_run_id}", None),
+        ("GET", f"/api/v1/agents/{w.b_agent_id}/calibration", None),
+        (
+            "POST",
+            f"/api/v1/review-items/{w.b_review_item_id}/label",
+            {"labels": [{"scorer_key": "k", "question_id": "q", "answer": "yes"}]},
+        ),
+        # A body naming B's run must not put it in A's review queue.
+        ("POST", "/api/v1/review-items", {"run_id": w.b_run_id}),
         # A body naming B's dataset version must not start an experiment on it.
         (
             "POST",
@@ -135,6 +147,7 @@ def _b_ids(w: World) -> list[str]:
         w.b_experiment_id,
         w.b_agent_id,
         w.b_run_id,
+        w.b_review_item_id,
         str(w.b_person.email),
     ]
 
@@ -150,6 +163,7 @@ async def _b_view(w: World) -> dict[str, Any]:
     view["experiment"] = (await w.b_person.get(f"/api/v1/experiments/{w.b_experiment_id}")).json()
     view["spec"] = (await w.b_person.get(f"/api/v1/agents/{w.b_agent_id}/eval-spec")).json()
     view["agents"] = (await w.b_person.get("/api/v1/agents")).json()
+    view["review"] = (await w.b_person.get("/api/v1/review-queue")).json()
     return view
 
 
@@ -290,9 +304,12 @@ FOREIGN_ID_ROUTES = {
     ("PUT", "/api/v1/agents/{agent_id}/eval-spec"),
     ("POST", "/api/v1/agents/{agent_id}/rescore"),
     ("GET", "/api/v1/runs/{run_id}"),
+    ("GET", "/api/v1/agents/{agent_id}/calibration"),
+    ("POST", "/api/v1/review-items/{item_id}/label"),
 }
 LIST_ROUTES = [
     "/api/v1/agents",
+    "/api/v1/review-queue",
     "/api/v1/workspaces",
     "/api/v1/members",
     "/api/v1/datasets",
@@ -303,6 +320,7 @@ LIST_ROUTES = [
 BODY_ROUTES = {
     ("POST", "/api/v1/traces"),
     ("POST", "/api/v1/feedback"),
+    ("POST", "/api/v1/review-items"),
     ("POST", "/api/v1/datasets"),
     ("POST", "/api/v1/experiments"),
     ("POST", "/api/v1/api-tokens"),
@@ -344,6 +362,7 @@ def test_every_foreign_id_route_is_really_attacked() -> None:
         b_experiment_id="x",
         b_agent_id="x",
         b_run_id="x",
+        b_review_item_id="x",
     )
     sent = {(method, path) for method, path, _ in _foreign_id_attacks(fake)}
     templates = {(method, re.sub(r"\{[a-z_]+\}", "x", path)) for method, path in FOREIGN_ID_ROUTES}

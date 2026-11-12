@@ -154,9 +154,15 @@ async def save_judge_answers(
     )
 
 
-async def judge_answers_of(scope: WorkspaceScope, run_id: str) -> list[models.JudgeAnswer]:
-    return await scope.all(
-        scope.query(models.JudgeAnswer)
-        .where(models.JudgeAnswer.run_id == run_id)
-        .order_by(models.JudgeAnswer.scorer_id, models.JudgeAnswer.question_id)
+async def questions_on(scope: WorkspaceScope, run_id: str) -> list[tuple[models.JudgeAnswer, str]]:
+    """The judge questions asked about a run, each with its scorer's key."""
+    rows = await scope.session.execute(
+        select(models.JudgeAnswer, models.Scorer.key)
+        .join(models.Scorer, models.Scorer.id == models.JudgeAnswer.scorer_id)
+        .where(
+            models.JudgeAnswer.workspace_id == scope.workspace_id,
+            models.JudgeAnswer.run_id == run_id,
+        )
+        .order_by(models.Scorer.key, models.JudgeAnswer.question_id)
     )
+    return [(answer, key) for answer, key in rows]

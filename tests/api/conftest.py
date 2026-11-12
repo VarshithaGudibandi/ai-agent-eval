@@ -19,6 +19,7 @@ from app.db.jobs import Claim, finish
 from app.db.scope import WorkspaceScope
 from app.jobs.worker import JobContext
 from app.scoring.job import SCORE_RUN, score_run_job
+from app.scoring.judge_job import JUDGE_RUN, judge_run_job
 from app.settings import Settings
 
 PASSWORD = "a long enough password"
@@ -136,12 +137,14 @@ async def add_dataset(app: FastAPI, workspace_id: str, name: str) -> tuple[str, 
 
 
 async def score_now(app: FastAPI, workspace_id: str) -> int:
-    """Run this workspace's waiting scoring jobs, as the worker would. Returns how many.
+    """Run this workspace's waiting scoring and judging jobs, as the worker would. Returns
+    how many ran.
 
     The worker claims the oldest job of any workspace, and other tests leave theirs queued,
     so tests take their own workspace's jobs directly.
     """
     sessionmaker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
+    handlers = {SCORE_RUN: score_run_job, JUDGE_RUN: judge_run_job}
     done = 0
     while True:
         async with sessionmaker.begin() as session:
@@ -149,7 +152,7 @@ async def score_now(app: FastAPI, workspace_id: str) -> int:
                 select(models.Job)
                 .where(
                     models.Job.workspace_id == workspace_id,
-                    models.Job.kind == SCORE_RUN,
+                    models.Job.kind.in_(list(handlers)),
                     models.Job.status == models.JobStatus.QUEUED,
                 )
                 .order_by(models.Job.created_at)
@@ -164,7 +167,7 @@ async def score_now(app: FastAPI, workspace_id: str) -> int:
             claim = Claim(
                 workspace_id, job.id, job.kind, job.subject_id, job.payload, job.lease_token, 1
             )
-        await score_run_job(JobContext(claim, sessionmaker))
+        await handlers[claim.kind](JobContext(claim, sessionmaker, app.state.settings))
         async with sessionmaker.begin() as session:
             await finish(session, workspace_id, claim.job_id, claim.lease_token)
         done += 1

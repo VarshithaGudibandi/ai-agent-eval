@@ -14,6 +14,7 @@ from app.api import (
     health,
     prices,
     provider_credentials,
+    reviews,
     runs,
     traces,
     workspaces,
@@ -54,6 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         feedback,
         agents,
         runs,
+        reviews,
     ):
         app.include_router(module.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
