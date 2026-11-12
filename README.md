@@ -189,6 +189,7 @@ The response lists which traces were `accepted`, which were `duplicates`, and wh
 | `app/jobs/` | The worker and its lease heartbeat |
 | `app/metrics/` | Scorecard and comparison maths |
 | `app/providers/` | The Gemini provider, encrypted keys, rate limiting, metered calls |
+| `app/scoring/` | Scorers: the built-in checks, rule templates, and the verdict for a run |
 | `app/traces/` | Turning a trace into a run, spans, cost and an agent version |
 | `app/web/` | The web pages, their templates and static files |
 | `sdk/` | The `agent_eval` Python package agents use to send traces |
