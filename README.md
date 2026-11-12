@@ -28,6 +28,7 @@ What exists today:
 | --- | --- |
 | Trace ingest | `POST /api/v1/traces` takes up to 100 traces. Secrets are masked first, then each trace is checked, stored raw, and turned into a run with its span tree, tokens, cost and agent version. A trace sent twice is stored once. Each workspace has a per-minute limit; over it, the answer is `429` with `Retry-After` |
 | Datasets | Versioned cases: an input, an optional expected outcome, tags and notes. `POST /api/v1/datasets` stores a new version; uploading the same cases again reuses the newest one. Case keys stay the same across versions, so results can be paired by case |
+| Experiments | One agent version run on one dataset version, each case a set number of times. `POST /api/v1/experiments` returns the cases to run; an `Idempotency-Key` header makes a retried start return the same experiment. Each run's trace names its slot with tags, and a trace that does not fit its slot is rejected |
 | Workspaces | Every row carries its workspace and every query is filtered by it. A row in another workspace answers exactly like a missing one (`404`) |
 | Accounts | Email and password sign-in with HTTP-only cookies and CSRF checks, roles (`viewer`, `member`, `owner`), invites, revocable API tokens shown once |
 | Provider keys | Stored encrypted with AES-GCM under `APP_MASTER_KEY`. Only a label and the last four characters are ever shown |
@@ -85,6 +86,7 @@ A batch is `{"traces": [...]}`. Each trace looks like this:
 | --- | --- |
 | `trace_id` | Chosen by the sender. Sending the same id again is reported as a duplicate, so a batch can be resent safely |
 | `config` | What makes this version of the agent. A config the platform has not seen before makes a new agent version |
+| `tags` | Free-form strings, numbers or booleans. A run inside an experiment carries `experiment`, `case` (the case key) and `repetition` (from 1); its agent and config must match the experiment's, and each slot takes one run |
 | `spans` | One root. Every other span names a parent in the same trace. `kind` is `model`, `tool` or `step`; a model span names its model |
 | Times | ISO 8601 with a time zone. A span cannot end before it starts |
 

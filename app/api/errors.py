@@ -13,6 +13,7 @@ from app.auth.errors import (
 )
 from app.db.budgets import LimitBelowUsageError
 from app.db.datasets import CaseKeysClashError
+from app.db.experiments import IdempotencyKeyReusedError
 from app.db.scope import NotFoundError
 from app.ingest.service import BatchInvalidError, BatchTooLargeError, IngestRateLimitedError
 
@@ -29,6 +30,7 @@ _ERRORS: dict[type[Exception], tuple[int, str]] = {
     BatchTooLargeError: (413, "batch_too_large"),
     BatchInvalidError: (422, "batch_invalid"),
     CaseKeysClashError: (422, "case_keys_clash"),
+    IdempotencyKeyReusedError: (409, "idempotency_key_reused"),
 }
 _SHOW_MESSAGE = (
     LimitBelowUsageError,

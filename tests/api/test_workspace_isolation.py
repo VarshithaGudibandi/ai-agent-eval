@@ -31,6 +31,7 @@ class World:
     b_price_id: str
     b_dataset_id: str
     b_version_id: str
+    b_experiment_id: str
 
 
 PRICE = {
@@ -56,6 +57,10 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         json={"provider": "gemini", "label": "b", "api_key": "AIzaB-secret-key-0000"},
     )
     price = await b_person.post("/api/v1/price-versions", json=PRICE)
+    experiment = await b_person.post(
+        "/api/v1/experiments",
+        json={"agent": "b-bot", "config": {}, "dataset_version_id": b_version_id},
+    )
     return World(
         a_person,
         a_token,
@@ -66,6 +71,7 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         price.json()["id"],
         b_dataset_id,
         b_version_id,
+        experiment.json()["id"],
     )
 
 
@@ -77,6 +83,14 @@ def _foreign_id_attacks(w: Any) -> list[tuple[str, str, Any]]:
         ("DELETE", f"/api/v1/provider-credentials/{w.b_credential_id}", None),
         ("POST", f"/api/v1/datasets/{w.b_dataset_id}/cases", {"cases": [{"key": "k", "input": 1}]}),
         ("GET", f"/api/v1/dataset-versions/{w.b_version_id}", None),
+        ("GET", f"/api/v1/experiments/{w.b_experiment_id}", None),
+        ("POST", f"/api/v1/experiments/{w.b_experiment_id}/finish", None),
+        # A body naming B's dataset version must not start an experiment on it.
+        (
+            "POST",
+            "/api/v1/experiments",
+            {"agent": "a", "config": {}, "dataset_version_id": w.b_version_id},
+        ),
     ]
 
 
@@ -96,6 +110,7 @@ def _b_ids(w: World) -> list[str]:
         w.b_price_id,
         w.b_dataset_id,
         w.b_version_id,
+        w.b_experiment_id,
         str(w.b_person.email),
     ]
 
@@ -108,6 +123,7 @@ async def _b_view(w: World) -> dict[str, Any]:
     tokens = (await w.b_person.get("/api/v1/api-tokens")).json()
     view["tokens"] = [{k: t[k] for k in ("id", "revoked")} for t in tokens]
     view["keys"] = (await w.b_person.get("/api/v1/provider-credentials")).json()
+    view["experiment"] = (await w.b_person.get(f"/api/v1/experiments/{w.b_experiment_id}")).json()
     return view
 
 
@@ -187,6 +203,12 @@ async def test_traces_belong_only_to_the_workspace_that_sent_them(
         json={"traces": [support_trace("t-2", workspace_id=world.b_person.workspace_id)]},
     )
     assert sneaky.json()["accepted"] == [] and len(sneaky.json()["rejected"]) == 1
+    # A cannot add a run to B's experiment by tagging a trace with its id.
+    tagged = support_trace(
+        "t-3", tags={"experiment": world.b_experiment_id, "case": "k", "repetition": 1}
+    )
+    claimed = await world.a_token.post("/api/v1/traces", json={"traces": [tagged]})
+    assert claimed.json()["rejected"][0]["error"].startswith("no experiment")
     async with app.state.sessionmaker() as session:
         b_traces = list(
             await session.scalars(
@@ -203,6 +225,8 @@ FOREIGN_ID_ROUTES = {
     ("DELETE", "/api/v1/provider-credentials/{credential_id}"),
     ("POST", "/api/v1/datasets/{dataset_id}/cases"),
     ("GET", "/api/v1/dataset-versions/{version_id}"),
+    ("GET", "/api/v1/experiments/{experiment_id}"),
+    ("POST", "/api/v1/experiments/{experiment_id}/finish"),
 }
 LIST_ROUTES = [
     "/api/v1/workspaces",
@@ -215,6 +239,7 @@ LIST_ROUTES = [
 BODY_ROUTES = {
     ("POST", "/api/v1/traces"),
     ("POST", "/api/v1/datasets"),
+    ("POST", "/api/v1/experiments"),
     ("POST", "/api/v1/api-tokens"),
     ("POST", "/api/v1/provider-credentials"),
     ("POST", "/api/v1/price-versions"),
@@ -251,6 +276,7 @@ def test_every_foreign_id_route_is_really_attacked() -> None:
         b_credential_id="x",
         b_dataset_id="x",
         b_version_id="x",
+        b_experiment_id="x",
     )
     sent = {(method, path) for method, path, _ in _foreign_id_attacks(fake)}
     templates = {(method, re.sub(r"\{[a-z_]+\}", "x", path)) for method, path in FOREIGN_ID_ROUTES}

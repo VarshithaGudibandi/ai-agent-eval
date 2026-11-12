@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
@@ -27,6 +28,11 @@ async def store_raw(
         .returning(models.Trace.id)
     )
     return None if row_id is None else await scope.require(models.Trace, row_id)
+
+
+async def trace_known(scope: WorkspaceScope, trace_id: str) -> bool:
+    found = await scope.first(scope.query(models.Trace).where(models.Trace.trace_id == trace_id))
+    return found is not None
 
 
 async def agent_version(
@@ -78,18 +84,31 @@ async def agent_version(
     return version
 
 
+@dataclass(frozen=True)
+class ExperimentLink:
+    """Where a run sits in an experiment: which case, and which repetition of it."""
+
+    experiment_id: str
+    case_id: str
+    repetition: int
+
+
 async def save_run(
     scope: WorkspaceScope,
     trace: models.Trace,
     version: models.AgentVersion,
     tags: dict[str, Any],
     run: NormalizedRun,
+    link: ExperimentLink | None = None,
 ) -> models.Run:
     row = models.Run(
         id=new_id("run"),
         workspace_id=scope.workspace_id,
         trace_row_id=trace.id,
         agent_version_id=version.id,
+        experiment_id=link.experiment_id if link else None,
+        case_id=link.case_id if link else None,
+        repetition=link.repetition if link else None,
         tags=tags,
         environment=run.environment,
         session_id=run.session_id,

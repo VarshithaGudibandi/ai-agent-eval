@@ -7,9 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.budget.pricing import Price, latest_price
 from app.db import models
+from app.db.experiments import case_by_key, has_run
 from app.db.rate_limits import take_ingest
 from app.db.scope import WorkspaceScope
-from app.db.traces import agent_version, save_run, store_raw
+from app.db.traces import ExperimentLink, agent_version, save_run, store_raw, trace_known
 from app.ingest.redact import redact_value
 from app.ingest.trace_format import Trace
 from app.traces.normalize import fingerprint, normalize
@@ -67,6 +68,37 @@ async def _prices(
     return {key: price for key, price in known.items() if price is not None}
 
 
+class LinkError(ValueError):
+    """A trace claims a place in an experiment that it cannot have."""
+
+
+async def _link(scope: WorkspaceScope, trace: Trace) -> ExperimentLink | None:
+    """Check the experiment tags of a build-loop trace. Live traces carry none."""
+    names = ("experiment", "case", "repetition")
+    given = {n: trace.tags.get(n) for n in names}
+    if all(v is None for v in given.values()):
+        return None
+    if any(v is None for v in given.values()):
+        raise LinkError("a trace in an experiment needs experiment, case and repetition tags")
+    experiment = await scope.get(models.Experiment, str(given["experiment"]))
+    if experiment is None:
+        raise LinkError(f"no experiment {given['experiment']} in this workspace")
+    repetition = given["repetition"]
+    if not isinstance(repetition, int) or not 1 <= repetition <= experiment.repetitions:
+        raise LinkError(f"repetition must be a whole number from 1 to {experiment.repetitions}")
+    case = await case_by_key(scope, experiment, str(given["case"]))
+    if case is None:
+        raise LinkError(f"case {given['case']} is not in the experiment's dataset")
+    # A run counts toward the experiment only if it is the version the experiment is about.
+    version = await scope.require(models.AgentVersion, experiment.agent_version_id)
+    agent = await scope.require(models.Agent, version.agent_id)
+    if (trace.agent, fingerprint(trace.config)) != (agent.name, version.fingerprint):
+        raise LinkError("the trace's agent or config differs from the experiment's")
+    if await has_run(scope, experiment.id, case.id, repetition):
+        raise LinkError(f"repetition {repetition} of case {case.case_key} already has a run")
+    return ExperimentLink(experiment.id, case.id, repetition)
+
+
 async def admit(
     sessionmaker: async_sessionmaker[AsyncSession], workspace_id: str, traces: int, per_minute: int
 ) -> None:
@@ -101,6 +133,15 @@ async def ingest(scope: WorkspaceScope, documents: list[dict[str, Any]]) -> Inge
                 Rejected(claimed_id if isinstance(claimed_id, str) else None, _problem(exc))
             )
             continue
+        # A resent trace is a duplicate before anything else, even if its run slot is taken.
+        if await trace_known(scope, trace.trace_id):
+            result.duplicates.append(trace.trace_id)
+            continue
+        try:
+            link = await _link(scope, trace)
+        except LinkError as exc:
+            result.rejected.append(Rejected(trace.trace_id, str(exc)))
+            continue
         row = await store_raw(scope, trace.trace_id, trace.agent, trace.model_dump(mode="json"))
         if row is None:
             result.duplicates.append(trace.trace_id)
@@ -113,7 +154,7 @@ async def ingest(scope: WorkspaceScope, documents: list[dict[str, Any]]) -> Inge
                     scope, trace.agent, fingerprint(trace.config), trace.config, trace.label
                 )
                 run = normalize(trace, await _prices(scope, trace, known_prices))
-                await save_run(scope, row, version, trace.tags, run)
+                await save_run(scope, row, version, trace.tags, run, link)
         except Exception as exc:
             logger.exception("could not normalize a trace", extra={"trace_id": trace.trace_id})
             row.status = models.TraceStatus.FAILED

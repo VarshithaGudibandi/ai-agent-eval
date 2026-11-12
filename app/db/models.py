@@ -38,25 +38,10 @@ class Base(DeclarativeBase):
     }
 
 
-class ExperimentMode(StrEnum):
-    REAL = "real"
-    DEMO = "demo"
-
-
 class ExperimentStatus(StrEnum):
-    QUEUED = "queued"
     RUNNING = "running"
+    FINISHED = "finished"
     PAUSED_BUDGET = "paused_budget"
-    PAUSED_USER = "paused_user"
-    COMPLETED = "completed"
-    CLOSED_PARTIAL = "closed_partial"
-    CANCELLED = "cancelled"
-
-
-class Split(StrEnum):
-    DEV = "dev"
-    VALIDATION = "validation"
-    HELD_OUT = "held_out"
 
 
 class JobStatus(StrEnum):
@@ -280,28 +265,27 @@ class DatasetCase(WorkspaceScoped, Base):
 
 
 class Experiment(WorkspaceScoped, Base):
+    """One agent version run over a dataset version, each case a number of times."""
+
     __tablename__ = "experiments"
     __table_args__ = (
         UniqueConstraint("workspace_id", "id"),
         UniqueConstraint("workspace_id", "idempotency_key"),
         workspace_fk("dataset_version_id", "dataset_versions"),
-        one_of("mode", ExperimentMode),
+        workspace_fk("agent_version_id", "agent_versions"),
         one_of("status", ExperimentStatus),
-        one_of("split", Split),
         CheckConstraint("repetitions >= 1", name="repetitions"),
     )
 
     id: Mapped[str] = mapped_column(primary_key=True)
+    agent_version_id: Mapped[str]
     dataset_version_id: Mapped[str]
-    mode: Mapped[str]
-    split: Mapped[str]
-    # Only a final experiment may run held-out tasks.
-    final: Mapped[bool]
     status: Mapped[str]
     repetitions: Mapped[int]
+    # Sent by the SDK, so a retried start returns the same experiment instead of a second one.
     idempotency_key: Mapped[str | None]
-    manifest: Mapped[dict[str, Any]]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    finished_at: Mapped[datetime | None]
 
 
 class Job(WorkspaceScoped, Base):
@@ -533,12 +517,20 @@ class Run(WorkspaceScoped, Base):
         UniqueConstraint("trace_row_id"),
         workspace_fk("trace_row_id", "traces"),
         workspace_fk("agent_version_id", "agent_versions"),
+        workspace_fk("experiment_id", "experiments"),
+        workspace_fk("case_id", "dataset_cases"),
+        UniqueConstraint("experiment_id", "case_id", "repetition"),
+        CheckConstraint("repetition >= 1", name="repetition"),
         Index("ix_runs_version_started", "agent_version_id", "started_at"),
     )
 
     id: Mapped[str] = mapped_column(primary_key=True)
     trace_row_id: Mapped[str]
     agent_version_id: Mapped[str]
+    # Set for runs of an experiment; live runs have none.
+    experiment_id: Mapped[str | None]
+    case_id: Mapped[str | None]
+    repetition: Mapped[int | None]
     tags: Mapped[dict[str, Any]]
     environment: Mapped[str | None]
     session_id: Mapped[str | None]

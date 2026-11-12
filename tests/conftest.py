@@ -17,9 +17,11 @@ from sqlalchemy.ext.asyncio import (
 
 from app.db import models
 from app.db.budgets import BudgetLimits, create_budget
+from app.db.datasets import CaseData, save_version
 from app.db.engine import create_engine, create_sessionmaker
 from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
+from app.db.traces import agent_version
 from app.settings import Settings
 
 
@@ -105,35 +107,21 @@ MakeExperiment = Callable[[BudgetLimits], Awaitable[models.Experiment]]
 def make_experiment(
     sessionmaker: async_sessionmaker[AsyncSession], workspace_id: str
 ) -> MakeExperiment:
-    """A running experiment with its budget, on a dataset version of its own."""
+    """A running experiment with its budget, for one agent version over one dataset version."""
 
     async def make(limits: BudgetLimits) -> models.Experiment:
-        dataset_id, version_id = new_id("ds"), new_id("dsv")
-        experiment = models.Experiment(
-            id=new_id("exp"),
-            workspace_id=workspace_id,
-            dataset_version_id=version_id,
-            mode=models.ExperimentMode.REAL,
-            split=models.Split.DEV,
-            final=False,
-            status=models.ExperimentStatus.RUNNING,
-            repetitions=1,
-            manifest={},
-        )
         async with sessionmaker.begin() as session:
             scope = WorkspaceScope(session, workspace_id)
-            scope.add(models.Dataset(id=dataset_id, workspace_id=workspace_id, name=dataset_id))
-            await scope.flush()
-            scope.add(
-                models.DatasetVersion(
-                    id=version_id,
-                    workspace_id=workspace_id,
-                    dataset_id=dataset_id,
-                    version=1,
-                    content_hash="h",
-                )
+            version, _ = await save_version(scope, new_id("data"), [CaseData("c1", "hi")])
+            agent = await agent_version(scope, "bot", new_id("f"), {}, None)
+            experiment = models.Experiment(
+                id=new_id("exp"),
+                workspace_id=workspace_id,
+                agent_version_id=agent.id,
+                dataset_version_id=version.id,
+                status=models.ExperimentStatus.RUNNING,
+                repetitions=1,
             )
-            await scope.flush()
             scope.add(experiment)
             await scope.flush()
             await create_budget(scope, experiment.id, limits)

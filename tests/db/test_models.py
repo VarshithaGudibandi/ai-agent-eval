@@ -3,39 +3,31 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db import models
+from app.db.datasets import CaseData, save_version
 from app.db.ids import new_id
+from app.db.scope import WorkspaceScope
+from app.db.traces import agent_version
 
 
-async def _dataset_version(
+async def _versions(
     sessionmaker: async_sessionmaker[AsyncSession], workspace_id: str
-) -> str:
-    dataset_id, version_id = new_id("ds"), new_id("dsv")
+) -> tuple[str, str]:
+    """A dataset version and an agent version to hang an experiment on."""
     async with sessionmaker.begin() as session:
-        session.add(models.Dataset(id=dataset_id, workspace_id=workspace_id, name=dataset_id))
-        await session.flush()
-        session.add(
-            models.DatasetVersion(
-                id=version_id,
-                workspace_id=workspace_id,
-                dataset_id=dataset_id,
-                version=1,
-                content_hash="h",
-            )
-        )
-    return version_id
+        scope = WorkspaceScope(session, workspace_id)
+        dataset, _ = await save_version(scope, new_id("d"), [CaseData("c1", "hi")])
+        agent = await agent_version(scope, "bot", new_id("f"), {}, None)
+    return dataset.id, agent.id
 
 
-def _experiment(workspace_id: str, dataset_version_id: str, **overrides: object) -> models.Base:
+def _experiment(workspace_id: str, versions: tuple[str, str], **overrides: object) -> models.Base:
     values: dict[str, object] = {
         "id": new_id("exp"),
         "workspace_id": workspace_id,
-        "dataset_version_id": dataset_version_id,
-        "mode": "real",
-        "split": "dev",
-        "final": False,
-        "status": "queued",
+        "dataset_version_id": versions[0],
+        "agent_version_id": versions[1],
+        "status": "running",
         "repetitions": 1,
-        "manifest": {},
     }
     values.update(overrides)
     return models.Experiment(**values)
@@ -64,19 +56,19 @@ async def _rejected(sessionmaker: async_sessionmaker[AsyncSession], *rows: model
 async def test_experiment_idempotency_key_is_unique_per_workspace(
     sessionmaker: async_sessionmaker[AsyncSession], workspace_id: str
 ) -> None:
-    version = await _dataset_version(sessionmaker, workspace_id)
+    versions = await _versions(sessionmaker, workspace_id)
     await _rejected(
         sessionmaker,
-        _experiment(workspace_id, version, idempotency_key="k"),
-        _experiment(workspace_id, version, idempotency_key="k"),
+        _experiment(workspace_id, versions, idempotency_key="k"),
+        _experiment(workspace_id, versions, idempotency_key="k"),
     )
 
 
-async def test_unknown_experiment_mode_is_rejected(
+async def test_unknown_experiment_status_is_rejected(
     sessionmaker: async_sessionmaker[AsyncSession], workspace_id: str
 ) -> None:
-    version = await _dataset_version(sessionmaker, workspace_id)
-    await _rejected(sessionmaker, _experiment(workspace_id, version, mode="other"))
+    versions = await _versions(sessionmaker, workspace_id)
+    await _rejected(sessionmaker, _experiment(workspace_id, versions, status="queued"))
 
 
 async def test_row_cannot_point_into_another_workspace(
@@ -85,8 +77,8 @@ async def test_row_cannot_point_into_another_workspace(
     other = models.Workspace(id=new_id("ws"), name="other")
     async with sessionmaker.begin() as session:
         session.add(other)
-    version = await _dataset_version(sessionmaker, workspace_id)
-    await _rejected(sessionmaker, _experiment(other.id, version))
+    versions = await _versions(sessionmaker, workspace_id)
+    await _rejected(sessionmaker, _experiment(other.id, versions))
 
 
 async def test_the_same_work_cannot_be_pending_twice(

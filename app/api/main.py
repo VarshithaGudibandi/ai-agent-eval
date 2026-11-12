@@ -8,6 +8,7 @@ from app.api import (
     api_tokens,
     auth,
     datasets,
+    experiments,
     health,
     prices,
     provider_credentials,
@@ -45,6 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         provider_credentials,
         prices,
         datasets,
+        experiments,
         traces,
     ):
         app.include_router(module.router)
