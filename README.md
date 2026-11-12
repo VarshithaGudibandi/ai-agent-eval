@@ -198,7 +198,7 @@ The response lists which traces were `accepted`, which were `duplicates`, and wh
 | `make ps` | Show service status |
 | `make migrate` | Run database migrations |
 | `make db` | Start only Postgres, for running tests on the host |
-| `make test` | Start Postgres, migrate, run the tests. Needs no network or key |
+| `make test` | Start Postgres, migrate a separate test database, run the tests. Needs no network or key, and can run while the stack is up |
 | `make test-paid` | Run the tests that call the real Gemini API: the provider and both judges. Needs `GEMINI_API_KEY` |
 | `make lint` | Check lint and formatting |
 | `make format` | Fix formatting and safe lint issues |

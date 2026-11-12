@@ -1,4 +1,4 @@
-.PHONY: up down logs ps migrate db test test-paid lint format typecheck check
+.PHONY: up down logs ps migrate db test-db test test-paid lint format typecheck check
 
 up:
 	docker compose up -d --build --wait
@@ -18,14 +18,19 @@ migrate:
 db:
 	docker compose up -d --wait postgres
 
-test: db
-	uv run alembic upgrade head
-	uv run alembic check
-	uv run pytest
+# Tests use a database of their own, so a running stack's worker never takes their jobs.
+TEST_DATABASE_URL ?= postgresql+asyncpg://agent_eval:agent_eval@localhost:5432/agent_eval_test
 
-test-paid: db
-	uv run alembic upgrade head
-	RUN_PAID_TESTS=1 uv run pytest tests/paid -s
+test-db: db
+	echo "SELECT 'CREATE DATABASE agent_eval_test' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'agent_eval_test')\gexec" | docker compose exec -T postgres psql -q -U agent_eval -d agent_eval
+	DATABASE_URL=$(TEST_DATABASE_URL) uv run alembic upgrade head
+
+test: test-db
+	DATABASE_URL=$(TEST_DATABASE_URL) uv run alembic check
+	DATABASE_URL=$(TEST_DATABASE_URL) uv run pytest
+
+test-paid: test-db
+	DATABASE_URL=$(TEST_DATABASE_URL) RUN_PAID_TESTS=1 uv run pytest tests/paid -s
 
 lint:
 	uv run ruff check .
