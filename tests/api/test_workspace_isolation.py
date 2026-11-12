@@ -75,6 +75,8 @@ def _foreign_id_attacks(w: Any) -> list[tuple[str, str, Any]]:
         ("POST", f"/api/v1/workspaces/{w.b_person.workspace_id}/invites", {"role": "owner"}),
         ("DELETE", f"/api/v1/api-tokens/{w.b_token_id}", None),
         ("DELETE", f"/api/v1/provider-credentials/{w.b_credential_id}", None),
+        ("POST", f"/api/v1/datasets/{w.b_dataset_id}/cases", {"cases": [{"key": "k", "input": 1}]}),
+        ("GET", f"/api/v1/dataset-versions/{w.b_version_id}", None),
     ]
 
 
@@ -143,8 +145,12 @@ async def test_workspace_ids_in_bodies_are_ignored(world: World) -> None:
             json={"provider": "gemini", "label": "x", "api_key": "AIzaA-other-key-0000", **sneaky},
         ),
         await world.a_person.post("/api/v1/price-versions", json={**PRICE, **sneaky}),
+        # The same name as B's dataset makes A's own dataset.
+        await world.a_person.post(
+            "/api/v1/datasets", json={"name": "b-data", "cases": [{"key": "k", "input": 1}]}
+        ),
     ]
-    assert [r.status_code for r in responses] == [201, 201, 201]
+    assert [r.status_code for r in responses] == [201, 201, 201, 201]
     assert await _b_view(world) == before
 
 
@@ -195,6 +201,8 @@ FOREIGN_ID_ROUTES = {
     ("POST", "/api/v1/workspaces/{workspace_id}/invites"),
     ("DELETE", "/api/v1/api-tokens/{token_id}"),
     ("DELETE", "/api/v1/provider-credentials/{credential_id}"),
+    ("POST", "/api/v1/datasets/{dataset_id}/cases"),
+    ("GET", "/api/v1/dataset-versions/{version_id}"),
 }
 LIST_ROUTES = [
     "/api/v1/workspaces",
@@ -206,6 +214,7 @@ LIST_ROUTES = [
 ]
 BODY_ROUTES = {
     ("POST", "/api/v1/traces"),
+    ("POST", "/api/v1/datasets"),
     ("POST", "/api/v1/api-tokens"),
     ("POST", "/api/v1/provider-credentials"),
     ("POST", "/api/v1/price-versions"),
@@ -237,7 +246,11 @@ def test_every_route_has_an_isolation_case(app: FastAPI) -> None:
 def test_every_foreign_id_route_is_really_attacked() -> None:
     # Listing a route as covered is not enough: an attack must actually send it.
     fake = SimpleNamespace(
-        b_person=SimpleNamespace(workspace_id="x"), b_token_id="x", b_credential_id="x"
+        b_person=SimpleNamespace(workspace_id="x"),
+        b_token_id="x",
+        b_credential_id="x",
+        b_dataset_id="x",
+        b_version_id="x",
     )
     sent = {(method, path) for method, path, _ in _foreign_id_attacks(fake)}
     templates = {(method, re.sub(r"\{[a-z_]+\}", "x", path)) for method, path in FOREIGN_ID_ROUTES}

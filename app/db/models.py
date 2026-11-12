@@ -257,6 +257,28 @@ class DatasetVersion(WorkspaceScoped, Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
+class DatasetCase(WorkspaceScoped, Base):
+    """One case in a dataset version: what the agent is given and, optionally, what should
+    happen. Versions are immutable, so a case never changes once written."""
+
+    __tablename__ = "dataset_cases"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        # The key names the same case across versions, so results can be paired by case.
+        UniqueConstraint("dataset_version_id", "case_key"),
+        workspace_fk("dataset_version_id", "dataset_versions"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    dataset_version_id: Mapped[str]
+    case_key: Mapped[str]
+    position: Mapped[int]
+    input: Mapped[Any] = mapped_column(JSONB)
+    expected: Mapped[Any | None] = mapped_column(JSONB)
+    tags: Mapped[dict[str, Any]]
+    notes: Mapped[str | None]
+
+
 class Experiment(WorkspaceScoped, Base):
     __tablename__ = "experiments"
     __table_args__ = (

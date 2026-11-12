@@ -12,6 +12,7 @@ from app.auth.errors import (
     UserRequiredError,
 )
 from app.db.budgets import LimitBelowUsageError
+from app.db.datasets import CaseKeysClashError
 from app.db.scope import NotFoundError
 from app.ingest.service import BatchInvalidError, BatchTooLargeError, IngestRateLimitedError
 
@@ -27,8 +28,14 @@ _ERRORS: dict[type[Exception], tuple[int, str]] = {
     LimitBelowUsageError: (422, "limit_below_usage"),
     BatchTooLargeError: (413, "batch_too_large"),
     BatchInvalidError: (422, "batch_invalid"),
+    CaseKeysClashError: (422, "case_keys_clash"),
 }
-_SHOW_MESSAGE = (LimitBelowUsageError, BatchTooLargeError, BatchInvalidError)
+_SHOW_MESSAGE = (
+    LimitBelowUsageError,
+    BatchTooLargeError,
+    BatchInvalidError,
+    CaseKeysClashError,
+)
 
 
 def error_body(code: str, message: str | None = None) -> dict[str, str]:
