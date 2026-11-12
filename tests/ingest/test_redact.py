@@ -35,9 +35,12 @@ def test_values_under_secret_names_are_masked_whatever_they_look_like() -> None:
         "password": "hunter2",
         "user_api_key": "short",
         "Authorization": "Basic dXNlcjpwYXNz",
-        "refresh-token": 12345,
+        "refresh-token": "r-12345",
         "session_cookie": "c=1",
         "token_usage": {"input": 10, "output": 5},
+        "time_to_first_token_ms": 300,
+        "token_count": "12",
+        "csrf_token": 0,
         "max_tokens": "",
         "keywords": "secretly not a secret name",
     }
@@ -45,6 +48,8 @@ def test_values_under_secret_names_are_masked_whatever_they_look_like() -> None:
     for key in ("password", "user_api_key", "Authorization", "refresh-token", "session_cookie"):
         assert masked[key] == MASK, key
     assert masked["token_usage"] == {"input": 10, "output": 5}
+    assert (masked["time_to_first_token_ms"], masked["token_count"]) == (300, "12")
+    assert masked["csrf_token"] == 0
     assert masked["max_tokens"] == ""
     assert masked["keywords"] == data["keywords"]
 

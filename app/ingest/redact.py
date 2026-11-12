@@ -28,9 +28,10 @@ _SECRET = re.compile(
     re.DOTALL,
 )
 
-# A value under a name like these is a secret whatever it looks like, such as a password.
+# A text value under a name ending like these is a secret whatever it looks like, such as a
+# password. The word must end the name, so "time_to_first_token_ms" is left alone.
 _SECRET_NAME = re.compile(
-    r"(?i)(?:^|[_-])(?:password|passwd|secret|api[_-]?key|token|authorization|cookie)(?:$|[_-])"
+    r"(?i)(?:^|[_-])(?:password|passwd|secret|api[_-]?key|token|authorization|cookie)$"
 )
 
 
@@ -55,6 +56,6 @@ def redact_value(value: Any) -> Any:
 
 
 def _is_scalar_secret(value: Any) -> bool:
-    # An empty or missing value hides nothing, and a nested object is searched instead, so a
-    # field called "token_usage" with counts in it is left readable.
-    return isinstance(value, str | int | float) and not isinstance(value, bool) and value != ""
+    # Only text can be a secret. Counts and timings under such names are left readable, an
+    # empty value hides nothing, and a nested object is searched instead.
+    return isinstance(value, str) and value != ""
