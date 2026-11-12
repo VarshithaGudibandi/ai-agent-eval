@@ -2,7 +2,6 @@ import asyncio
 import logging
 import random
 import time
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -11,7 +10,6 @@ from app.budget.reservations import BudgetGuard
 from app.db import models
 from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
-from app.execution.trace_recorder import TraceRecorder
 from app.providers.contract import (
     ContentBlocked,
     Fatal,
@@ -52,10 +50,8 @@ class MeteredModel:
         price: Price | None,
         guard: BudgetGuard,
         limiter: RateLimiter | None,
-        recorder: TraceRecorder,
         sessionmaker: async_sessionmaker[AsyncSession],
         workspace_id: str,
-        attempt_id: str,
         timeout_seconds: float,
         max_retries: int,
         sleep: Sleep = asyncio.sleep,
@@ -65,10 +61,8 @@ class MeteredModel:
         self._price = price
         self._guard = guard
         self._limiter = limiter
-        self._recorder = recorder
         self._sessionmaker = sessionmaker
         self._workspace_id = workspace_id
-        self._attempt_id = attempt_id
         self._timeout = timeout_seconds
         self._max_retries = max_retries
         self._sleep = sleep
@@ -118,10 +112,6 @@ class MeteredModel:
             cost,
             tokens,
             1,
-            {
-                "text": response.text,
-                "tool_calls": [c.model_dump(exclude={"signature"}) for c in response.tool_calls],
-            },
         )
 
     async def _record_failure(
@@ -151,7 +141,6 @@ class MeteredModel:
             cost,
             tokens,
             requests,
-            {},
         )
 
     async def _record(
@@ -167,7 +156,6 @@ class MeteredModel:
         cost: int | None,
         tokens: int | None,
         requests: int,
-        content: dict[str, Any],
     ) -> None:
         call_id = new_id("mc")
         duration_ms = round((time.monotonic() - started) * 1000)
@@ -175,29 +163,10 @@ class MeteredModel:
             await self._guard.settle(
                 session, reservation, money_micros=cost, tokens=tokens, requests=requests
             )
-            event_id = await self._recorder.record_in(
-                session,
-                "model_call",
-                {
-                    "model_call_id": call_id,
-                    "provider": self._provider_name,
-                    "model": settings.model,
-                    "resolved_model": resolved_model,
-                    "status": status,
-                    "retry_number": retry,
-                    "usage": usage.model_dump(),
-                    "cost_micros": cost,
-                    "error": error,
-                    "duration_ms": duration_ms,
-                    **content,
-                },
-            )
             WorkspaceScope(session, self._workspace_id).add(
                 models.ModelCall(
                     id=call_id,
                     workspace_id=self._workspace_id,
-                    attempt_id=self._attempt_id,
-                    trace_event_id=event_id,
                     reservation_id=reservation.id,
                     provider=self._provider_name,
                     requested_model=settings.model,

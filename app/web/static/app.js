@@ -6,14 +6,10 @@ function csrfToken() {
   return found ? decodeURIComponent(found.split("=")[1]) : "";
 }
 
-document.addEventListener("htmx:configRequest", (event) => {
-  event.detail.headers["x-csrf-token"] = csrfToken();
-});
-
 // Only a path on this site, so a crafted link cannot send someone elsewhere after sign-in.
 function safeNext() {
-  const next = new URLSearchParams(location.search).get("next") || "/experiments";
-  return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/experiments";
+  const next = new URLSearchParams(location.search).get("next") || "/settings";
+  return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/settings";
 }
 
 function formBody(form) {
@@ -21,12 +17,6 @@ function formBody(form) {
   for (const field of form.elements) {
     if (!field.name || field.value === "") continue;
     body[field.name] = field.dataset.type === "int" ? Number(field.value) : field.value;
-  }
-  if (form.dataset.shape === "sides") {
-    for (const side of ["baseline", "candidate"]) {
-      const [experimentId, configId] = body[side].split("|");
-      body[side] = { experiment_id: experimentId, agent_config_id: configId };
-    }
   }
   return body;
 }
@@ -70,14 +60,6 @@ async function send(element) {
     const box = scope.querySelector(".secret");
     box.querySelector("code").textContent = payload[element.dataset.show];
     box.hidden = false;
-    return;
-  }
-  if ("showCheck" in element.dataset) {
-    const out = scope.querySelector(".check-result");
-    out.textContent = payload.ok
-      ? `OK in ${payload.latency_ms} ms`
-      : payload.problem || `status ${payload.status_code}`;
-    out.className = `check-result small ${payload.ok ? "ok-text" : "hard-text"}`;
     return;
   }
   const redirect = element.dataset.redirect;

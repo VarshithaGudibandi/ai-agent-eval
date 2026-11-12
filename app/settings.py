@@ -17,19 +17,12 @@ class Settings(BaseSettings):
     lease_seconds: float = Field(default=30.0, gt=0)
     heartbeat_seconds: float = Field(default=10.0, gt=0)
     reconcile_seconds: float = Field(default=15.0, gt=0)
-    max_attempts_per_run: int = Field(default=3, ge=1, le=10)
-    # Where external agents reach the tool gateway. Workers put it in every request.
-    gateway_public_url: str = "http://127.0.0.1:8000"
-    # Lets agents on localhost or a private network be called. On for laptops, off when hosted.
-    allow_local_agents: bool = False
-    require_https_agents: bool = False
-    agent_response_max_bytes: int = Field(default=1_000_000, gt=0)
+    max_job_attempts: int = Field(default=3, ge=1, le=10)
     session_ttl_hours: float = Field(default=12, gt=0)
     session_cookie_secure: bool = False
     invite_ttl_hours: float = Field(default=72, gt=0)
     app_master_key: SecretStr | None = None
     gemini_base_url: str = "https://generativelanguage.googleapis.com"
-    ollama_base_url: str = "http://localhost:11434"
     model_call_timeout_seconds: float = Field(default=60, gt=0)
     model_call_max_retries: int = Field(default=4, ge=0, le=10)
 

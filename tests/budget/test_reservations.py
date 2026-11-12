@@ -13,7 +13,7 @@ async def _guard(
 ) -> BudgetGuard:
     async with sessionmaker() as session:
         budget = await budget_for_experiment(WorkspaceScope(session, workspace_id), experiment.id)
-    return BudgetGuard(sessionmaker, workspace_id, experiment.id, budget.id, "att_x")
+    return BudgetGuard(sessionmaker, workspace_id, experiment.id, budget.id)
 
 
 async def _state(

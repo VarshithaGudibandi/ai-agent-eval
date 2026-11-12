@@ -5,27 +5,16 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api import (
-    agent_configs,
     api_tokens,
     auth,
-    comparisons,
     datasets,
-    evaluators,
-    experiments,
-    gateway,
     health,
     prices,
     provider_credentials,
-    runs,
-    signing_secret,
     workspaces,
 )
 from app.api.errors import register_error_handlers
 from app.db.engine import create_engine, create_sessionmaker
-from app.environments.registry import default_registry
-from app.evaluators.registry import default_evaluators
-from app.gateway.tool_gateway import ToolGateway
-from app.providers.registry import default_providers
 from app.settings import Settings, get_settings
 from app.structured_logging import configure_logging
 from app.web.pages import STATIC_DIR, register_pages
@@ -39,7 +28,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         configure_logging(settings.log_level, settings.log_format)
         app.state.engine = create_engine(settings)
         app.state.sessionmaker = create_sessionmaker(app.state.engine)
-        app.state.gateway = ToolGateway(app.state.sessionmaker, app.state.environments)
         try:
             yield
         finally:
@@ -47,9 +35,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="AI Agent Eval", lifespan=lifespan)
     app.state.settings = settings
-    app.state.environments = default_registry()
-    app.state.evaluators = default_evaluators()
-    app.state.providers = default_providers()
     register_error_handlers(app)
     for module in (
         health,
@@ -59,13 +44,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         provider_credentials,
         prices,
         datasets,
-        agent_configs,
-        experiments,
-        runs,
-        comparisons,
-        evaluators,
-        signing_secret,
-        gateway,
     ):
         app.include_router(module.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

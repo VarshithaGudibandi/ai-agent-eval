@@ -4,17 +4,24 @@ import signal
 import socket
 import time
 import uuid
+from collections.abc import Callable, Coroutine, Mapping
+from dataclasses import dataclass
+from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.db.attempts import AttemptNotLiveError
 from app.db.engine import create_engine, create_sessionmaker
-from app.db.jobs import Claim, claim_next, reconcile_expired, renew_lease
+from app.db.jobs import (
+    Claim,
+    LeaseLostError,
+    claim_next,
+    fail,
+    finish,
+    reconcile_expired,
+    renew_lease,
+)
 from app.db.schema_status import schema_status
-from app.environments.registry import default_registry
-from app.evaluators.registry import default_evaluators
-from app.execution.attempt_runner import Platform, run_attempt
-from app.execution.leases import hold_lease
+from app.execution.leases import LeaseOutcome, hold_lease
 from app.settings import Settings, get_settings
 from app.structured_logging import configure_logging
 
@@ -39,17 +46,42 @@ async def wait_for_schema(engine: AsyncEngine, stop: asyncio.Event, retry_second
     return False
 
 
+@dataclass(frozen=True)
+class JobContext:
+    """What a job handler gets: the claimed job and a way to open transactions.
+
+    A handler fences each write with app.db.jobs.require_lease on claim.lease_token, so a
+    worker that lost the lease cannot record anything.
+    """
+
+    claim: Claim
+    sessionmaker: async_sessionmaker[AsyncSession]
+
+
+Handler = Callable[[JobContext], Coroutine[Any, Any, None]]
+
+# Job kinds this platform runs, by name. Stages add theirs as they are built.
+HANDLERS: dict[str, Handler] = {}
+
+
 class Worker:
-    """Claims jobs from the Postgres queue and runs their attempts, a few at a time.
+    """Claims jobs from the Postgres queue and runs their handlers, a few at a time.
 
     Workers are stateless and share nothing but the database, so more of them simply means
-    more throughput. Each also reconciles expired leases, so a crashed worker's runs are
+    more throughput. Each also reconciles expired leases, so a crashed worker's jobs are
     picked up by whoever is still alive.
     """
 
-    def __init__(self, platform: Platform, settings: Settings, worker_id: str | None = None):
-        self.platform = platform
+    def __init__(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        settings: Settings,
+        handlers: Mapping[str, Handler],
+        worker_id: str | None = None,
+    ):
+        self.sessionmaker = sessionmaker
         self.settings = settings
+        self.handlers = dict(handlers)
         self.worker_id = worker_id or f"{socket.gethostname()}-{uuid.uuid4().hex[:6]}"
         self._slots = asyncio.Semaphore(settings.worker_concurrency)
         self._running: set[asyncio.Task[None]] = set()
@@ -62,10 +94,10 @@ class Worker:
                 next_reconcile = time.monotonic() + self.settings.reconcile_seconds
             if self._slots.locked() or not await self._start_one():
                 await self._idle(stop)
-        # A graceful stop lets in-flight attempts finish. If the process is killed instead,
+        # A graceful stop lets in-flight jobs finish. If the process is killed instead,
         # their leases expire and another worker retries them.
         if self._running:
-            logger.info("finishing in-flight attempts", extra={"count": len(self._running)})
+            logger.info("finishing in-flight jobs", extra={"count": len(self._running)})
             await asyncio.gather(*self._running, return_exceptions=True)
 
     async def _idle(self, stop: asyncio.Event) -> None:
@@ -76,18 +108,22 @@ class Worker:
 
     async def _reconcile(self) -> None:
         try:
-            async with self.platform.sessionmaker.begin() as session:
-                interrupted = await reconcile_expired(session, self.settings.max_attempts_per_run)
+            async with self.sessionmaker.begin() as session:
+                expired = await reconcile_expired(session, self.settings.max_job_attempts)
         except Exception:
             logger.exception("reconcile failed")
             return
-        if interrupted:
-            logger.warning("interrupted expired attempts", extra={"attempts": interrupted})
+        if expired:
+            logger.warning("requeued jobs whose lease expired", extra={"jobs": expired})
 
     async def _start_one(self) -> bool:
+        if not self.handlers:
+            return False
         try:
-            async with self.platform.sessionmaker.begin() as session:
-                claim = await claim_next(session, self.worker_id, self.settings.lease_seconds)
+            async with self.sessionmaker.begin() as session:
+                claim = await claim_next(
+                    session, self.worker_id, self.settings.lease_seconds, list(self.handlers)
+                )
         except Exception:
             logger.exception("claim failed")
             return False
@@ -101,43 +137,53 @@ class Worker:
 
     async def _work(self, claim: Claim) -> None:
         async def renew() -> bool:
-            async with self.platform.sessionmaker.begin() as session:
+            async with self.sessionmaker.begin() as session:
                 return await renew_lease(
                     session,
                     claim.workspace_id,
-                    claim.attempt_id,
+                    claim.job_id,
                     claim.lease_token,
                     self.settings.lease_seconds,
                 )
 
+        work = self.handlers[claim.kind](JobContext(claim, self.sessionmaker))
+        extra = {"job_id": claim.job_id, "kind": claim.kind}
         try:
-            outcome = await hold_lease(
-                run_attempt(self.platform, claim.workspace_id, claim.attempt_id, claim.lease_token),
-                renew,
-                lease_seconds=self.settings.lease_seconds,
-                heartbeat_seconds=self.settings.heartbeat_seconds,
-            )
-            logger.info("attempt done", extra={"attempt_id": claim.attempt_id, "outcome": outcome})
-        except AttemptNotLiveError:
-            logger.warning("attempt taken away", extra={"attempt_id": claim.attempt_id})
+            try:
+                outcome = await hold_lease(
+                    work,
+                    renew,
+                    lease_seconds=self.settings.lease_seconds,
+                    heartbeat_seconds=self.settings.heartbeat_seconds,
+                )
+            except LeaseLostError:
+                logger.warning("job taken away", extra=extra)
+                return
+            except Exception as exc:
+                logger.exception("job failed", extra=extra)
+                async with self.sessionmaker.begin() as session:
+                    await fail(
+                        session, claim.workspace_id, claim.job_id, claim.lease_token, repr(exc)
+                    )
+                return
+            if outcome == LeaseOutcome.FINISHED:
+                async with self.sessionmaker.begin() as session:
+                    await finish(session, claim.workspace_id, claim.job_id, claim.lease_token)
+            logger.info("job done", extra={**extra, "outcome": outcome})
         except Exception:
-            logger.exception("attempt crashed", extra={"attempt_id": claim.attempt_id})
+            logger.exception("could not record the job's end", extra=extra)
         finally:
             self._slots.release()
 
 
-async def run(settings: Settings, stop: asyncio.Event) -> None:
+async def run(
+    settings: Settings, stop: asyncio.Event, handlers: Mapping[str, Handler] = HANDLERS
+) -> None:
     engine = create_engine(settings)
     try:
         if not await wait_for_schema(engine, stop, settings.worker_idle_seconds):
             return
-        platform = Platform(
-            create_sessionmaker(engine),
-            default_registry(),
-            default_evaluators(),
-            settings=settings,
-        )
-        worker = Worker(platform, settings)
+        worker = Worker(create_sessionmaker(engine), settings, handlers)
         logger.info("worker ready", extra={"worker_id": worker.worker_id})
         await worker.run(stop)
     finally:

@@ -81,13 +81,7 @@ async def test_a_write_is_committed_before_the_response_goes_out(
             cookies=owner.client.cookies,
         ) as client:
             response = await client.post(
-                "/api/v1/agent-configs",
-                json={
-                    "name": "s",
-                    "adapter_type": "http",
-                    "settings": {"url": "https://a.example"},
-                },
-                headers=owner.headers,
+                "/api/v1/api-tokens", json={"name": "ci", "role": "viewer"}, headers=owner.headers
             )
     finally:
         event.remove(Session, "after_commit", committed)

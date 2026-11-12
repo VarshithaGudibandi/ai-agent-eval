@@ -53,26 +53,6 @@ class ExperimentStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
-class ExecutionStatus(StrEnum):
-    QUEUED = "queued"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    TIMED_OUT = "timed_out"
-    BUDGET_EXCEEDED = "budget_exceeded"
-    INFRASTRUCTURE_ERROR = "infrastructure_error"
-    INTERRUPTED = "interrupted"
-    CANCELLED = "cancelled"
-
-
-class EvaluationStatus(StrEnum):
-    PENDING = "pending"
-    PASS = "pass"  # noqa: S105
-    FAIL = "fail"
-    PARTIAL = "partial"
-    NOT_APPLICABLE = "not_applicable"
-    EVALUATION_ERROR = "evaluation_error"
-
-
 class Split(StrEnum):
     DEV = "dev"
     VALIDATION = "validation"
@@ -83,26 +63,8 @@ class JobStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     DONE = "done"
+    FAILED = "failed"
     CANCELLED = "cancelled"
-
-
-class AdapterType(StrEnum):
-    SCRIPTED = "scripted"
-    TOOL_LOOP = "tool_loop"
-    HTTP = "http"
-
-
-class EvaluatorLayer(StrEnum):
-    OUTCOME = "outcome"
-    POLICY = "policy"
-    TRAJECTORY = "trajectory"
-    RESPONSE = "response"
-
-
-class ToolCallStatus(StrEnum):
-    OK = "ok"
-    ERROR = "error"
-    REJECTED = "rejected"
 
 
 class Role(StrEnum):
@@ -134,11 +96,6 @@ class KeyedProvider(StrEnum):
     GEMINI = "gemini"
 
 
-class SnapshotKind(StrEnum):
-    INITIAL = "initial"
-    FINAL = "final"
-
-
 def one_of(column: str, values: type[StrEnum]) -> CheckConstraint:
     allowed = ", ".join(f"'{v.value}'" for v in values)
     return CheckConstraint(f"{column} IN ({allowed})", name=column)
@@ -155,11 +112,6 @@ class Workspace(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     name: Mapped[str]
-    # Signs every request to the workspace's external agents, encrypted like provider keys.
-    signing_secret_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
-    signing_secret_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
-    signing_secret_last4: Mapped[str | None]
-    signing_secret_created_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
@@ -290,51 +242,6 @@ class DatasetVersion(WorkspaceScoped, Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
-class TaskVersion(WorkspaceScoped, Base):
-    __tablename__ = "task_versions"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "id"),
-        UniqueConstraint("dataset_version_id", "task_key"),
-        workspace_fk("dataset_version_id", "dataset_versions"),
-        one_of("split", Split),
-    )
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    dataset_version_id: Mapped[str]
-    task_key: Mapped[str]
-    environment: Mapped[str]
-    scenario_family: Mapped[str]
-    split: Mapped[str]
-    agent_input: Mapped[dict[str, Any]]
-    fixture: Mapped[dict[str, Any]]
-    evaluator_spec: Mapped[dict[str, Any]]
-    limits: Mapped[dict[str, Any]]
-    faults: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, server_default=text("'[]'"))
-    category: Mapped[str]
-    difficulty: Mapped[str]
-    # Null until a person has reviewed the task. Unreviewed tasks run only in dev.
-    reviewer: Mapped[str | None]
-    review: Mapped[dict[str, Any]]
-    content_hash: Mapped[str]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-
-
-class AgentConfig(WorkspaceScoped, Base):
-    __tablename__ = "agent_configs"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "id"),
-        one_of("adapter_type", AdapterType),
-    )
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    name: Mapped[str]
-    adapter_type: Mapped[str]
-    settings: Mapped[dict[str, Any]]
-    limits: Mapped[dict[str, Any]]
-    config_hash: Mapped[str]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-
-
 class Experiment(WorkspaceScoped, Base):
     __tablename__ = "experiments"
     __table_args__ = (
@@ -360,197 +267,44 @@ class Experiment(WorkspaceScoped, Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
-class Run(WorkspaceScoped, Base):
-    __tablename__ = "runs"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "id"),
-        UniqueConstraint(
-            "experiment_id",
-            "agent_config_id",
-            "task_version_id",
-            "repetition",
-            name="uq_runs_experiment_config_task_repetition",
-        ),
-        workspace_fk("experiment_id", "experiments"),
-        workspace_fk("agent_config_id", "agent_configs"),
-        workspace_fk("task_version_id", "task_versions"),
-        one_of("execution_status", ExecutionStatus),
-        one_of("evaluation_status", EvaluationStatus),
-    )
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    experiment_id: Mapped[str]
-    agent_config_id: Mapped[str]
-    task_version_id: Mapped[str]
-    repetition: Mapped[int]
-    execution_status: Mapped[str]
-    evaluation_status: Mapped[str]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-
-
-class Attempt(WorkspaceScoped, Base):
-    __tablename__ = "attempts"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "id"),
-        UniqueConstraint("workspace_id", "env_id"),
-        UniqueConstraint("run_id", "attempt_number"),
-        UniqueConstraint("env_id"),
-        workspace_fk("run_id", "runs"),
-        one_of("execution_status", ExecutionStatus),
-        Index("ix_attempts_lease", "execution_status", "lease_expires_at"),
-    )
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    run_id: Mapped[str]
-    attempt_number: Mapped[int]
-    env_id: Mapped[str]
-    execution_status: Mapped[str]
-    stop_reason: Mapped[str | None]
-    final_response: Mapped[str | None]
-    last_event_sequence: Mapped[int] = mapped_column(default=0, server_default="0")
-    # Whoever holds this token may change the attempt, until the lease expires. Clearing it
-    # revokes the attempt: every later step by its worker is refused.
-    lease_token: Mapped[str | None]
-    lease_expires_at: Mapped[datetime | None]
-    worker_id: Mapped[str | None]
-    # An external agent's credential for the gateway. Only its hash is kept, and it works only
-    # while the lease above holds, so losing or revoking the lease also locks the agent out.
-    run_token_hash: Mapped[str | None]
-    run_token_expires_at: Mapped[datetime | None]
-    # What an external agent posted back after answering 202 to the worker's request.
-    external_result: Mapped[dict[str, Any] | None]
-    started_at: Mapped[datetime | None]
-    finished_at: Mapped[datetime | None]
-    duration_ms: Mapped[int | None]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-
-
 class Job(WorkspaceScoped, Base):
-    """One run waiting for, or held by, a worker. Postgres is the queue."""
+    """One piece of background work, such as scoring a trace. Postgres is the queue.
+
+    The lease lives on the job: the worker holding a live lease is the only one allowed to
+    write the job's results.
+    """
 
     __tablename__ = "jobs"
     __table_args__ = (
         UniqueConstraint("workspace_id", "id"),
-        UniqueConstraint("run_id"),
-        workspace_fk("run_id", "runs"),
-        workspace_fk("experiment_id", "experiments"),
         one_of("status", JobStatus),
+        CheckConstraint("attempts >= 0", name="attempts"),
         Index("ix_jobs_claimable", "status", "available_at"),
+        # A retried request must not queue the same work twice while it is still pending.
+        Index(
+            "uq_jobs_pending_work",
+            "workspace_id",
+            "kind",
+            "subject_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    experiment_id: Mapped[str]
-    run_id: Mapped[str]
+    kind: Mapped[str]
+    # What the job is about, such as a trace id. Its meaning depends on the kind.
+    subject_id: Mapped[str]
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'"))
     status: Mapped[str]
-    # Claim order inside an experiment. Configs alternate, so a provider slowdown hits every
-    # config alike.
-    position: Mapped[int]
+    attempts: Mapped[int] = mapped_column(default=0, server_default="0")
+    lease_token: Mapped[str | None]
+    lease_expires_at: Mapped[datetime | None]
+    worker_id: Mapped[str | None]
+    last_error: Mapped[str | None]
     available_at: Mapped[datetime] = mapped_column(server_default=func.now())
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-
-
-class TraceEvent(WorkspaceScoped, Base):
-    __tablename__ = "trace_events"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "id"),
-        UniqueConstraint("attempt_id", "sequence_number"),
-        workspace_fk("attempt_id", "attempts"),
-    )
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    attempt_id: Mapped[str]
-    sequence_number: Mapped[int]
-    event_type: Mapped[str]
-    payload: Mapped[dict[str, Any]]
-    occurred_at: Mapped[datetime]
-    elapsed_ms: Mapped[int]
-
-
-class ToolCall(WorkspaceScoped, Base):
-    __tablename__ = "tool_calls"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "id"),
-        workspace_fk("attempt_id", "attempts"),
-        workspace_fk("request_event_id", "trace_events"),
-        workspace_fk("result_event_id", "trace_events"),
-        one_of("status", ToolCallStatus),
-    )
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    attempt_id: Mapped[str]
-    request_event_id: Mapped[str]
-    result_event_id: Mapped[str]
-    tool_name: Mapped[str]
-    arguments: Mapped[dict[str, Any]]
-    status: Mapped[str]
-    error_code: Mapped[str | None]
-    output: Mapped[dict[str, Any]]
-    duration_ms: Mapped[int]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-
-
-class EnvRecord(WorkspaceScoped, Base):
-    """One record of an environment's live state, such as an order or a refund."""
-
-    __tablename__ = "env_records"
-    __table_args__ = (
-        PrimaryKeyConstraint("env_id", "collection", "record_id"),
-        ForeignKeyConstraint(
-            ["workspace_id", "env_id"], ["attempts.workspace_id", "attempts.env_id"]
-        ),
-    )
-
-    env_id: Mapped[str]
-    collection: Mapped[str]
-    record_id: Mapped[str]
-    data: Mapped[dict[str, Any]]
-    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
-
-
-class EnvSnapshot(WorkspaceScoped, Base):
-    __tablename__ = "env_snapshots"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "id"),
-        UniqueConstraint("attempt_id", "kind"),
-        workspace_fk("attempt_id", "attempts"),
-        one_of("kind", SnapshotKind),
-    )
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    attempt_id: Mapped[str]
-    kind: Mapped[str]
-    state: Mapped[dict[str, Any]]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-
-
-class Score(WorkspaceScoped, Base):
-    __tablename__ = "scores"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "id"),
-        UniqueConstraint(
-            "attempt_id",
-            "evaluator_name",
-            "evaluator_version",
-            "dimension",
-            name="uq_scores_attempt_evaluator_dimension",
-        ),
-        workspace_fk("attempt_id", "attempts"),
-        one_of("layer", EvaluatorLayer),
-        one_of("status", EvaluationStatus),
-    )
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    attempt_id: Mapped[str]
-    evaluator_name: Mapped[str]
-    evaluator_version: Mapped[str]
-    layer: Mapped[str]
-    dimension: Mapped[str]
-    applicable: Mapped[bool]
-    status: Mapped[str]
-    score: Mapped[float | None]
-    reason_code: Mapped[str | None]
-    evidence: Mapped[dict[str, Any]]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    finished_at: Mapped[datetime | None]
 
 
 class ProviderCredential(WorkspaceScoped, Base):
@@ -643,7 +397,8 @@ class SpendEntry(WorkspaceScoped, Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     budget_id: Mapped[str]
-    attempt_id: Mapped[str | None]
+    # The job that spent it, so a stale worker's spending can be traced.
+    job_id: Mapped[str | None]
     reservation_id: Mapped[str | None]
     kind: Mapped[str]
     money_micros: Mapped[int] = mapped_column(BigInteger)
@@ -659,14 +414,10 @@ class ModelCall(WorkspaceScoped, Base):
     __tablename__ = "model_calls"
     __table_args__ = (
         UniqueConstraint("workspace_id", "id"),
-        workspace_fk("attempt_id", "attempts"),
-        workspace_fk("trace_event_id", "trace_events"),
         one_of("status", ModelCallStatus),
     )
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    attempt_id: Mapped[str]
-    trace_event_id: Mapped[str]
     reservation_id: Mapped[str]
     provider: Mapped[str]
     requested_model: Mapped[str]
@@ -679,29 +430,6 @@ class ModelCall(WorkspaceScoped, Base):
     output_tokens: Mapped[int | None]
     other_tokens: Mapped[int | None]
     usage_known: Mapped[bool]
-    self_reported: Mapped[bool] = mapped_column(default=False, server_default="false")
     cost_micros: Mapped[int | None] = mapped_column(BigInteger)
     duration_ms: Mapped[int]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-
-
-class Comparison(WorkspaceScoped, Base):
-    """A paired comparison of two configs, frozen when made so a report never shifts."""
-
-    __tablename__ = "comparisons"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "id"),
-        workspace_fk("baseline_experiment_id", "experiments"),
-        workspace_fk("candidate_experiment_id", "experiments"),
-        workspace_fk("baseline_config_id", "agent_configs"),
-        workspace_fk("candidate_config_id", "agent_configs"),
-        Index("ix_comparisons_workspace_created", "workspace_id", "created_at"),
-    )
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    baseline_experiment_id: Mapped[str]
-    baseline_config_id: Mapped[str]
-    candidate_experiment_id: Mapped[str]
-    candidate_config_id: Mapped[str]
-    result: Mapped[dict[str, Any]]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

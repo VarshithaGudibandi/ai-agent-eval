@@ -2,7 +2,6 @@ from dataclasses import replace
 
 import pytest
 
-from app.db.reports import RunFacts, ScoreFacts
 from app.reports.comparison import (
     MIN_TASKS,
     IncompatibleError,
@@ -12,6 +11,7 @@ from app.reports.comparison import (
     compare,
     pair_tasks,
 )
+from app.reports.metrics import RunFacts, ScoreFacts
 
 BASE = Side(
     experiment_id="exp_1",

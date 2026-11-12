@@ -1,14 +1,56 @@
 import math
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
+from typing import Any
 
 from pydantic import BaseModel
-
-from app.db.reports import RunFacts
 
 # The scorecard of one agent config in one experiment. Every rate carries its numerator and
 # denominator, so a reader can see what was counted. Agent-behavior rates use scorable runs
 # only: a run the platform failed to finish says nothing about the agent.
+
+# What the metrics read about each run and its scores.
+
+
+@dataclass(frozen=True)
+class ScoreFacts:
+    evaluator: str
+    version: str
+    layer: str
+    dimension: str
+    applicable: bool
+    status: str
+    reason_code: str | None
+    evidence: dict[str, Any]
+
+
+@dataclass
+class RunFacts:
+    run_id: str
+    agent_config_id: str
+    task_version_id: str
+    task_key: str
+    category: str
+    repetition: int
+    execution_status: str
+    evaluation_status: str
+    # The latest attempt is the one that was graded.
+    attempt_id: str | None = None
+    attempts: int = 0
+    queue_ms: int | None = None
+    duration_ms: int | None = None
+    scores: list[ScoreFacts] = field(default_factory=list)
+    tool_calls_attempted: int = 0
+    tool_calls_invalid: int = 0
+    # Model usage counts every attempt, since retries cost money too.
+    model_requests: int = 0
+    model_tokens: int = 0
+    cost_micros: int = 0
+    cost_known: bool = True
+    resolved_models: set[str] = field(default_factory=set)
+    self_reported: dict[str, int] = field(default_factory=dict)
+
 
 SCORABLE = ("pass", "fail", "partial")
 

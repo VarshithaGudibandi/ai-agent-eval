@@ -1,7 +1,7 @@
 """Workspace A tries to reach workspace B through every route. Every attempt must fail.
 
 Rows in another workspace must answer exactly like rows that do not exist (404), and
-nothing in B may change. The last test fails if a route is added without a case here.
+nothing in B may change. The last tests fail if a route is added without a case here.
 """
 
 import re
@@ -14,17 +14,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from tests.api.conftest import (
-    SCRIPT,
-    TASK,
-    Caller,
-    Seeded,
-    SignIn,
-    seed_and_run,
-    sign_in,
-    token_caller,
-)
-from tests.conftest import GOOD_SCRIPT, UNAPPROVED_SCRIPT, DemoExperiment, RunDemo
+from tests.api.conftest import Caller, SignIn, add_dataset, sign_in, token_caller
 
 
 @dataclass
@@ -33,13 +23,11 @@ class World:
     a_token: Caller
     b_person: Caller
     b_token: Caller
-    a: Seeded
-    b: Seeded
     b_token_id: str
     b_credential_id: str
     b_price_id: str
-    b_demo: DemoExperiment
-    b_comparison_id: str
+    b_dataset_id: str
+    b_version_id: str
 
 
 PRICE = {
@@ -53,11 +41,10 @@ PRICE = {
 
 
 @pytest.fixture
-async def world(
-    new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.AsyncClient], run_demo: RunDemo
-) -> World:
+async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.AsyncClient]) -> World:
     a_person, b_person = await new_owner(), await new_owner()
-    a, b = await seed_and_run(a_person, app), await seed_and_run(b_person, app)
+    await add_dataset(app, a_person.workspace_id, "a-data")
+    b_dataset_id, b_version_id = await add_dataset(app, b_person.workspace_id, "b-data")
     a_token = await token_caller(a_person, clients(), role="owner")
     b_token = await token_caller(b_person, clients(), role="owner")
     b_token_id = (await b_person.get("/api/v1/api-tokens")).json()[0]["id"]
@@ -66,93 +53,25 @@ async def world(
         json={"provider": "gemini", "label": "b", "api_key": "AIzaB-secret-key-0000"},
     )
     price = await b_person.post("/api/v1/price-versions", json=PRICE)
-    b_demo = await run_demo(
-        app.state.sessionmaker, b_person.workspace_id, [GOOD_SCRIPT, UNAPPROVED_SCRIPT]
-    )
-    baseline, candidate = (
-        {"experiment_id": b_demo.experiment_id, "agent_config_id": c} for c in b_demo.config_ids
-    )
-    comparison = await b_person.post(
-        "/api/v1/comparisons", json={"baseline": baseline, "candidate": candidate}
-    )
-    assert comparison.status_code == 201, comparison.text
     return World(
         a_person,
         a_token,
         b_person,
         b_token,
-        a,
-        b,
         b_token_id,
         credential.json()["id"],
         price.json()["id"],
-        b_demo,
-        comparison.json()["id"],
+        b_dataset_id,
+        b_version_id,
     )
 
 
-def _foreign_id_attacks(w: World) -> list[tuple[str, str, Any]]:
+def _foreign_id_attacks(w: Any) -> list[tuple[str, str, Any]]:
     """(method, path, body) requests from A that name B's rows."""
-    b = w.b
     return [
-        ("GET", f"/api/v1/experiments/{b.experiment_id}", None),
-        ("GET", f"/api/v1/experiments/{b.experiment_id}/runs", None),
-        ("GET", f"/api/v1/runs/{b.run_id}", None),
-        ("GET", f"/api/v1/attempts/{b.attempt_id}/events", None),
-        (
-            "POST",
-            "/api/v1/experiments",
-            {
-                "dataset_version_id": b.dataset_version_id,
-                "agent_config_ids": [b.agent_config_id],
-                "mode": "demo",
-            },
-        ),
-        (
-            "POST",
-            "/api/v1/experiments",
-            {
-                "dataset_version_id": w.a.dataset_version_id,
-                "agent_config_ids": [b.agent_config_id],
-                "mode": "demo",
-            },
-        ),
-        (
-            "POST",
-            "/api/v1/experiments",
-            {
-                "dataset_version_id": b.dataset_version_id,
-                "agent_config_ids": [w.a.agent_config_id],
-                "mode": "demo",
-            },
-        ),
         ("POST", f"/api/v1/workspaces/{w.b_person.workspace_id}/invites", {"role": "owner"}),
         ("DELETE", f"/api/v1/api-tokens/{w.b_token_id}", None),
         ("DELETE", f"/api/v1/provider-credentials/{w.b_credential_id}", None),
-        ("POST", f"/api/v1/experiments/{b.experiment_id}/pause", None),
-        ("POST", f"/api/v1/experiments/{b.experiment_id}/resume", None),
-        ("POST", f"/api/v1/experiments/{b.experiment_id}/close", None),
-        ("PATCH", f"/api/v1/experiments/{b.experiment_id}/budget", {"requests": 1}),
-        ("POST", f"/api/v1/experiments/{b.experiment_id}/cancel", None),
-        ("POST", f"/api/v1/agent-configs/{b.agent_config_id}/check", None),
-        ("GET", f"/api/v1/comparisons/{w.b_comparison_id}", None),
-        ("GET", f"/api/v1/experiments/{b.experiment_id}/export", None),
-        (
-            "POST",
-            "/api/v1/comparisons",
-            {
-                "baseline": {"experiment_id": w.b_demo.experiment_id},
-                "candidate": {"experiment_id": w.b_demo.experiment_id},
-            },
-        ),
-        (
-            "POST",
-            "/api/v1/comparisons",
-            {
-                "baseline": {"experiment_id": w.a.experiment_id},
-                "candidate": {"experiment_id": b.experiment_id},
-            },
-        ),
     ]
 
 
@@ -161,42 +80,29 @@ async def _send(caller: Caller, method: str, path: str, body: Any) -> httpx.Resp
         return await caller.get(path)
     if method == "DELETE":
         return await caller.delete(path)
-    if method == "PATCH":
-        return await caller.client.patch(path, json=body, headers=caller.headers)
     return await caller.post(path, json=body)
 
 
 def _b_ids(w: World) -> list[str]:
-    b = w.b
     return [
         w.b_person.workspace_id,
-        b.dataset_version_id,
-        b.agent_config_id,
-        b.experiment_id,
-        b.run_id,
-        b.attempt_id,
         w.b_token_id,
-        w.b_demo.experiment_id,
-        w.b_comparison_id,
+        w.b_credential_id,
+        w.b_price_id,
+        w.b_dataset_id,
+        w.b_version_id,
         str(w.b_person.email),
     ]
 
 
 async def _b_view(w: World) -> dict[str, Any]:
-    paths = [
-        "/api/v1/datasets",
-        "/api/v1/agent-configs",
-        "/api/v1/experiments",
-        f"/api/v1/runs/{w.b.run_id}",
-        f"/api/v1/attempts/{w.b.attempt_id}/events",
-        "/api/v1/comparisons",
-        f"/api/v1/comparisons/{w.b_comparison_id}",
-    ]
-    view = {p: (await w.b_person.get(p)).json() for p in paths}
+    view = {
+        p: (await w.b_person.get(p)).json()
+        for p in ("/api/v1/datasets", "/api/v1/members", "/api/v1/price-versions")
+    }
     tokens = (await w.b_person.get("/api/v1/api-tokens")).json()
     view["tokens"] = [{k: t[k] for k in ("id", "revoked")} for t in tokens]
     view["keys"] = (await w.b_person.get("/api/v1/provider-credentials")).json()
-    view["prices"] = (await w.b_person.get("/api/v1/price-versions")).json()
     return view
 
 
@@ -227,15 +133,13 @@ async def test_workspace_ids_in_bodies_are_ignored(world: World) -> None:
     sneaky = {"workspace_id": world.b_person.workspace_id}
     responses = [
         await world.a_person.post(
-            "/api/v1/datasets/import", json={"name": "retail", "tasks": [TASK], **sneaky}
-        ),
-        await world.a_person.post(
-            "/api/v1/agent-configs",
-            json={"name": "x", "adapter_type": "scripted", "settings": SCRIPT, **sneaky},
-        ),
-        await world.a_person.post(
             "/api/v1/api-tokens", json={"name": "x", "role": "viewer", **sneaky}
         ),
+        await world.a_person.post(
+            "/api/v1/provider-credentials",
+            json={"provider": "gemini", "label": "x", "api_key": "AIzaA-other-key-0000", **sneaky},
+        ),
+        await world.a_person.post("/api/v1/price-versions", json={**PRICE, **sneaky}),
     ]
     assert [r.status_code for r in responses] == [201, 201, 201]
     assert await _b_view(world) == before
@@ -261,40 +165,19 @@ async def test_cannot_sign_in_to_a_workspace_you_do_not_belong_to(
 
 # Every /api/v1 route must be listed in exactly one of these groups.
 FOREIGN_ID_ROUTES = {
-    ("GET", "/api/v1/experiments/{experiment_id}"),
-    ("GET", "/api/v1/experiments/{experiment_id}/runs"),
-    ("GET", "/api/v1/runs/{run_id}"),
-    ("GET", "/api/v1/attempts/{attempt_id}/events"),
-    ("POST", "/api/v1/experiments"),
     ("POST", "/api/v1/workspaces/{workspace_id}/invites"),
     ("DELETE", "/api/v1/api-tokens/{token_id}"),
     ("DELETE", "/api/v1/provider-credentials/{credential_id}"),
-    ("POST", "/api/v1/experiments/{experiment_id}/pause"),
-    ("POST", "/api/v1/experiments/{experiment_id}/resume"),
-    ("POST", "/api/v1/experiments/{experiment_id}/close"),
-    ("POST", "/api/v1/experiments/{experiment_id}/cancel"),
-    ("POST", "/api/v1/agent-configs/{config_id}/check"),
-    ("PATCH", "/api/v1/experiments/{experiment_id}/budget"),
-    ("GET", "/api/v1/comparisons/{comparison_id}"),
-    ("GET", "/api/v1/experiments/{experiment_id}/export"),
-    ("POST", "/api/v1/comparisons"),
 }
 LIST_ROUTES = [
     "/api/v1/workspaces",
+    "/api/v1/members",
     "/api/v1/datasets",
-    "/api/v1/agent-configs",
-    "/api/v1/experiments",
     "/api/v1/api-tokens",
     "/api/v1/provider-credentials",
     "/api/v1/price-versions",
-    "/api/v1/agent-signing-secret",
-    "/api/v1/comparisons",
-    "/api/v1/evaluators",
-    "/api/v1/members",
 ]
 BODY_ROUTES = {
-    ("POST", "/api/v1/datasets/import"),
-    ("POST", "/api/v1/agent-configs"),
     ("POST", "/api/v1/api-tokens"),
     ("POST", "/api/v1/provider-credentials"),
     ("POST", "/api/v1/price-versions"),
@@ -306,7 +189,6 @@ NO_WORKSPACE_INPUT = {
     ("POST", "/api/v1/auth/logout"),
     ("POST", "/api/v1/workspaces"),
     ("POST", "/api/v1/invites/accept"),
-    ("POST", "/api/v1/agent-signing-secret"),
 }
 
 
@@ -326,14 +208,8 @@ def test_every_route_has_an_isolation_case(app: FastAPI) -> None:
 
 def test_every_foreign_id_route_is_really_attacked() -> None:
     # Listing a route as covered is not enough: an attack must actually send it.
-    fake: Any = SimpleNamespace(
-        a=Seeded(*"xxxxx"),
-        b=Seeded(*"xxxxx"),
-        b_person=SimpleNamespace(workspace_id="x"),
-        b_token_id="x",
-        b_credential_id="x",
-        b_comparison_id="x",
-        b_demo=DemoExperiment("x", ["x", "x"]),
+    fake = SimpleNamespace(
+        b_person=SimpleNamespace(workspace_id="x"), b_token_id="x", b_credential_id="x"
     )
     sent = {(method, path) for method, path, _ in _foreign_id_attacks(fake)}
     templates = {(method, re.sub(r"\{[a-z_]+\}", "x", path)) for method, path in FOREIGN_ID_ROUTES}

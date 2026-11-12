@@ -66,41 +66,4 @@
 </section>
 {% endif %}
 
-<section>
-  <h2>Agent signing secret</h2>
-  <p class="muted small">Every request to your HTTP agents is signed with it, so they can reject anything else.</p>
-  {% if signing.configured %}
-  <p>Set, ending in <code>{{ signing.last4 }}</code>, since {{ signing.created_at | when }}.</p>
-  {% else %}
-  <p class="warn-text">Not set. Real experiments with HTTP agents need one.</p>
-  {% endif %}
-  {% if is_owner %}
-  <form data-api="/api/v1/agent-signing-secret" data-method="POST" data-show="secret" data-confirm="{% if signing.configured %}Rotate the secret? Agents using the old one stop working until you update them.{% endif %}" class="inline">
-    <button type="submit">{% if signing.configured %}Rotate{% else %}Create{% endif %} secret</button>
-    <p class="error" role="alert"></p>
-    <p class="secret" hidden>Give this to your agents. It is shown only once: <code></code></p>
-  </form>
-  {% endif %}
-</section>
-
-<section>
-  <h2>Agent endpoints</h2>
-  {% if endpoints %}
-  <table class="compact">
-    {% for c in endpoints %}
-    <tr>
-      <th>{{ c.name }}</th>
-      <td><code>{{ c.settings.url }}</code></td>
-      <td class="muted small">{{ c.held_out_runs }} held-out run{{ "s" if c.held_out_runs != 1 }}</td>
-      <td>
-        {% if can_change %}<button data-api="/api/v1/agent-configs/{{ c.id }}/check" data-method="POST" data-show-check>Check</button>{% endif %}
-        <span class="check-result small"></span>
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
-  {% else %}
-  <p class="muted">No HTTP agents registered. See "Connect your own agent" in the README.</p>
-  {% endif %}
-</section>
 {% endblock %}

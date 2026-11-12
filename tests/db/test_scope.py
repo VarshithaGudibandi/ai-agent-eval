@@ -12,29 +12,26 @@ APP = Path(__file__).parents[2] / "app"
 
 # Only these modules may build queries themselves. Everything else must go through
 # WorkspaceScope or a repository function, so no query can miss the workspace filter.
-QUERY_MODULES = {
-    "app/db",
-    "app/auth",
-    "app/environments/state_store.py",
-    "app/execution/trace_recorder.py",
-}
+QUERY_MODULES = {"app/db", "app/auth"}
 QUERY_BUILDERS = {"select", "insert", "update", "delete", "text"}
 RAW_SESSION_CALLS = {"execute", "scalar", "scalars", "get", "get_one"}
 
 
 async def test_rows_from_another_workspace_look_missing(
-    sessionmaker: async_sessionmaker[AsyncSession], attempt: models.Attempt
+    sessionmaker: async_sessionmaker[AsyncSession], workspace_id: str
 ) -> None:
     other = models.Workspace(id=new_id("ws"), name="other")
+    dataset = models.Dataset(id=new_id("ds"), workspace_id=workspace_id, name="d")
     async with sessionmaker.begin() as session:
-        session.add(other)
-        mine = WorkspaceScope(session, attempt.workspace_id)
+        session.add_all([other, dataset])
+    async with sessionmaker() as session:
+        mine = WorkspaceScope(session, workspace_id)
         theirs = WorkspaceScope(session, other.id)
-        assert (await mine.require(models.Attempt, attempt.id)).id == attempt.id
-        assert await theirs.get(models.Attempt, attempt.id) is None
+        assert (await mine.require(models.Dataset, dataset.id)).id == dataset.id
+        assert await theirs.get(models.Dataset, dataset.id) is None
         with pytest.raises(NotFoundError):
-            await theirs.require(models.Attempt, attempt.id)
-        assert await theirs.all(theirs.query(models.Attempt)) == []
+            await theirs.require(models.Dataset, dataset.id)
+        assert await theirs.all(theirs.query(models.Dataset)) == []
 
 
 async def test_adding_a_row_for_another_workspace_is_refused(

@@ -56,7 +56,7 @@ async def try_reserve(
     money_micros: int,
     tokens: int,
     requests: int,
-    attempt_id: str | None,
+    job_id: str | None,
 ) -> models.SpendEntry | None:
     """Reserve against every cap in one conditional update, or reserve nothing.
 
@@ -89,7 +89,7 @@ async def try_reserve(
         id=new_id("spend"),
         workspace_id=scope.workspace_id,
         budget_id=budget_id,
-        attempt_id=attempt_id,
+        job_id=job_id,
         reservation_id=None,
         kind=models.LedgerKind.RESERVATION,
         money_micros=money_micros,
@@ -134,7 +134,7 @@ async def settle(
         id=new_id("spend"),
         workspace_id=scope.workspace_id,
         budget_id=reservation.budget_id,
-        attempt_id=reservation.attempt_id,
+        job_id=reservation.job_id,
         reservation_id=reservation.id,
         kind=models.LedgerKind.RECONCILIATION,
         money_micros=delta_money,

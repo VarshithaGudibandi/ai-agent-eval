@@ -32,7 +32,7 @@ async def _reserve(
 ) -> bool:
     async with sessionmaker.begin() as session:
         entry = await try_reserve(
-            WorkspaceScope(session, workspace_id), budget_id, attempt_id=None, **amounts
+            WorkspaceScope(session, workspace_id), budget_id, job_id=None, **amounts
         )
         return entry is not None
 
@@ -86,10 +86,10 @@ async def test_settling_releases_unused_reservation_and_keeps_unknown_cost(
         scope = WorkspaceScope(session, workspace_id)
         budget = await budget_for_experiment(scope, experiment.id)
         known = await try_reserve(
-            scope, budget.id, money_micros=400, tokens=50, requests=1, attempt_id=None
+            scope, budget.id, money_micros=400, tokens=50, requests=1, job_id=None
         )
         unknown = await try_reserve(
-            scope, budget.id, money_micros=300, tokens=40, requests=1, attempt_id=None
+            scope, budget.id, money_micros=300, tokens=40, requests=1, job_id=None
         )
         assert known is not None and unknown is not None
         await settle(scope, known, money_micros=120, tokens=20, requests=1)
@@ -113,7 +113,7 @@ async def test_limits_can_rise_but_not_below_what_is_used(
     async with sessionmaker.begin() as session:
         scope = WorkspaceScope(session, workspace_id)
         budget = await budget_for_experiment(scope, experiment.id)
-        await try_reserve(scope, budget.id, money_micros=80, tokens=0, requests=1, attempt_id=None)
+        await try_reserve(scope, budget.id, money_micros=80, tokens=0, requests=1, job_id=None)
         await session.refresh(budget)
         with pytest.raises(LimitBelowUsageError):
             await raise_limits(scope, budget, BudgetLimits(money_micros=50))

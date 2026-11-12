@@ -3,10 +3,10 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db import models
-from app.db.attempts import require_live
 from app.db.audit import record_audit
 from app.db.budgets import mark_warned, settle, try_reserve
 from app.db.experiments import pause_for_budget
+from app.db.jobs import require_lease
 from app.db.scope import WorkspaceScope
 
 logger = logging.getLogger(__name__)
@@ -27,28 +27,28 @@ class BudgetGuard:
         workspace_id: str,
         experiment_id: str,
         budget_id: str,
-        attempt_id: str,
+        job_id: str | None = None,
         lease_token: str | None = None,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._workspace_id = workspace_id
         self._experiment_id = experiment_id
         self._budget_id = budget_id
-        self._attempt_id = attempt_id
+        self._job_id = job_id
         self._lease_token = lease_token
 
     async def reserve(self, money_micros: int, tokens: int) -> models.SpendEntry:
         async with self._sessionmaker.begin() as session:
             # A worker that lost its lease must not spend the budget on a call it cannot use.
-            if self._lease_token is not None:
-                await require_live(session, self._workspace_id, self._attempt_id, self._lease_token)
+            if self._job_id is not None and self._lease_token is not None:
+                await require_lease(session, self._workspace_id, self._job_id, self._lease_token)
             entry = await try_reserve(
                 WorkspaceScope(session, self._workspace_id),
                 self._budget_id,
                 money_micros=money_micros,
                 tokens=tokens,
                 requests=1,
-                attempt_id=self._attempt_id,
+                job_id=self._job_id,
             )
         if entry is None:
             await self._pause("a call did not fit in the remaining budget")
@@ -85,7 +85,7 @@ class BudgetGuard:
                 "experiment passed 80% of a budget", extra={"experiment_id": self._experiment_id}
             )
         # Pause before the next call fails rather than after: if what is left cannot cover
-        # another call like this one, no new attempt should start.
+        # another call like this one, no new call should start.
         if not _fits(budget, reservation):
             await _pause_in(scope, self._experiment_id, "remaining budget is below one more call")
 
