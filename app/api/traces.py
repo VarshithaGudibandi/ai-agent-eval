@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field, ValidationError
 
 from app.api.dependencies import Db, Member, get_settings_dep, scope_for
-from app.ingest.service import BatchInvalidError, BatchTooLargeError, ingest
+from app.ingest.service import BatchInvalidError, BatchTooLargeError, admit, ingest
 from app.settings import Settings
 
 router = APIRouter(prefix="/api/v1/traces", tags=["traces"])
@@ -59,6 +59,12 @@ async def post_traces(
         batch = TraceBatch.model_validate_json(await _body(request, settings.ingest_max_bytes))
     except ValidationError as exc:
         raise BatchInvalidError(exc.errors()[0]["msg"]) from None
+    await admit(
+        request.app.state.sessionmaker,
+        principal.workspace_id,
+        len(batch.traces),
+        settings.ingest_traces_per_minute,
+    )
     result = await ingest(scope_for(session, principal), batch.traces)
     return IngestOut(
         accepted=result.accepted,

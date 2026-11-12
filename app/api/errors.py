@@ -1,3 +1,5 @@
+import math
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -11,7 +13,7 @@ from app.auth.errors import (
 )
 from app.db.budgets import LimitBelowUsageError
 from app.db.scope import NotFoundError
-from app.ingest.service import BatchInvalidError, BatchTooLargeError
+from app.ingest.service import BatchInvalidError, BatchTooLargeError, IngestRateLimitedError
 
 # Another workspace's rows answer exactly like missing rows, so ids cannot be probed.
 _ERRORS: dict[type[Exception], tuple[int, str]] = {
@@ -43,3 +45,14 @@ def register_error_handlers(app: FastAPI) -> None:
             return JSONResponse(status_code=status, content=error_body(code, message))
 
         app.add_exception_handler(error_type, handler)
+
+    async def rate_limited(request: Request, exc: Exception) -> JSONResponse:
+        # Retry-After tells a well-behaved sender exactly how long to back off.
+        wait = exc.retry_after_seconds if isinstance(exc, IngestRateLimitedError) else 1.0
+        return JSONResponse(
+            status_code=429,
+            content=error_body("rate_limited", str(exc)),
+            headers={"retry-after": str(max(1, math.ceil(wait)))},
+        )
+
+    app.add_exception_handler(IngestRateLimitedError, rate_limited)

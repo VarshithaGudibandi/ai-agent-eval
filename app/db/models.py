@@ -124,6 +124,9 @@ class Workspace(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     name: Mapped[str]
+    # How many traces the workspace may still send this minute, refilled continuously.
+    ingest_bucket: Mapped[float | None]
+    ingest_bucket_refreshed_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 

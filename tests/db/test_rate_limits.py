@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db import models
-from app.db.rate_limits import take
+from app.db.rate_limits import take, take_ingest
 from app.db.scope import WorkspaceScope
 from app.providers.credentials import create_credential
 from app.providers.key_vault import LocalKeyVault
@@ -74,3 +74,24 @@ async def test_another_workspace_cannot_use_the_bucket(
     _, credential_id = await credential_with_limits(sessionmaker, rpm=1, tpm=None)
     with pytest.raises(LookupError):
         await _take(sessionmaker, workspace_id, credential_id, 1)
+
+
+async def test_the_ingest_bucket_takes_traces_until_the_minute_is_used_up(
+    sessionmaker: async_sessionmaker[AsyncSession], workspace_id: str
+) -> None:
+    async with sessionmaker.begin() as session:
+        scope = WorkspaceScope(session, workspace_id)
+        assert await take_ingest(scope, 40, per_minute=60) == 0
+        assert await take_ingest(scope, 20, per_minute=60) == 0
+        # Nothing is left: one more trace waits about a second, at 60 a minute.
+        wait = await take_ingest(scope, 1, per_minute=60)
+    assert 0.5 < wait <= 1.0
+
+
+async def test_a_batch_bigger_than_a_minute_waits_for_a_full_bucket(
+    sessionmaker: async_sessionmaker[AsyncSession], workspace_id: str
+) -> None:
+    async with sessionmaker.begin() as session:
+        scope = WorkspaceScope(session, workspace_id)
+        assert await take_ingest(scope, 500, per_minute=60) == 0
+        assert await take_ingest(scope, 500, per_minute=60) > 50

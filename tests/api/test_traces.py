@@ -165,3 +165,16 @@ async def test_viewers_cannot_send_traces_but_member_tokens_can(
     member = await token_caller(owner, clients(), role="member")
     assert (await _post(viewer, support_trace())).status_code == 403
     assert (await _post(member, support_trace())).json()["accepted"] == ["trace-001"]
+
+
+async def test_a_workspace_over_its_ingest_rate_is_told_when_to_retry(
+    new_owner: SignIn, app: FastAPI
+) -> None:
+    owner = await new_owner()
+    app.state.settings = app.state.settings.model_copy(update={"ingest_traces_per_minute": 3})
+    allowed = await _post(owner, support_trace("a"), support_trace("b"), support_trace("c"))
+    refused = await _post(owner, support_trace("d"))
+    assert allowed.json()["accepted"] == ["a", "b", "c"]
+    assert (refused.status_code, refused.json()["error"]) == (429, "rate_limited")
+    assert int(refused.headers["retry-after"]) >= 1
+    assert await _count(app, models.Trace, owner.workspace_id) == 3

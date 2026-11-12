@@ -26,7 +26,7 @@ What exists today:
 
 | Part | What it does |
 | --- | --- |
-| Trace ingest | `POST /api/v1/traces` takes up to 100 traces. Secrets are masked first, then each trace is checked, stored raw, and turned into a run with its span tree, tokens, cost and agent version. A trace sent twice is stored once |
+| Trace ingest | `POST /api/v1/traces` takes up to 100 traces. Secrets are masked first, then each trace is checked, stored raw, and turned into a run with its span tree, tokens, cost and agent version. A trace sent twice is stored once. Each workspace has a per-minute limit; over it, the answer is `429` with `Retry-After` |
 | Workspaces | Every row carries its workspace and every query is filtered by it. A row in another workspace answers exactly like a missing one (`404`) |
 | Accounts | Email and password sign-in with HTTP-only cookies and CSRF checks, roles (`viewer`, `member`, `owner`), invites, revocable API tokens shown once |
 | Provider keys | Stored encrypted with AES-GCM under `APP_MASTER_KEY`. Only a label and the last four characters are ever shown |
@@ -146,6 +146,7 @@ All settings are in `.env.example`. The main ones:
 | `RECONCILE_SECONDS` | `15` | How often a worker looks for expired leases |
 | `MAX_JOB_ATTEMPTS` | `3` | Times a job may be interrupted before it is marked failed |
 | `INGEST_MAX_BYTES` | `5000000` | Largest trace batch one request may carry |
+| `INGEST_TRACES_PER_MINUTE` | `1200` | Traces one workspace may send per minute |
 
 ## License
 

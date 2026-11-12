@@ -43,6 +43,32 @@ async def take(scope: WorkspaceScope, credential_id: str, tokens: int) -> float:
     return wait
 
 
+async def take_ingest(scope: WorkspaceScope, traces: int, per_minute: int) -> float:
+    """Take room for this many traces from the workspace's ingest bucket.
+
+    Returns 0 if they were taken, otherwise how many seconds to wait before sending them.
+    A batch bigger than a whole minute's allowance waits for a full bucket.
+    """
+    row = await scope.session.scalar(
+        select(models.Workspace).where(models.Workspace.id == scope.workspace_id).with_for_update()
+    )
+    if row is None:
+        raise LookupError(scope.workspace_id)
+    now = await scope.session.scalar(select(func.clock_timestamp()))
+    if not isinstance(now, datetime):
+        raise RuntimeError("database did not return a timestamp")
+    refreshed = row.ingest_bucket_refreshed_at
+    elapsed = (now - refreshed).total_seconds() if refreshed else None
+    level = _refill(row.ingest_bucket, per_minute, elapsed)
+    need = min(traces, per_minute)
+    wait = _wait(level, need, per_minute)
+    if wait == 0 and level is not None:
+        level -= need
+    row.ingest_bucket = level
+    row.ingest_bucket_refreshed_at = now
+    return wait
+
+
 def _refill(level: float | None, per_minute: int | None, elapsed: float | None) -> float | None:
     if per_minute is None:
         return None
