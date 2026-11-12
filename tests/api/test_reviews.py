@@ -27,8 +27,10 @@ QUOTES = {"looked_up": '"status": "shipped"', "says_shipped": "shipped yesterday
 
 
 @pytest.fixture
-def judge(monkeypatch: pytest.MonkeyPatch) -> AnsweringJudge:
+def judge(monkeypatch: pytest.MonkeyPatch, app: FastAPI) -> AnsweringJudge:
     scripted = AnsweringJudge({qid: ("yes", quote) for qid, quote in QUOTES.items()})
+    # Sampling picks a share of runs by their random ids; these tests queue runs by hand.
+    app.state.settings = app.state.settings.model_copy(update={"review_sample_share": 0.0})
 
     @asynccontextmanager
     async def provider(api_key: str, _: Settings) -> AsyncIterator[AnsweringJudge]:
