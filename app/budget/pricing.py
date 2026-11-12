@@ -6,8 +6,7 @@ from pydantic import BaseModel, Field
 from app.db import models
 from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
-from app.gateway.contract import PublicToolSchema
-from app.providers.contract import Message, Usage
+from app.providers.contract import Message, PublicToolSchema, Usage
 
 
 class PriceInput(BaseModel):

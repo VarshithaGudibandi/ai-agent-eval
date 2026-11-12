@@ -1,12 +1,12 @@
 from collections.abc import Sequence
 
-from app.gateway.contract import PublicToolSchema
 from app.providers.contract import (
     GenerationSettings,
     Message,
     ModelResponse,
     ProviderCaps,
     ProviderError,
+    PublicToolSchema,
 )
 
 

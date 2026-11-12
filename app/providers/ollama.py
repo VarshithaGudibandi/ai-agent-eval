@@ -4,13 +4,13 @@ from typing import Any
 
 import httpx
 
-from app.gateway.contract import PublicToolSchema
 from app.providers.contract import (
     Fatal,
     GenerationSettings,
     Message,
     ModelResponse,
     ProviderCaps,
+    PublicToolSchema,
     Retryable,
     ToolCallRequest,
     Usage,

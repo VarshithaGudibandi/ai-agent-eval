@@ -3,8 +3,7 @@ import json
 import httpx
 import pytest
 
-from app.gateway.contract import PublicToolSchema
-from app.providers.contract import Fatal, GenerationSettings, Message, Retryable
+from app.providers.contract import Fatal, GenerationSettings, Message, PublicToolSchema, Retryable
 from app.providers.ollama import OllamaProvider
 
 SETTINGS = GenerationSettings(model="llama-test", max_output_tokens=128)

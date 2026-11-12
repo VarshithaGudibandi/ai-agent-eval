@@ -4,11 +4,12 @@ from typing import Any
 from app.agents.contract import RunLimits
 from app.agents.tool_loop import ToolLoopAdapter, ToolLoopSettings, first_messages
 from app.environments.contract import AgentTaskInput
-from app.gateway.contract import PublicToolSchema, ToolCallOutcome
+from app.gateway.contract import ToolCallOutcome
 from app.providers.contract import (
     GenerationSettings,
     Message,
     ModelResponse,
+    PublicToolSchema,
     ToolCallRequest,
     Usage,
 )

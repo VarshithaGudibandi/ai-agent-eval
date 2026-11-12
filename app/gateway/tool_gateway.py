@@ -16,7 +16,8 @@ from app.environments.contract import CallContext, FaultSpec, ToolArgs, ToolResu
 from app.environments.registry import EnvironmentRegistry
 from app.environments.state_store import EnvStateStore
 from app.execution.trace_recorder import TraceRecorder
-from app.gateway.contract import PublicToolSchema, ToolCallOutcome
+from app.gateway.contract import ToolCallOutcome
+from app.providers.contract import PublicToolSchema
 
 logger = logging.getLogger(__name__)
 

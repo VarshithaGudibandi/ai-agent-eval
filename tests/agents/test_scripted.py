@@ -5,7 +5,8 @@ import pytest
 from app.agents.contract import RunLimits
 from app.agents.scripted import Script, ScriptedAdapter
 from app.environments.contract import AgentTaskInput
-from app.gateway.contract import PublicToolSchema, ToolCallOutcome
+from app.gateway.contract import ToolCallOutcome
+from app.providers.contract import PublicToolSchema
 
 
 class FakeTools:

@@ -5,7 +5,6 @@ from typing import Any
 
 import httpx
 
-from app.gateway.contract import PublicToolSchema
 from app.providers.contract import (
     ContentBlocked,
     Fatal,
@@ -13,6 +12,7 @@ from app.providers.contract import (
     Message,
     ModelResponse,
     ProviderCaps,
+    PublicToolSchema,
     RateLimited,
     Retryable,
     ToolCallRequest,

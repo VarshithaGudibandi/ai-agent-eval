@@ -12,7 +12,6 @@ from app.db import models
 from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
 from app.execution.trace_recorder import TraceRecorder
-from app.gateway.contract import PublicToolSchema
 from app.providers.contract import (
     ContentBlocked,
     Fatal,
@@ -21,6 +20,7 @@ from app.providers.contract import (
     ModelProvider,
     ModelResponse,
     ProviderError,
+    PublicToolSchema,
     RateLimited,
     Retryable,
     Usage,

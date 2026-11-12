@@ -4,12 +4,12 @@ from typing import Any
 import httpx
 import pytest
 
-from app.gateway.contract import PublicToolSchema
 from app.providers.contract import (
     ContentBlocked,
     Fatal,
     GenerationSettings,
     Message,
+    PublicToolSchema,
     RateLimited,
     Retryable,
     ToolCallRequest,

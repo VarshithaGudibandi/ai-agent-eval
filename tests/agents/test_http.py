@@ -17,7 +17,8 @@ from app.agents.http import (
 from app.agents.http_guard import GuardPolicy
 from app.agents.signing import SIGNATURE_HEADER, verify
 from app.environments.contract import AgentTaskInput
-from app.gateway.contract import PublicToolSchema, ToolCallOutcome
+from app.gateway.contract import ToolCallOutcome
+from app.providers.contract import PublicToolSchema
 
 POLICY = GuardPolicy(allow_local=True, require_https=False, max_response_bytes=10_000)
 TASK = AgentTaskInput(user_message="Refund ord_1", context={"authenticated_customer_id": "c1"})

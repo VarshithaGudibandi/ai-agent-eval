@@ -2,7 +2,13 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.gateway.contract import PublicToolSchema
+
+class PublicToolSchema(BaseModel):
+    """A tool as agents see it: name, description and JSON Schema for the arguments."""
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
 
 
 class ToolCallRequest(BaseModel):

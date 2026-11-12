@@ -5,8 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.agents.contract import AgentResult, EventRecorder, RunLimits
 from app.environments.contract import AgentTaskInput
-from app.gateway.contract import PublicToolSchema, ToolSession
-from app.providers.contract import GenerationSettings, Message, ModelResponse
+from app.gateway.contract import ToolSession
+from app.providers.contract import GenerationSettings, Message, ModelResponse, PublicToolSchema
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are a customer support agent. Use the tools to look things up and to act. "
