@@ -50,7 +50,7 @@ def applies(when: AppliesWhen, run: RunView) -> bool:
 
 
 def score(run: RunView, scorers: Sequence[Scorer]) -> list[ScoreResult]:
-    """Grade a run with every scorer that applies to it.
+    """Grade a run with every deterministic scorer that applies to it.
 
     A scorer that does not apply leaves no result at all, so it counts in no denominator.
     A scorer that crashes leaves an error, never a pass or a fail.
@@ -58,7 +58,8 @@ def score(run: RunView, scorers: Sequence[Scorer]) -> list[ScoreResult]:
     results: list[ScoreResult] = []
     for scorer in scorers:
         definition = scorer.definition
-        if not applies(definition.applies_when, run):
+        # Judges call a model, so they run in their own job; see app.scoring.judge_job.
+        if definition.is_judge or not applies(definition.applies_when, run):
             continue
         check = CHECKS[definition.check]
         try:
@@ -88,7 +89,7 @@ def score(run: RunView, scorers: Sequence[Scorer]) -> list[ScoreResult]:
                     definition.key,
                     outcome.span_id,
                     value,
-                    value >= definition.threshold,
+                    value >= definition.pass_mark,
                     outcome.reason[:1000],
                     outcome.evidence,
                 )
@@ -115,7 +116,7 @@ def verdict(scorers: Sequence[Scorer], results: Sequence[ScoreResult]) -> Verdic
             continue
         if not all(r.passed for r in scores):
             failed.append(definition.key)
-        if definition.severity == "soft":
+        if definition.level == "soft":
             soft_values.append(sum(r.value or 0.0 for r in scores) / len(scores))
     quality = sum(soft_values) / len(soft_values) if soft_values else None
     status: VerdictStatus

@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.scoring.checks import CHECKS
+from app.scoring.judges import DEFAULT_JUDGE_THRESHOLD, JUDGES
 
 Severity = Literal["hard", "soft"]
 Tag = str | int | float | bool
@@ -31,26 +32,52 @@ class ScorerDefinition(BaseModel):
     key: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9_-]+$")
     check: str
     params: dict[str, Any] = Field(default_factory=dict)
-    severity: Severity = "hard"
-    threshold: float = Field(default=1.0, ge=0, le=1)
+    # Left out, deterministic checks are hard with a threshold of 1 and judges are soft
+    # with 0.7, as a judge should never fail a run on a guess.
+    severity: Severity | None = None
+    threshold: float | None = Field(default=None, ge=0, le=1)
     applies_when: AppliesWhen = Field(default_factory=AppliesWhen)
 
     @model_validator(mode="after")
     def _known_check(self) -> "ScorerDefinition":
         check = CHECKS.get(self.check)
-        if check is None:
-            raise ValueError(f"unknown check {self.check!r}; known: {', '.join(sorted(CHECKS))}")
+        judge = JUDGES.get(self.check)
+        if check is None and judge is None:
+            known = ", ".join(sorted([*CHECKS, *JUDGES]))
+            raise ValueError(f"unknown check {self.check!r}; known: {known}")
+        params_model: type[BaseModel] = check.params if check is not None else JUDGES[self.check]
         try:
-            filled = check.params.model_validate(self.params).model_dump()
+            filled = params_model.model_validate(self.params).model_dump()
         except ValidationError as exc:
             problems = "; ".join(
                 f"{'.'.join(str(p) for p in e['loc']) or 'params'}: {e['msg']}"
                 for e in exc.errors()[:3]
             )
             raise ValueError(f"{self.check} params: {problems}") from None
+        is_judge = judge is not None
+        severity = self.severity or ("soft" if is_judge else "hard")
+        if is_judge and severity == "hard" and not filled["allow_hard"]:
+            raise ValueError("a judge is soft unless params.allow_hard is true")
+        threshold = self.threshold
+        if threshold is None:
+            threshold = DEFAULT_JUDGE_THRESHOLD if is_judge else 1.0
         # Defaults written out, so two ways of saying the same scorer hash the same.
         object.__setattr__(self, "params", filled)
+        object.__setattr__(self, "severity", severity)
+        object.__setattr__(self, "threshold", threshold)
         return self
+
+    @property
+    def is_judge(self) -> bool:
+        return self.check in JUDGES
+
+    @property
+    def level(self) -> Severity:
+        return self.severity or "hard"
+
+    @property
+    def pass_mark(self) -> float:
+        return 1.0 if self.threshold is None else self.threshold
 
     def content_hash(self) -> str:
         canonical = json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))

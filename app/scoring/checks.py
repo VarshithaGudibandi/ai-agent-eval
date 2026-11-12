@@ -23,6 +23,8 @@ class Outcome:
     reason: str
     evidence: tuple[str, ...] = ()
     span_id: str | None = None
+    # Judges only: how far repeated answers agreed.
+    confidence: float | None = None
 
 
 class _Params(BaseModel):
