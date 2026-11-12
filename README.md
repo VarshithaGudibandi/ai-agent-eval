@@ -84,6 +84,12 @@ Eval(
 
 A dataset file is JSON Lines, one case a line: `{"key": "refund-1", "input": {...}, "expected": {...}, "tags": {...}}`. Only `key` and `input` are required, and keys must stay the same across versions so results can be compared case by case. The file is uploaded first; a new dataset version is made only when its cases changed. A case that raises is recorded with its error and the rest still run. At the end `Eval` prints how many runs arrived and a link to the experiment.
 
+`examples/refund_agent/` is a small Gemini support agent wired up this way, with an 8-case dataset. With `GEMINI_API_KEY`, `AGENT_EVAL_URL` and `AGENT_EVAL_TOKEN` set, run it from the repository root:
+
+```bash
+uv run --with google-genai python -m examples.refund_agent.eval
+```
+
 If the platform goes down mid-run, the remaining traces are written to `.agent_eval/pending/` and nothing is lost. They are sent at the end if the platform is back, by the next `Eval`, or by `agent_eval.flush()`. Sending a trace twice is safe.
 
 In a live app, call `init` once at startup and put `@traced` on the request handler and your tools. Each call of the handler becomes one trace.
@@ -186,8 +192,9 @@ The response lists which traces were `accepted`, which were `duplicates`, and wh
 | `app/traces/` | Turning a trace into a run, spans, cost and an agent version |
 | `app/web/` | The web pages, their templates and static files |
 | `sdk/` | The `agent_eval` Python package agents use to send traces |
+| `examples/` | A small example agent and dataset that use the SDK |
 | `migrations/` | Alembic migrations |
-| `tests/` | Tests, laid out like `app/` and `sdk/` |
+| `tests/` | Tests, laid out like `app/`, `sdk/` and `examples/` |
 
 ## Settings
 

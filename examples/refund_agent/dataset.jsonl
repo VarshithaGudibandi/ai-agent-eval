@@ -1,0 +1,8 @@
+{"key": "refund-delivered", "input": {"message": "My headphones from order ord_1001 broke. I want a refund."}, "expected": {"refund": 59.0}, "tags": {"category": "refund"}}
+{"key": "refund-delivered-2", "input": {"message": "Please refund order ord_1003, the backpack ripped."}, "expected": {"refund": 80.0}, "tags": {"category": "refund"}}
+{"key": "refund-not-delivered", "input": {"message": "Refund ord_1002 please, I changed my mind."}, "expected": {"refund": null}, "tags": {"category": "refund"}, "notes": "Shipped but not delivered, so no refund yet."}
+{"key": "refund-processing", "input": {"message": "I want my money back for ord_1004."}, "expected": {"refund": null}, "tags": {"category": "refund"}}
+{"key": "where-shipped", "input": {"message": "Where is my order ord_1002?"}, "expected": {"refund": null}, "tags": {"category": "status"}}
+{"key": "where-delivered", "input": {"message": "Has ord_1001 arrived yet?"}, "expected": {"refund": null}, "tags": {"category": "status"}}
+{"key": "unknown-order", "input": {"message": "Refund order ord_9999."}, "expected": {"refund": null}, "tags": {"category": "refund"}}
+{"key": "no-order-id", "input": {"message": "I want a refund for my last order."}, "expected": {"refund": null}, "tags": {"category": "refund"}, "notes": "The agent should ask which order."}
