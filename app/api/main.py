@@ -11,6 +11,7 @@ from app.api import (
     health,
     prices,
     provider_credentials,
+    traces,
     workspaces,
 )
 from app.api.errors import register_error_handlers
@@ -44,6 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         provider_credentials,
         prices,
         datasets,
+        traces,
     ):
         app.include_router(module.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

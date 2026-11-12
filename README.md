@@ -2,11 +2,11 @@
 
 A platform for measuring how well an AI agent works, while you build it and after it goes live. It grades every run from the agent's own trace, tracks results per agent version, and explains why a new version got worse.
 
-Status: being rebuilt around traces. Today it has accounts and workspaces, API tokens, encrypted provider keys, prices and budgets, a Postgres job queue with leases, and a metered Gemini provider. Trace ingest, scoring, judges, metrics, the regression explainer, the SDK and the full web pages come next.
+Status: being rebuilt around traces. Today it takes traces in over the API and turns them into runs, span trees, costs and agent versions. It also has accounts and workspaces, API tokens, encrypted provider keys, prices and budgets, a Postgres job queue with leases, and a metered Gemini provider. Scoring, judges, metrics, the regression explainer, the SDK and the full web pages come next.
 
 ## How it works
 
-Every trace will take the same path, from a test run or from production. The stages from ingest onwards are being built.
+Every trace takes the same path, from a test run or from production. Ingest and normalize work today; the stages after them are being built.
 
 ```mermaid
 flowchart TD
@@ -26,6 +26,7 @@ What exists today:
 
 | Part | What it does |
 | --- | --- |
+| Trace ingest | `POST /api/v1/traces` takes up to 100 traces. Secrets are masked first, then each trace is checked, stored raw, and turned into a run with its span tree, tokens, cost and agent version. A trace sent twice is stored once |
 | Workspaces | Every row carries its workspace and every query is filtered by it. A row in another workspace answers exactly like a missing one (`404`) |
 | Accounts | Email and password sign-in with HTTP-only cookies and CSRF checks, roles (`viewer`, `member`, `owner`), invites, revocable API tokens shown once |
 | Provider keys | Stored encrypted with AES-GCM under `APP_MASTER_KEY`. Only a label and the last four characters are ever shown |
@@ -57,7 +58,36 @@ A demo with seeded data that needs no key is not built yet.
 
 ## Connect an agent
 
-Agents will send their traces through a Python SDK, which is not built yet.
+Agents will send traces through a Python SDK, which is not built yet. Until then, a trace can be posted directly with a member API token:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/traces -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d @batch.json
+```
+
+A batch is `{"traces": [...]}`. Each trace looks like this:
+
+```json
+{
+  "trace_id": "run-0001",
+  "agent": "support-bot",
+  "config": {"model": "gemini-3.5-flash-lite", "prompt": "You are a support agent.", "tools": []},
+  "label": "v1",
+  "tags": {"environment": "production", "session": "sess-42"},
+  "spans": [
+    {"id": "root", "kind": "step", "name": "handle_request", "start": "2026-11-12T10:00:00Z", "end": "2026-11-12T10:00:02Z", "input": {"message": "Where is my order?"}, "output": {"reply": "It shipped."}},
+    {"id": "m1", "parent_id": "root", "kind": "model", "name": "answer", "start": "2026-11-12T10:00:00Z", "end": "2026-11-12T10:00:01Z", "provider": "gemini", "model": "gemini-3.5-flash-lite", "input_tokens": 900, "output_tokens": 40}
+  ]
+}
+```
+
+| Field | Rules |
+| --- | --- |
+| `trace_id` | Chosen by the sender. Sending the same id again is reported as a duplicate, so a batch can be resent safely |
+| `config` | What makes this version of the agent. A config the platform has not seen before makes a new agent version |
+| `spans` | One root. Every other span names a parent in the same trace. `kind` is `model`, `tool` or `step`; a model span names its model |
+| Times | ISO 8601 with a time zone. A span cannot end before it starts |
+
+The response lists which traces were `accepted`, which were `duplicates`, and which were `rejected` and why. A bad trace is rejected on its own; the rest of the batch still goes in. Cost uses the workspace's newest price for each span's provider and model, and is marked unknown when there is none.
 
 ## Make commands
 
@@ -84,9 +114,11 @@ Agents will send their traces through a Python SDK, which is not built yet.
 | `app/auth/` | Accounts, passwords, sessions, invites and API tokens |
 | `app/budget/` | Prices, worst-case estimates, reservations, warnings and pausing |
 | `app/db/` | Tables, the workspace-scoped data layer, the job queue, audit log |
+| `app/ingest/` | The trace format, secret masking and storing raw traces |
 | `app/jobs/` | The worker and its lease heartbeat |
 | `app/metrics/` | Scorecard and comparison maths |
 | `app/providers/` | The Gemini provider, encrypted keys, rate limiting, metered calls |
+| `app/traces/` | Turning a trace into a run, spans, cost and an agent version |
 | `app/web/` | The web pages, their templates and static files |
 | `migrations/` | Alembic migrations |
 | `tests/` | Tests, laid out like `app/` |
@@ -113,6 +145,7 @@ All settings are in `.env.example`. The main ones:
 | `HEARTBEAT_SECONDS` | `10` | How often a worker renews its leases. At most half of `LEASE_SECONDS` |
 | `RECONCILE_SECONDS` | `15` | How often a worker looks for expired leases |
 | `MAX_JOB_ATTEMPTS` | `3` | Times a job may be interrupted before it is marked failed |
+| `INGEST_MAX_BYTES` | `5000000` | Largest trace batch one request may carry |
 
 ## License
 

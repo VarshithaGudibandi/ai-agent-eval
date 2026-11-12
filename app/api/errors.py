@@ -11,6 +11,7 @@ from app.auth.errors import (
 )
 from app.db.budgets import LimitBelowUsageError
 from app.db.scope import NotFoundError
+from app.ingest.service import BatchInvalidError, BatchTooLargeError
 
 # Another workspace's rows answer exactly like missing rows, so ids cannot be probed.
 _ERRORS: dict[type[Exception], tuple[int, str]] = {
@@ -22,8 +23,10 @@ _ERRORS: dict[type[Exception], tuple[int, str]] = {
     SetupAlreadyDoneError: (409, "setup_already_done"),
     InviteInvalidError: (400, "invite_invalid"),
     LimitBelowUsageError: (422, "limit_below_usage"),
+    BatchTooLargeError: (413, "batch_too_large"),
+    BatchInvalidError: (422, "batch_invalid"),
 }
-_SHOW_MESSAGE = (LimitBelowUsageError,)
+_SHOW_MESSAGE = (LimitBelowUsageError, BatchTooLargeError, BatchInvalidError)
 
 
 def error_body(code: str, message: str | None = None) -> dict[str, str]:

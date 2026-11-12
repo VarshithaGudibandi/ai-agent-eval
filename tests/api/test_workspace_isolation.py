@@ -13,8 +13,11 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import select
 
+from app.db import models
 from tests.api.conftest import Caller, SignIn, add_dataset, sign_in, token_caller
+from tests.ingest.sample_traces import support_trace
 
 
 @dataclass
@@ -163,6 +166,30 @@ async def test_cannot_sign_in_to_a_workspace_you_do_not_belong_to(
     assert (response.status_code, response.json()) == (404, {"error": "not_found"})
 
 
+async def test_traces_belong_only_to_the_workspace_that_sent_them(
+    world: World, app: FastAPI
+) -> None:
+    b_sent = await world.b_person.post("/api/v1/traces", json={"traces": [support_trace("t-1")]})
+    assert b_sent.json()["accepted"] == ["t-1"]
+    # A sends a trace with the same id: it is A's own trace, not a duplicate of B's.
+    a_sent = await world.a_token.post(
+        "/api/v1/traces", json={"traces": [support_trace("t-1", agent="a-bot")]}
+    )
+    assert a_sent.json()["accepted"] == ["t-1"]
+    sneaky = await world.a_token.post(
+        "/api/v1/traces",
+        json={"traces": [support_trace("t-2", workspace_id=world.b_person.workspace_id)]},
+    )
+    assert sneaky.json()["accepted"] == [] and len(sneaky.json()["rejected"]) == 1
+    async with app.state.sessionmaker() as session:
+        b_traces = list(
+            await session.scalars(
+                select(models.Trace).where(models.Trace.workspace_id == world.b_person.workspace_id)
+            )
+        )
+    assert [(t.trace_id, t.agent_name) for t in b_traces] == [("t-1", "support-bot")]
+
+
 # Every /api/v1 route must be listed in exactly one of these groups.
 FOREIGN_ID_ROUTES = {
     ("POST", "/api/v1/workspaces/{workspace_id}/invites"),
@@ -178,6 +205,7 @@ LIST_ROUTES = [
     "/api/v1/price-versions",
 ]
 BODY_ROUTES = {
+    ("POST", "/api/v1/traces"),
     ("POST", "/api/v1/api-tokens"),
     ("POST", "/api/v1/provider-credentials"),
     ("POST", "/api/v1/price-versions"),

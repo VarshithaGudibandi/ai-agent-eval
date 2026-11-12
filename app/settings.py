@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     gemini_base_url: str = "https://generativelanguage.googleapis.com"
     model_call_timeout_seconds: float = Field(default=60, gt=0)
     model_call_max_retries: int = Field(default=4, ge=0, le=10)
+    ingest_max_bytes: int = Field(default=5_000_000, gt=0)
 
     @model_validator(mode="after")
     def _heartbeat_fits_the_lease(self) -> "Settings":

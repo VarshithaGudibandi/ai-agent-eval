@@ -67,6 +67,18 @@ class JobStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class TraceStatus(StrEnum):
+    RECEIVED = "received"
+    NORMALIZED = "normalized"
+    FAILED = "failed"
+
+
+class SpanKind(StrEnum):
+    MODEL = "model"
+    TOOL = "tool"
+    STEP = "step"
+
+
 class Role(StrEnum):
     OWNER = "owner"
     MEMBER = "member"
@@ -433,3 +445,108 @@ class ModelCall(WorkspaceScoped, Base):
     cost_micros: Mapped[int | None] = mapped_column(BigInteger)
     duration_ms: Mapped[int]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Agent(WorkspaceScoped, Base):
+    __tablename__ = "agents"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("workspace_id", "name"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class AgentVersion(WorkspaceScoped, Base):
+    """One configuration of an agent, found by the fingerprint of its config."""
+
+    __tablename__ = "agent_versions"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("agent_id", "fingerprint"),
+        workspace_fk("agent_id", "agents"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    agent_id: Mapped[str]
+    fingerprint: Mapped[str]
+    config: Mapped[dict[str, Any]]
+    # A name a person gives the version, such as "v7". Optional: the fingerprint is enough.
+    label: Mapped[str | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Trace(WorkspaceScoped, Base):
+    """A trace exactly as received, secrets masked. The payload is never edited, so every
+    later stage can be run again from it."""
+
+    __tablename__ = "traces"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("workspace_id", "trace_id"),
+        one_of("status", TraceStatus),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    # The id the agent's side chose, so a retried send is recognised as the same trace.
+    trace_id: Mapped[str]
+    agent_name: Mapped[str]
+    payload: Mapped[dict[str, Any]]
+    status: Mapped[str]
+    error: Mapped[str | None]
+    received_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Run(WorkspaceScoped, Base):
+    """One agent run, built from its trace."""
+
+    __tablename__ = "runs"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("trace_row_id"),
+        workspace_fk("trace_row_id", "traces"),
+        workspace_fk("agent_version_id", "agent_versions"),
+        Index("ix_runs_version_started", "agent_version_id", "started_at"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    trace_row_id: Mapped[str]
+    agent_version_id: Mapped[str]
+    tags: Mapped[dict[str, Any]]
+    environment: Mapped[str | None]
+    session_id: Mapped[str | None]
+    started_at: Mapped[datetime]
+    ended_at: Mapped[datetime]
+    duration_ms: Mapped[int]
+    input_tokens: Mapped[int] = mapped_column(BigInteger)
+    output_tokens: Mapped[int] = mapped_column(BigInteger)
+    cost_micros: Mapped[int] = mapped_column(BigInteger)
+    # False when a model call had no price or no token counts, so the cost is a floor.
+    cost_known: Mapped[bool]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Span(WorkspaceScoped, Base):
+    __tablename__ = "spans"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("run_id", "span_id"),
+        workspace_fk("run_id", "runs"),
+        one_of("kind", SpanKind),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    run_id: Mapped[str]
+    span_id: Mapped[str]
+    parent_span_id: Mapped[str | None]
+    kind: Mapped[str]
+    name: Mapped[str]
+    started_at: Mapped[datetime]
+    ended_at: Mapped[datetime]
+    duration_ms: Mapped[int]
+    input: Mapped[Any] = mapped_column(JSONB)
+    output: Mapped[Any] = mapped_column(JSONB)
+    error: Mapped[str | None]
+    attributes: Mapped[dict[str, Any]]
