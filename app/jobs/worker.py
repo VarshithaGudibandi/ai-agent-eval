@@ -21,7 +21,7 @@ from app.db.jobs import (
     renew_lease,
 )
 from app.db.schema_status import schema_status
-from app.execution.leases import LeaseOutcome, hold_lease
+from app.jobs.leases import LeaseOutcome, hold_lease
 from app.settings import Settings, get_settings
 from app.structured_logging import configure_logging
 

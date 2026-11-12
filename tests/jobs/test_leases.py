@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from app.execution.leases import LeaseOutcome, hold_lease
+from app.jobs.leases import LeaseOutcome, hold_lease
 
 
 class Work:

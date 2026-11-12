@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from app.reports.metrics import RunFacts, Scorecard, is_scorable, scorecard
+from app.metrics.metrics import RunFacts, Scorecard, is_scorable, scorecard
 
 # A paired comparison of two agent configs on the same tasks. Each side is one config in one
 # experiment; both may be in the same experiment, which is the cleanest comparison because

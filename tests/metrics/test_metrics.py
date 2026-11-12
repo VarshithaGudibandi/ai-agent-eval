@@ -1,6 +1,6 @@
 from typing import Any
 
-from app.reports.metrics import RunFacts, ScoreFacts, percentile, scorecard
+from app.metrics.metrics import RunFacts, ScoreFacts, percentile, scorecard
 
 
 def _score(layer: str, dimension: str, status: str, **evidence: Any) -> ScoreFacts:

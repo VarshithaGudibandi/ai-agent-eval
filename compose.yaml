@@ -56,7 +56,7 @@ services:
 
   worker:
     <<: *app
-    command: ["python", "-m", "app.execution.worker"]
+    command: ["python", "-m", "app.jobs.worker"]
     depends_on:
       migrate:
         condition: service_completed_successfully

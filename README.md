@@ -84,9 +84,9 @@ Agents will send their traces through a Python SDK, which is not built yet.
 | `app/auth/` | Accounts, passwords, sessions, invites and API tokens |
 | `app/budget/` | Prices, worst-case estimates, reservations, warnings and pausing |
 | `app/db/` | Tables, the workspace-scoped data layer, the job queue, audit log |
-| `app/execution/` | The worker and its lease heartbeat |
+| `app/jobs/` | The worker and its lease heartbeat |
+| `app/metrics/` | Scorecard and comparison maths |
 | `app/providers/` | The Gemini provider, encrypted keys, rate limiting, metered calls |
-| `app/reports/` | Scorecard and comparison maths |
 | `app/web/` | The web pages, their templates and static files |
 | `migrations/` | Alembic migrations |
 | `tests/` | Tests, laid out like `app/` |

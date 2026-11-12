@@ -15,7 +15,7 @@ from app.db.audit import record_audit
 from app.db.ids import new_id
 from app.db.jobs import LeaseLostError, claim_next, enqueue, require_lease
 from app.db.scope import WorkspaceScope
-from app.execution.worker import JobContext, Worker, run
+from app.jobs.worker import JobContext, Worker, run
 from app.settings import Settings
 
 Sessions = async_sessionmaker[AsyncSession]
@@ -105,7 +105,7 @@ async def _serve(worker: Worker, until: Callable[[], Awaitable[bool]]) -> None:
 async def test_worker_becomes_ready_and_stops_on_signal(
     settings: Settings, fresh_database_url: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.INFO, logger="app.execution.worker")
+    caplog.set_level(logging.INFO, logger="app.jobs.worker")
     stop = asyncio.Event()
     task = asyncio.create_task(run(_fast(settings, fresh_database_url), stop))
     await asyncio.sleep(0.5)
@@ -120,7 +120,7 @@ async def test_worker_becomes_ready_and_stops_on_signal(
 async def test_worker_waits_while_database_is_down(
     unreachable_settings: Settings, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.INFO, logger="app.execution.worker")
+    caplog.set_level(logging.INFO, logger="app.jobs.worker")
     stop = asyncio.Event()
     task = asyncio.create_task(run(unreachable_settings, stop))
     await asyncio.sleep(0.3)
@@ -141,7 +141,7 @@ async def test_a_worker_process_starts_and_stops_cleanly(fresh_database_url: str
     worker = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
-        "app.execution.worker",
+        "app.jobs.worker",
         cwd=ROOT,
         env=env,
         stdout=asyncio.subprocess.PIPE,
