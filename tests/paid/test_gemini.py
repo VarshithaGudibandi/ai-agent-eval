@@ -5,7 +5,7 @@ import httpx
 from app.providers.contract import GenerationSettings, Message, PublicToolSchema
 from app.providers.gemini import GeminiProvider
 
-MODEL = os.environ.get("GEMINI_TEST_MODEL", "gemini-flash-lite-latest")
+MODEL = os.environ.get("GEMINI_TEST_MODEL", "gemini-3.5-flash-lite")
 LOOKUP = PublicToolSchema(
     name="get_order",
     description="Look up an order by its id.",

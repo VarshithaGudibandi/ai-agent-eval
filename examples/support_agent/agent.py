@@ -9,7 +9,7 @@ from langgraph.graph import END, START, StateGraph
 
 from agent_eval import traced, wrap_gemini
 
-MODEL = "gemini-flash-lite-latest"
+MODEL = "gemini-3.5-flash-lite"
 PROMPT = (
     "You are a support agent for an online shop. Always look up the order before you answer."
     " Refund only when the customer has sent the item back and the return has arrived: check"
