@@ -32,6 +32,9 @@ from app.db.scope import WorkspaceScope
 from app.db.traces import agent_version
 from app.settings import Settings
 
+# Tests set what they need themselves, so a developer's own .env cannot change their outcome.
+Settings.model_config["env_file"] = None
+
 
 @pytest.fixture
 def settings() -> Settings:
