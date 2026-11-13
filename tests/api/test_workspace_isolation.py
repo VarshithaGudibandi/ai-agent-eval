@@ -495,6 +495,7 @@ NO_WORKSPACE_INPUT = {
     ("POST", "/api/v1/auth/demo"),
     ("POST", "/api/v1/auth/logout"),
     ("POST", "/api/v1/workspaces"),
+    ("PATCH", "/api/v1/workspaces/current"),
     ("POST", "/api/v1/invites/accept"),
 }
 

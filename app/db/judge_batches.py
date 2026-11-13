@@ -18,12 +18,14 @@ async def live_run_ids(
     tags: dict[str, Any],
     limit: int,
 ) -> list[str]:
-    """Stored live runs that match, newest first."""
+    """Stored live runs that match and still have their text, newest first."""
     statement = (
         select(models.Run.id)
         .join(models.AgentVersion, models.AgentVersion.id == models.Run.agent_version_id)
+        .join(models.Trace, models.Trace.id == models.Run.trace_row_id)
         .where(
             models.Run.workspace_id == scope.workspace_id,
+            models.Trace.text_removed_at.is_(None),
             models.AgentVersion.agent_id == agent_id,
             models.Run.experiment_id.is_(None),
             models.Run.started_at >= start,

@@ -24,7 +24,9 @@ from app.auth.workspaces import (
     memberships_of,
     workspace_by_id,
 )
-from app.db.models import Role
+from app.db.audit import record_audit
+from app.db.models import Role, Workspace
+from app.db.retention import set_retention
 from app.db.scope import NotFoundError
 from app.settings import Settings
 
@@ -35,6 +37,12 @@ class WorkspaceOut(BaseModel):
     id: str
     name: str
     role: Role
+    retention_days: int | None
+
+
+class RetentionRequest(BaseModel):
+    # Unset keeps text for good.
+    retention_days: int | None = Field(ge=1, le=3650)
 
 
 class MemberOut(BaseModel):
@@ -71,16 +79,37 @@ class AcceptInviteOut(BaseModel):
     role: Role
 
 
+def _out(workspace: Workspace, role: Role) -> WorkspaceOut:
+    return WorkspaceOut(
+        id=workspace.id, name=workspace.name, role=role, retention_days=workspace.retention_days
+    )
+
+
 @router.get("/workspaces")
 async def list_workspaces(principal: CurrentPrincipal, session: Db) -> list[WorkspaceOut]:
     """Workspaces the caller can use. A token only ever sees its own workspace."""
     if principal.user_id is None:
         workspace = await workspace_by_id(session, principal.workspace_id)
-        return [WorkspaceOut(id=workspace.id, name=workspace.name, role=principal.role)]
-    return [
-        WorkspaceOut(id=w.id, name=w.name, role=Role(m.role))
-        for m, w in await memberships_of(session, principal.user_id)
-    ]
+        return [_out(workspace, principal.role)]
+    return [_out(w, Role(m.role)) for m, w in await memberships_of(session, principal.user_id)]
+
+
+@router.patch("/workspaces/current")
+async def change_retention(body: RetentionRequest, principal: Owner, session: Db) -> WorkspaceOut:
+    """Set how many days a trace's text is kept. Older text is removed within minutes; runs,
+    timings, tokens, costs and scores stay. Unset keeps text for good."""
+    scope = scope_for(session, principal)
+    workspace = await set_retention(scope, body.retention_days)
+    record_audit(
+        scope,
+        principal.actor_type,
+        principal.actor_id,
+        "workspace.retention_set",
+        "workspace",
+        workspace.id,
+        {"retention_days": body.retention_days},
+    )
+    return _out(workspace, principal.role)
 
 
 @router.post("/workspaces", status_code=status.HTTP_201_CREATED)
@@ -92,7 +121,7 @@ async def new_workspace(
         raise UserRequiredError
     user = await user_by_id(session, principal.user_id)
     workspace = await create_workspace(session, user, body.name)
-    return WorkspaceOut(id=workspace.id, name=workspace.name, role=Role.OWNER)
+    return _out(workspace, Role.OWNER)
 
 
 @router.post("/workspaces/{workspace_id}/invites", status_code=status.HTTP_201_CREATED)

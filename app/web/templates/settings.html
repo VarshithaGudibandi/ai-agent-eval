@@ -23,6 +23,20 @@
   {% endif %}
 </section>
 
+<section>
+  <h2>Keeping trace text</h2>
+  <p class="muted small">Inputs and outputs of runs are removed after this many days. Runs, timings, tokens, costs and scores stay, but those runs can no longer be scored again.</p>
+  <p>{% if workspace.retention_days %}Text is kept for {{ workspace.retention_days }} days.{% else %}Text is kept for good.{% endif %}</p>
+  {% if is_owner %}
+  <form data-api="/api/v1/workspaces/current" data-method="PATCH" class="inline">
+    <label>Keep text for <input name="retention_days" type="number" min="1" max="3650" data-type="int" data-empty="null" value="{{ workspace.retention_days or '' }}"> days</label>
+    <span class="muted small">Leave empty to keep text for good.</span>
+    <button type="submit">Save</button>
+    <p class="error" role="alert"></p>
+  </form>
+  {% endif %}
+</section>
+
 {% if is_owner %}
 <section>
   <h2>API tokens</h2>

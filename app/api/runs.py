@@ -90,6 +90,8 @@ class RunOut(BaseModel):
     output_tokens: int
     cost_micros: int
     cost_known: bool
+    # When the workspace's retention removed the run's inputs and outputs.
+    text_removed_at: datetime | None
     spans: list[SpanOut]
     scores: list[ScoreOut]
     judge_answers: list[JudgeAnswerOut]
@@ -123,6 +125,7 @@ async def run(run_id: str, principal: Viewer, session: Db) -> RunOut:
         tags=row.tags,
         started_at=row.started_at,
         duration_ms=row.duration_ms,
+        text_removed_at=trace.text_removed_at,
         input_tokens=row.input_tokens,
         output_tokens=row.output_tokens,
         cost_micros=row.cost_micros,

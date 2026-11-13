@@ -174,12 +174,18 @@ def workspace_fk(column: str, table: str) -> ForeignKeyConstraint:
 
 class Workspace(Base):
     __tablename__ = "workspaces"
+    __table_args__ = (
+        CheckConstraint("retention_days IS NULL OR retention_days > 0", name="retention_positive"),
+    )
 
     id: Mapped[str] = mapped_column(primary_key=True)
     name: Mapped[str]
     # How many traces the workspace may still send this minute, refilled continuously.
     ingest_bucket: Mapped[float | None]
     ingest_bucket_refreshed_at: Mapped[datetime | None]
+    # Days a trace's text is kept: inputs, outputs and the raw payload's span text. Unset
+    # keeps it for good. Runs, timings, tokens, costs and scores are always kept.
+    retention_days: Mapped[int | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
@@ -593,6 +599,8 @@ class Trace(WorkspaceScoped, Base):
     status: Mapped[str]
     error: Mapped[str | None]
     received_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    # Set once the workspace's retention limit removed the trace's text.
+    text_removed_at: Mapped[datetime | None]
 
 
 class Run(WorkspaceScoped, Base):

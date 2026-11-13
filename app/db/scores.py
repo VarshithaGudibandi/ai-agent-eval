@@ -211,11 +211,15 @@ async def experiment_scoring(scope: WorkspaceScope, experiment_id: str) -> Exper
 
 
 async def run_ids(scope: WorkspaceScope, agent_id: str, experiment_id: str | None) -> list[str]:
+    """The agent's runs that can be scored again: those retention has not taken text from."""
     statement = (
         select(models.Run.id)
         .join(models.AgentVersion, models.AgentVersion.id == models.Run.agent_version_id)
+        .join(models.Trace, models.Trace.id == models.Run.trace_row_id)
         .where(
-            models.Run.workspace_id == scope.workspace_id, models.AgentVersion.agent_id == agent_id
+            models.Run.workspace_id == scope.workspace_id,
+            models.AgentVersion.agent_id == agent_id,
+            models.Trace.text_removed_at.is_(None),
         )
         .order_by(models.Run.created_at)
     )

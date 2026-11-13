@@ -39,6 +39,7 @@
 
 <section aria-labelledby="r2">
   {{ heading(2, "r2", "Task", "what was asked, what should happen, what the agent said" if run.case else "what was asked and what the agent said") }}
+  {% if run.text_removed_at %}<p class="note">The inputs and outputs of this run were removed on {{ run.text_removed_at | day }}, as this workspace keeps text only so long. Its timings, costs and scores are kept.</p>{% endif %}
   <div class="task">
     <div class="card"><div class="tile-label">Asked</div><pre>{{ root.input | as_text }}</pre></div>
     {% if run.case %}
@@ -75,9 +76,9 @@
       <div class="span-detail-head"><strong>{{ s.name }}</strong><span class="muted small">{{ s.kind }} · at {{ selected.at_ms | duration }} · took {{ s.duration_ms | duration }}</span></div>
       {% if s.error %}<p class="tone-bad">Error: {{ s.error }}</p>{% endif %}
       <div class="tile-label">Input</div>
-      {% if s.input is none %}<p class="muted small">None recorded.</p>{% else %}<pre>{{ s.input | as_text }}</pre>{% endif %}
+      {% if s.input is none %}<p class="muted small">{{ "Removed" if run.text_removed_at else "None recorded." }}</p>{% else %}<pre>{{ s.input | as_text }}</pre>{% endif %}
       <div class="tile-label">Output</div>
-      {% if s.output is none %}<p class="muted small">None recorded.</p>{% else %}<pre>{{ s.output | as_text }}</pre>{% endif %}
+      {% if s.output is none %}<p class="muted small">{{ "Removed" if run.text_removed_at else "None recorded." }}</p>{% else %}<pre>{{ s.output | as_text }}</pre>{% endif %}
       {% if s.kind == "model" %}
       <dl class="facts">
         <div><dt>Model</dt><dd>{{ s.attributes.get("model") or "not recorded" }}</dd></div>

@@ -20,6 +20,7 @@ from app.db.jobs import (
     reconcile_expired,
     renew_lease,
 )
+from app.db.retention import remove_old_text
 from app.db.schema_status import schema_status
 from app.explain.job import EXPLAIN, explain_job
 from app.jobs.leases import LeaseOutcome, hold_lease
@@ -103,6 +104,7 @@ class Worker:
             if time.monotonic() >= next_reconcile:
                 await self._reconcile()
                 await self._start_scheduled()
+                await self._remove_old_text()
                 next_reconcile = time.monotonic() + self.settings.reconcile_seconds
             if self._slots.locked() or not await self._start_one():
                 await self._idle(stop)
@@ -127,6 +129,16 @@ class Worker:
             return
         if expired:
             logger.warning("requeued jobs whose lease expired", extra={"jobs": expired})
+
+    async def _remove_old_text(self) -> None:
+        try:
+            async with self.sessionmaker.begin() as session:
+                removed = await remove_old_text(session)
+        except Exception:
+            logger.exception("removing text past its retention failed")
+            return
+        if removed:
+            logger.info("removed text past its retention", extra={"traces": removed})
 
     async def _start_scheduled(self) -> None:
         try:

@@ -37,6 +37,11 @@ async def settings(
         is_owner=is_owner,
         can_edit=principal.role in (models.Role.MEMBER, models.Role.OWNER),
         members=await workspaces.members(principal, session),
+        workspace=next(
+            w
+            for w in await workspaces.list_workspaces(principal, session)
+            if w.id == principal.workspace_id
+        ),
         tokens=await api_tokens.list_tokens(principal, session) if is_owner else [],
         keys=await provider_credentials.credentials(principal, session) if is_owner else [],
         budgets=await budgets.budgets(principal, session, limit=20),

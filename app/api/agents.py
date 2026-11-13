@@ -202,7 +202,8 @@ async def save_eval_spec(
 async def rescore(
     agent_id: str, body: RescoreRequest, principal: Member, session: Db
 ) -> RescoreOut:
-    """Grade the agent's runs again under its current eval spec."""
+    """Grade the agent's runs again under its current eval spec. Runs whose text the
+    workspace's retention removed are left as they are."""
     scope = scope_for(session, principal)
     await scope.require(models.Agent, agent_id)
     if body.experiment_id is not None:
