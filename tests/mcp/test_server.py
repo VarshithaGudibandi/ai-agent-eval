@@ -197,5 +197,7 @@ async def test_the_installed_server_speaks_mcp_over_stdio(
     }
     assert not result.is_error and result.structured_content["agents"] == []
     assert failed.is_error
-    # The server's own log, which a failed call writes to, never holds the token.
-    assert use.member not in capfd.readouterr().err
+    # The server's own log, which a failed call writes to, never holds the token, and does
+    # not list every request it made.
+    log = capfd.readouterr().err
+    assert use.member not in log and "HTTP Request" not in log

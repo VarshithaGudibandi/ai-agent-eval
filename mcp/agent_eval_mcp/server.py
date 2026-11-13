@@ -15,6 +15,8 @@ from agent_eval_mcp import answers
 
 server = MCPServer(
     "agent-eval",
+    # The SDK sets up logging itself; warnings only, so the assistant's log is not every request.
+    log_level="WARNING",
     instructions=(
         "Answers about AI agents measured by the AI Agent Eval platform: their health, how "
         "their runs fail, whether the newest version broke anything, and why. Answers are "
@@ -90,4 +92,5 @@ async def explain_regression(agent: str) -> answers.ExplainAnswer:
 def main() -> None:
     # stdout carries the protocol, so anything else goes to stderr.
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     server.run("stdio")
