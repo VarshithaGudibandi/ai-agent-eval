@@ -138,3 +138,20 @@ async def test_a_live_report_needs_a_paid_key(
     [group] = report["groups"]
     assert group["count"] == 3 and "marked paid" in group["error"]
     assert any("not paired" in limit for limit in report["limits"])
+
+
+async def test_reports_are_listed_by_comparison_and_by_candidate_experiment(
+    new_owner: SignIn, app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _use(monkeypatch, ScriptedAuditor(CAUSE))
+    owner = await new_owner()
+    comparison_id = await _held(owner, app)
+    await _report(owner, app, comparison_id)
+    comparison = (await owner.get(f"/api/v1/comparisons/{comparison_id}")).json()
+    candidate = comparison["candidate"]["experiment_id"]
+    for query in (f"comparison_id={comparison_id}", f"candidate_experiment_id={candidate}"):
+        [found] = (await owner.get(f"/api/v1/reports?{query}")).json()
+        assert (found["comparison_id"], found["status"]) == (comparison_id, "done")
+    baseline = comparison["baseline"]["experiment_id"]
+    assert (await owner.get(f"/api/v1/reports?candidate_experiment_id={baseline}")).json() == []
+    assert len((await owner.get("/api/v1/reports")).json()) == 1

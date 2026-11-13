@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,6 +10,7 @@ from sqlalchemy.dialects.postgresql import insert
 from app.db import models
 from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
+from app.db.traces import spans_of
 
 
 class CaseKeysClashError(ValueError):
@@ -119,6 +121,36 @@ async def add_cases(
     latest = await _latest(scope, dataset.id)
     existing = [as_case_data(c) for c in await cases_of(scope, latest.id)] if latest else []
     return await save_version(scope, dataset.name, existing + cases)
+
+
+def run_case_key(trace_id: str) -> str:
+    """The key a case made from a run gets, so the same run is never added twice."""
+    return "run-" + re.sub(r"[^A-Za-z0-9._:-]", "-", trace_id)[:190]
+
+
+async def add_run_cases(
+    scope: WorkspaceScope, dataset_id: str, run_ids: list[str]
+) -> tuple[models.DatasetVersion, int]:
+    """Add the runs' inputs as cases with no expected outcome, skipping runs already in the
+    dataset. Returns the version that holds them and how many cases were added."""
+    dataset = await scope.require(models.Dataset, dataset_id)
+    latest = await _latest(scope, dataset.id)
+    existing = [as_case_data(c) for c in await cases_of(scope, latest.id)] if latest else []
+    keys = {c.key for c in existing}
+    added = []
+    for run_id in dict.fromkeys(run_ids):
+        run = await scope.require(models.Run, run_id)
+        trace = await scope.require(models.Trace, run.trace_row_id)
+        key = run_case_key(trace.trace_id)
+        if key in keys:
+            continue
+        root = next(s for s in await spans_of(scope, run.id) if s.parent_span_id is None)
+        added.append(CaseData(key, root.input, None, {"source": "run"}, f"From run {run.id}"))
+        keys.add(key)
+    if latest is not None and not added:
+        return latest, 0
+    version, _ = await save_version(scope, dataset.name, existing + added)
+    return version, len(added)
 
 
 async def list_datasets(

@@ -339,6 +339,16 @@ async def test_rescoring_cannot_name_another_workspaces_experiment(world: World)
     assert (response.status_code, response.json()) == (404, {"error": "not_found"})
 
 
+async def test_cases_cannot_be_made_from_another_workspaces_run(world: World) -> None:
+    saved = await world.a_person.post(
+        "/api/v1/datasets", json={"name": "a-data", "cases": [{"key": "k", "input": 1}]}
+    )
+    response = await world.a_person.post(
+        f"/api/v1/datasets/{saved.json()['dataset_id']}/cases", json={"run_ids": [world.b_run_id]}
+    )
+    assert (response.status_code, response.json()) == (404, {"error": "not_found"})
+
+
 async def test_cannot_sign_in_to_a_workspace_you_do_not_belong_to(
     world: World, clients: Callable[[], httpx.AsyncClient]
 ) -> None:
@@ -452,6 +462,8 @@ LIST_ROUTES = [
     "/api/v1/api-tokens",
     "/api/v1/provider-credentials",
     "/api/v1/price-versions",
+    "/api/v1/reports",
+    "/api/v1/budgets",
 ]
 BODY_ROUTES = {
     ("POST", "/api/v1/traces"),

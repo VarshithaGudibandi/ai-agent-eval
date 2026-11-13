@@ -1,14 +1,22 @@
 from typing import Any
 
 from fastapi import APIRouter, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.api.dependencies import Db, Member, Viewer, scope_for
 from app.auth.principal import Principal
 from app.db import models
 from app.db.audit import record_audit
-from app.db.datasets import CaseData, add_cases, cases_of, list_datasets, save_version
+from app.db.datasets import (
+    CaseData,
+    add_cases,
+    add_run_cases,
+    cases_of,
+    list_datasets,
+    save_version,
+)
 from app.db.scope import WorkspaceScope
+from app.db.scores import last_results
 from app.ingest.redact import redact_value
 
 router = APIRouter(prefix="/api/v1", tags=["datasets"])
@@ -32,7 +40,18 @@ class NewVersionRequest(BaseModel):
 
 
 class AddCasesRequest(BaseModel):
-    cases: list[CaseIn] = Field(min_length=1, max_length=5000)
+    model_config = ConfigDict(extra="forbid")
+
+    cases: list[CaseIn] = Field(default_factory=list, max_length=5000)
+    # Runs whose inputs become cases with no expected outcome, such as failures worth
+    # keeping as tests. A run already in the dataset is skipped.
+    run_ids: list[str] = Field(default_factory=list, max_length=200)
+
+    @model_validator(mode="after")
+    def one_source(self) -> "AddCasesRequest":
+        if bool(self.cases) == bool(self.run_ids):
+            raise ValueError("send cases or run_ids, not both and not neither")
+        return self
 
 
 class VersionOut(BaseModel):
@@ -54,6 +73,19 @@ class DatasetOut(BaseModel):
     versions: list[VersionOut]
 
 
+class LastResultOut(BaseModel):
+    run_id: str
+    # None while the run waits to be scored.
+    status: models.VerdictStatus | None
+
+
+def _last(found: tuple[str, str | None] | None) -> LastResultOut | None:
+    if found is None:
+        return None
+    run_id, status = found
+    return LastResultOut(run_id=run_id, status=models.VerdictStatus(status) if status else None)
+
+
 class CaseOut(BaseModel):
     id: str
     key: str
@@ -61,6 +93,8 @@ class CaseOut(BaseModel):
     expected: Any
     tags: dict[str, Any]
     notes: str | None
+    # The newest run of this case, from any experiment. None if it never ran.
+    last_result: LastResultOut | None
 
 
 class VersionWithCasesOut(VersionOut):
@@ -119,7 +153,11 @@ async def more_cases(
 ) -> SavedVersionOut:
     """A new version with these cases added to the newest version's."""
     scope = scope_for(session, principal)
-    version, created = await add_cases(scope, dataset_id, _data(body.cases))
+    if body.run_ids:
+        version, added = await add_run_cases(scope, dataset_id, body.run_ids)
+        created = added > 0
+    else:
+        version, created = await add_cases(scope, dataset_id, _data(body.cases))
     count = len(await cases_of(scope, version.id))
     return _saved(scope, principal, version, created, count)
 
@@ -152,6 +190,7 @@ async def dataset_version(version_id: str, principal: Viewer, session: Db) -> Ve
     scope = scope_for(session, principal)
     version = await scope.require(models.DatasetVersion, version_id)
     cases = await cases_of(scope, version.id)
+    results = await last_results(scope, [c.id for c in cases])
     return VersionWithCasesOut(
         id=version.id,
         dataset_id=version.dataset_id,
@@ -166,6 +205,7 @@ async def dataset_version(version_id: str, principal: Viewer, session: Db) -> Ve
                 expected=c.expected,
                 tags=c.tags,
                 notes=c.notes,
+                last_result=_last(results.get(c.id)),
             )
             for c in cases
         ],

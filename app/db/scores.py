@@ -150,6 +150,30 @@ async def repetitions_of(
     return [(r.id, r.repetition, status.get(r.id)) for r in runs]
 
 
+async def last_results(
+    scope: WorkspaceScope, case_ids: list[str]
+) -> dict[str, tuple[str, str | None]]:
+    """For each case that has run, its newest run and that run's newest verdict status."""
+    newest_runs = await scope.session.execute(
+        select(models.Run.case_id, models.Run.id)
+        .where(models.Run.workspace_id == scope.workspace_id, models.Run.case_id.in_(case_ids))
+        .ext(distinct_on(models.Run.case_id))
+        .order_by(models.Run.case_id, models.Run.started_at.desc(), models.Run.id.desc())
+    )
+    runs = {case_id: run_id for case_id, run_id in newest_runs if case_id is not None}
+    verdicts = await scope.session.execute(
+        select(models.Verdict.run_id, models.Verdict.status)
+        .where(
+            models.Verdict.workspace_id == scope.workspace_id,
+            models.Verdict.run_id.in_(list(runs.values())),
+        )
+        .ext(distinct_on(models.Verdict.run_id))
+        .order_by(models.Verdict.run_id, models.Verdict.created_at.desc())
+    )
+    status = {run_id: s for run_id, s in verdicts}
+    return {case_id: (run_id, status.get(run_id)) for case_id, run_id in runs.items()}
+
+
 @dataclass(frozen=True)
 class ExperimentScoring:
     runs_scored: int

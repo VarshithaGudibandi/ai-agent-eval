@@ -1,9 +1,13 @@
 from collections.abc import Callable
 
 import httpx
+from fastapi import FastAPI
+from sqlalchemy import select
 
+from app.db import models
 from tests.api.conftest import SignIn, token_caller
-from tests.ingest.sample_traces import LEAKED_KEY
+from tests.api.seeding import add_dataset, run_experiment
+from tests.ingest.sample_traces import CONFIG, LEAKED_KEY, support_trace
 
 CASES = [
     {"key": "refund-1", "input": {"message": "Broken headphones"}, "expected": {"refund": 249.99}},
@@ -48,3 +52,35 @@ async def test_viewers_read_datasets_but_cannot_write_them(
     refused = await viewer.post("/api/v1/datasets", json={"name": "d", "cases": CASES})
     assert refused.status_code == 403
     assert (await viewer.get("/api/v1/datasets")).status_code == 200
+
+
+async def test_runs_become_cases_once_and_cases_show_their_last_result(
+    new_owner: SignIn, app: FastAPI
+) -> None:
+    owner = await new_owner()
+    dataset_id = await add_dataset(owner, CASES)
+    first = (await owner.get("/api/v1/datasets")).json()[0]
+    await run_experiment(owner, app, dataset_id, CONFIG, crash={1}, cases=CASES)
+    version = (await owner.get(f"/api/v1/dataset-versions/{dataset_id}")).json()
+    assert [c["last_result"]["status"] for c in version["cases"]] == ["passed", "failed"]
+    await owner.post("/api/v1/traces", json={"traces": [support_trace("live-1")]})
+    async with app.state.sessionmaker() as session:
+        run_id = await session.scalar(
+            select(models.Run.id)
+            .join(models.Trace, models.Trace.id == models.Run.trace_row_id)
+            .where(
+                models.Trace.workspace_id == owner.workspace_id, models.Trace.trace_id == "live-1"
+            )
+        )
+    path = f"/api/v1/datasets/{first['id']}/cases"
+    added = (await owner.post(path, json={"run_ids": [run_id, run_id]})).json()
+    assert (added["created"], added["case_count"]) == (True, 3)
+    again = (await owner.post(path, json={"run_ids": [run_id]})).json()
+    assert (again["created"], again["id"]) == (False, added["id"])
+    case = (await owner.get(f"/api/v1/dataset-versions/{added['id']}")).json()["cases"][-1]
+    assert (case["key"], case["expected"], case["last_result"]) == ("run-live-1", None, None)
+    assert case["input"] == support_trace()["spans"][0]["input"]
+    missing = await owner.post(path, json={"run_ids": ["run_nope"]})
+    assert missing.status_code == 404
+    both = await owner.post(path, json={"run_ids": [run_id], "cases": CASES})
+    assert both.status_code == 422

@@ -1,12 +1,13 @@
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import Db, Member, Viewer, get_settings_dep, scope_for
 from app.db import models
 from app.db.audit import record_audit
+from app.db.reports import reports_of
 from app.explain.job import request_report
 from app.explain.report import Report
 from app.settings import Settings
@@ -71,6 +72,22 @@ async def create(
     await scope.flush()
     await session.refresh(row)
     return _out(row)
+
+
+@router.get("")
+async def reports(
+    principal: Viewer,
+    session: Db,
+    comparison_id: Annotated[str | None, Query(max_length=100)] = None,
+    candidate_experiment_id: Annotated[str | None, Query(max_length=100)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[ReportOut]:
+    """Regression reports newest first: all of them, those for one comparison, or those for
+    comparisons whose candidate is one experiment."""
+    scope = scope_for(session, principal)
+    return [
+        _out(row) for row in await reports_of(scope, comparison_id, candidate_experiment_id, limit)
+    ]
 
 
 @router.get("/{report_id}")

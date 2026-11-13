@@ -207,3 +207,12 @@ async def budget_for_report(scope: WorkspaceScope, report_id: str) -> models.Bud
     if budget is None:
         raise LookupError(report_id)
     return budget
+
+
+async def recent_budgets(scope: WorkspaceScope, limit: int) -> list[models.Budget]:
+    """Budgets most recently spent from first."""
+    return await scope.all(
+        scope.query(models.Budget)
+        .order_by(models.Budget.updated_at.desc(), models.Budget.id.desc())
+        .limit(limit)
+    )
