@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from app.explain import job as explain_job_module
 from app.settings import Settings
 from tests.api.conftest import Caller, SignIn, score_now
-from tests.api.test_comparisons import V2, _dataset, _experiment
+from tests.api.seeding import V2, add_dataset, run_experiment
 from tests.explain.scripted_auditor import ScriptedAuditor
 from tests.ingest.sample_traces import CONFIG, support_trace
 
@@ -29,9 +29,9 @@ async def _held(owner: Caller, app: FastAPI, key: bool = True) -> str:
             "/api/v1/provider-credentials",
             json={"provider": "gemini", "label": "free", "api_key": "AIza" + "E" * 35},
         )
-    dataset_id = await _dataset(owner)
-    v1 = await _experiment(owner, app, dataset_id, CONFIG, crash=set())
-    v2 = await _experiment(owner, app, dataset_id, V2, crash=set(range(6)))
+    dataset_id = await add_dataset(owner)
+    v1 = await run_experiment(owner, app, dataset_id, CONFIG, crash=set())
+    v2 = await run_experiment(owner, app, dataset_id, V2, crash=set(range(6)))
     body = {"baseline": {"experiment_id": v1["id"]}, "candidate": {"experiment_id": v2["id"]}}
     comparison = (await owner.post("/api/v1/comparisons", json=body)).json()
     assert comparison["result"]["decision"] == "hold"
