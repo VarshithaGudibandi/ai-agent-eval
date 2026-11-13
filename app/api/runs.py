@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from app.api.dependencies import Db, Viewer, scope_for
 from app.db import models
 from app.db.reviews import questions_on
-from app.db.scores import scores_of, verdicts_of
+from app.db.scores import repetitions_of, scores_of, verdicts_of
 from app.db.traces import spans_of
 
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
@@ -63,6 +63,19 @@ class VerdictOut(BaseModel):
     scored_at: datetime
 
 
+class CaseOut(BaseModel):
+    key: str
+    input: Any
+    expected: Any
+
+
+class RepetitionOut(BaseModel):
+    run_id: str
+    repetition: int | None
+    # From the run's newest verdict; None while it waits to be scored.
+    status: models.VerdictStatus | None
+
+
 class RunOut(BaseModel):
     id: str
     trace_id: str
@@ -82,6 +95,10 @@ class RunOut(BaseModel):
     judge_answers: list[JudgeAnswerOut]
     # One per eval spec version the run was graded by, oldest first.
     verdicts: list[VerdictOut]
+    # The dataset case the run answered, for experiment runs.
+    case: CaseOut | None
+    # Every run of the same case in the same experiment, this one included.
+    repetitions: list[RepetitionOut]
 
 
 @router.get("/{run_id}")
@@ -90,6 +107,12 @@ async def run(run_id: str, principal: Viewer, session: Db) -> RunOut:
     scope = scope_for(session, principal)
     row = await scope.require(models.Run, run_id)
     trace = await scope.require(models.Trace, row.trace_row_id)
+    case = await scope.get(models.DatasetCase, row.case_id) if row.case_id else None
+    repetitions = (
+        await repetitions_of(scope, row.experiment_id, row.case_id)
+        if row.experiment_id and row.case_id
+        else []
+    )
     return RunOut(
         id=row.id,
         trace_id=trace.trace_id,
@@ -160,5 +183,10 @@ async def run(run_id: str, principal: Viewer, session: Db) -> RunOut:
                 scored_at=v.created_at,
             )
             for v, spec in await verdicts_of(scope, run_id)
+        ],
+        case=CaseOut(key=case.case_key, input=case.input, expected=case.expected) if case else None,
+        repetitions=[
+            RepetitionOut(run_id=r, repetition=n, status=models.VerdictStatus(s) if s else None)
+            for r, n, s in repetitions
         ],
     )

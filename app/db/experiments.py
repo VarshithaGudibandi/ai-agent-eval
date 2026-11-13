@@ -20,6 +20,19 @@ async def pause_for_budget(scope: WorkspaceScope, experiment_id: str) -> bool:
     return True
 
 
+async def experiments_of(
+    scope: WorkspaceScope, agent_id: str, limit: int
+) -> list[models.Experiment]:
+    """The agent's experiments, newest first."""
+    return await scope.all(
+        scope.query(models.Experiment)
+        .join(models.AgentVersion, models.AgentVersion.id == models.Experiment.agent_version_id)
+        .where(models.AgentVersion.agent_id == agent_id)
+        .order_by(models.Experiment.created_at.desc(), models.Experiment.id.desc())
+        .limit(limit)
+    )
+
+
 class IdempotencyKeyReusedError(ValueError):
     """The key already started a different experiment."""
 

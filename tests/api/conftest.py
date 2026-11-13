@@ -47,6 +47,9 @@ class Caller:
     async def put(self, path: str, json: Any = None) -> httpx.Response:
         return await self.client.put(path, json=json, headers=self.headers)
 
+    async def patch(self, path: str, json: Any = None) -> httpx.Response:
+        return await self.client.patch(path, json=json, headers=self.headers)
+
     async def delete(self, path: str) -> httpx.Response:
         return await self.client.delete(path, headers=self.headers)
 

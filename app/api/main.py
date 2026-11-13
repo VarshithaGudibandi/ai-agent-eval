@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api import (
+    agent_versions,
     agents,
     api_tokens,
     auth,
@@ -57,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         traces,
         feedback,
         agents,
+        agent_versions,
         runs,
         reviews,
         comparisons,

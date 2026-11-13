@@ -59,7 +59,9 @@ class StartedExperimentOut(ExperimentOut):
     cases: list[CaseOut]
 
 
-async def _out(scope: WorkspaceScope, row: models.Experiment, cases: int) -> ExperimentOut:
+async def experiment_out(
+    scope: WorkspaceScope, row: models.Experiment, cases: int
+) -> ExperimentOut:
     scoring = await experiment_scoring(scope, row.id)
     outcomes = await experiment_outcomes(scope, row.id)
     return ExperimentOut(
@@ -114,7 +116,7 @@ async def start(
     await scope.flush()
     await session.refresh(experiment)
     cases = await cases_of(scope, experiment.dataset_version_id)
-    summary = await _out(scope, experiment, len(cases))
+    summary = await experiment_out(scope, experiment, len(cases))
     return StartedExperimentOut(
         **summary.model_dump(),
         cases=[CaseOut(id=c.id, key=c.case_key, input=c.input, expected=c.expected) for c in cases],
@@ -126,7 +128,7 @@ async def experiment(experiment_id: str, principal: Viewer, session: Db) -> Expe
     """An experiment and how many of its runs have arrived."""
     scope = scope_for(session, principal)
     row = await scope.require(models.Experiment, experiment_id)
-    return await _out(scope, row, len(await cases_of(scope, row.dataset_version_id)))
+    return await experiment_out(scope, row, len(await cases_of(scope, row.dataset_version_id)))
 
 
 @router.post("/{experiment_id}/finish")
@@ -136,7 +138,7 @@ async def finish(experiment_id: str, principal: Member, session: Db) -> Experime
     row = await finish_experiment(scope, experiment_id)
     await scope.flush()
     await session.refresh(row)
-    return await _out(scope, row, len(await cases_of(scope, row.dataset_version_id)))
+    return await experiment_out(scope, row, len(await cases_of(scope, row.dataset_version_id)))
 
 
 class BaselineOut(BaseModel):

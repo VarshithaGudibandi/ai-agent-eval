@@ -62,3 +62,55 @@ async def test_experiment_progress_counts_scored_and_failed_runs(
         {"run_completed": 1},
     )
     assert progress["errors"] == {}
+
+
+async def test_an_experiment_run_shows_its_case_and_the_other_repetitions(
+    new_owner: SignIn, app: FastAPI
+) -> None:
+    owner = await new_owner()
+    cases = [
+        {"key": "a", "input": {"q": "where is my order?"}, "expected": "look it up"},
+        {"key": "b", "input": {"q": "other"}},
+    ]
+    dataset = (await owner.post("/api/v1/datasets", json={"name": "d", "cases": cases})).json()
+    experiment = (
+        await owner.post(
+            "/api/v1/experiments",
+            json={
+                "agent": "support-bot",
+                "config": CONFIG,
+                "dataset_version_id": dataset["id"],
+                "repetitions": 3,
+            },
+        )
+    ).json()
+    tagged = [
+        support_trace(f"t-{n}", tags={"experiment": experiment["id"], "case": "a", "repetition": n})
+        for n in (1, 2, 3)
+    ]
+    tagged[1]["spans"][0]["error"] = "RuntimeError: crashed"
+    other = support_trace(
+        "t-b", tags={"experiment": experiment["id"], "case": "b", "repetition": 1}
+    )
+    await owner.post("/api/v1/traces", json={"traces": [*tagged[:2], other]})
+    await score_now(app, owner.workspace_id)
+    await owner.post("/api/v1/traces", json={"traces": tagged[2:]})
+    run = (await owner.get(f"/api/v1/runs/{await _run_id(app, owner.workspace_id, 't-2')}")).json()
+    assert run["case"] == {
+        "key": "a",
+        "input": {"q": "where is my order?"},
+        "expected": "look it up",
+    }
+    assert [(r["repetition"], r["status"]) for r in run["repetitions"]] == [
+        (1, "passed"),
+        (2, "failed"),
+        (3, None),
+    ]
+    assert run["id"] in [r["run_id"] for r in run["repetitions"]]
+
+
+async def test_a_live_run_has_no_case_or_repetitions(new_owner: SignIn, app: FastAPI) -> None:
+    owner = await new_owner()
+    await owner.post("/api/v1/traces", json={"traces": [support_trace("t-1")]})
+    run = (await owner.get(f"/api/v1/runs/{await _run_id(app, owner.workspace_id, 't-1')}")).json()
+    assert (run["case"], run["repetitions"]) == (None, [])

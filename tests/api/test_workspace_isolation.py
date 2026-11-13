@@ -38,6 +38,7 @@ class World:
     b_comparison_id: str
     b_batch_id: str
     b_report_id: str
+    b_agent_version_id: str
 
 
 PRICE = {
@@ -77,6 +78,12 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         )
         b_run_id = await session.scalar(
             select(models.Run.id).where(models.Run.workspace_id == b_person.workspace_id)
+        )
+        b_agent_version_id = await session.scalar(
+            select(models.AgentVersion.id).where(
+                models.AgentVersion.workspace_id == b_person.workspace_id,
+                models.AgentVersion.agent_id == b_agent_id,
+            )
         )
     await b_person.post("/api/v1/review-items", json={"run_id": str(b_run_id)})
     [b_review] = (await b_person.get("/api/v1/review-queue")).json()
@@ -128,6 +135,7 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         b_comparison.json()["id"],
         b_batch.json()["id"],
         b_report.json()["id"],
+        str(b_agent_version_id),
     )
 
 
@@ -182,6 +190,9 @@ def _foreign_id_attacks(w: Any) -> list[tuple[str, str, Any]]:
         ("GET", f"/api/v1/agents/{w.b_agent_id}/health/daily", None),
         ("PUT", f"/api/v1/agents/{w.b_agent_id}/gates", {"max_success_drop": 1}),
         ("POST", f"/api/v1/agents/{w.b_agent_id}/shipped", {"version_id": "x"}),
+        ("GET", f"/api/v1/agents/{w.b_agent_id}/experiments", None),
+        ("GET", f"/api/v1/agent-versions/{w.b_agent_version_id}", None),
+        ("PATCH", f"/api/v1/agent-versions/{w.b_agent_version_id}", {"label": "stolen"}),
         # Bodies naming B's experiment or agent must not compare B's runs.
         (
             "POST",
@@ -225,6 +236,8 @@ async def _send(caller: Caller, method: str, path: str, body: Any) -> httpx.Resp
         return await caller.delete(path)
     if method == "PUT":
         return await caller.put(path, json=body)
+    if method == "PATCH":
+        return await caller.patch(path, json=body)
     return await caller.post(path, json=body)
 
 
@@ -243,6 +256,7 @@ def _b_ids(w: World) -> list[str]:
         w.b_comparison_id,
         w.b_batch_id,
         w.b_report_id,
+        w.b_agent_version_id,
         str(w.b_person.email),
     ]
 
@@ -258,6 +272,9 @@ async def _b_view(w: World) -> dict[str, Any]:
     view["experiment"] = (await w.b_person.get(f"/api/v1/experiments/{w.b_experiment_id}")).json()
     view["spec"] = (await w.b_person.get(f"/api/v1/agents/{w.b_agent_id}/eval-spec")).json()
     view["agents"] = (await w.b_person.get("/api/v1/agents")).json()
+    view["version"] = (
+        await w.b_person.get(f"/api/v1/agent-versions/{w.b_agent_version_id}")
+    ).json()
     view["review"] = (await w.b_person.get("/api/v1/review-queue")).json()
     view["gates"] = (await w.b_person.get(f"/api/v1/agents/{w.b_agent_id}/gates")).json()
     view["batch"] = (await w.b_person.get(f"/api/v1/judge-batches/{w.b_batch_id}")).json()
@@ -416,6 +433,9 @@ FOREIGN_ID_ROUTES = {
     ("GET", "/api/v1/agents/{agent_id}/health/daily"),
     ("PUT", "/api/v1/agents/{agent_id}/gates"),
     ("POST", "/api/v1/agents/{agent_id}/shipped"),
+    ("GET", "/api/v1/agents/{agent_id}/experiments"),
+    ("GET", "/api/v1/agent-versions/{version_id}"),
+    ("PATCH", "/api/v1/agent-versions/{version_id}"),
 }
 LIST_ROUTES = [
     "/api/v1/agents",
@@ -479,6 +499,7 @@ def test_every_foreign_id_route_is_really_attacked() -> None:
         b_comparison_id="x",
         b_batch_id="x",
         b_report_id="x",
+        b_agent_version_id="x",
     )
     sent = {(method, path) for method, path, _ in _foreign_id_attacks(fake)}
     templates = {(method, re.sub(r"\{[a-z_]+\}", "x", path)) for method, path in FOREIGN_ID_ROUTES}

@@ -5,9 +5,12 @@ from fastapi import APIRouter, Query, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import Db, Member, Viewer, scope_for
+from app.api.experiments import ExperimentOut, experiment_out
 from app.db import models
 from app.db.audit import record_audit
+from app.db.datasets import cases_of
 from app.db.eval_specs import current_spec, require_current_spec, scorers_of, spec_version
+from app.db.experiments import experiments_of
 from app.db.judge_batches import schedule_of
 from app.db.outcomes import daily_aggregates
 from app.db.scope import NotFoundError, WorkspaceScope
@@ -131,6 +134,25 @@ async def agent(agent_id: str, principal: Viewer, session: Db) -> AgentOut:
     scope = scope_for(session, principal)
     await scope.require(models.Agent, agent_id)
     [found] = await _agents(scope, agent_id)
+    return found
+
+
+@router.get("/{agent_id}/experiments")
+async def experiments(
+    agent_id: str,
+    principal: Viewer,
+    session: Db,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[ExperimentOut]:
+    """The agent's experiments, newest first, each with its health so far."""
+    scope = scope_for(session, principal)
+    await scope.require(models.Agent, agent_id)
+    counts: dict[str, int] = {}
+    found = []
+    for row in await experiments_of(scope, agent_id, limit):
+        if row.dataset_version_id not in counts:
+            counts[row.dataset_version_id] = len(await cases_of(scope, row.dataset_version_id))
+        found.append(await experiment_out(scope, row, counts[row.dataset_version_id]))
     return found
 
 

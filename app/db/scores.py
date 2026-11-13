@@ -128,6 +128,28 @@ async def verdicts_of(
     return [(verdict, spec) for verdict, spec in rows]
 
 
+async def repetitions_of(
+    scope: WorkspaceScope, experiment_id: str, case_id: str
+) -> list[tuple[str, int | None, str | None]]:
+    """Each run of one case in an experiment, as (run id, repetition, newest verdict status)."""
+    runs = await scope.all(
+        scope.query(models.Run)
+        .where(models.Run.experiment_id == experiment_id, models.Run.case_id == case_id)
+        .order_by(models.Run.repetition, models.Run.id)
+    )
+    rows = await scope.session.execute(
+        select(models.Verdict.run_id, models.Verdict.status)
+        .where(
+            models.Verdict.workspace_id == scope.workspace_id,
+            models.Verdict.run_id.in_([r.id for r in runs]),
+        )
+        .ext(distinct_on(models.Verdict.run_id))
+        .order_by(models.Verdict.run_id, models.Verdict.created_at.desc())
+    )
+    status = {run_id: s for run_id, s in rows}
+    return [(r.id, r.repetition, status.get(r.id)) for r in runs]
+
+
 @dataclass(frozen=True)
 class ExperimentScoring:
     runs_scored: int

@@ -158,6 +158,22 @@ async def spans_of(scope: WorkspaceScope, run_id: str) -> list[models.Span]:
     )
 
 
+async def previous_version(
+    scope: WorkspaceScope, version: models.AgentVersion
+) -> models.AgentVersion | None:
+    """The agent's version seen just before this one."""
+    return await scope.first(
+        scope.query(models.AgentVersion)
+        .where(
+            models.AgentVersion.agent_id == version.agent_id,
+            models.AgentVersion.id != version.id,
+            models.AgentVersion.created_at <= version.created_at,
+        )
+        .order_by(models.AgentVersion.created_at.desc(), models.AgentVersion.id.desc())
+        .limit(1)
+    )
+
+
 async def agents_with_versions(
     scope: WorkspaceScope, agent_id: str | None = None
 ) -> list[tuple[models.Agent, list[models.AgentVersion]]]:

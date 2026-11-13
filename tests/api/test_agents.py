@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 
 from tests.api.conftest import SignIn, score_now
-from tests.ingest.sample_traces import support_trace
+from tests.api.seeding import V2, add_dataset, run_experiment
+from tests.ingest.sample_traces import CONFIG, support_trace
 
 STRICT = {
     "scorers": [
@@ -113,3 +114,18 @@ async def test_live_health_is_kept_per_version_and_day(new_owner: SignIn, app: F
     await score_now(app, owner.workspace_id)
     [day] = (await owner.get(path)).json()
     assert (day["runs"], day["health"]["success_rate"]) == (3, 2 / 3)
+
+
+async def test_an_agents_experiments_come_newest_first_with_their_health(
+    new_owner: SignIn, app: FastAPI
+) -> None:
+    owner = await new_owner()
+    dataset_id = await add_dataset(owner)
+    first = await run_experiment(owner, app, dataset_id, CONFIG, crash=set())
+    second = await run_experiment(owner, app, dataset_id, V2, crash={0, 1, 2})
+    [agent] = (await owner.get("/api/v1/agents")).json()
+    listed = (await owner.get(f"/api/v1/agents/{agent['id']}/experiments")).json()
+    assert [e["id"] for e in listed] == [second["id"], first["id"]]
+    assert [e["health"]["success_rate"] for e in listed] == [0.75, 1.0]
+    assert listed[0]["expected_runs"] == listed[0]["runs_received"] == 24
+    assert len((await owner.get(f"/api/v1/agents/{agent['id']}/experiments?limit=1")).json()) == 1
