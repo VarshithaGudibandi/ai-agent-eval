@@ -86,7 +86,10 @@
         {% if report and v.id == health.current.agent_version_id %}
         <div class="cause">
           <strong>{{ report.report.headline }}</strong>
-          {% if report.report.groups and report.report.groups[0].next_step %}<div class="small">Next step: {{ report.report.groups[0].next_step }}</div>{% endif %}
+          {% set top = report.report.groups[0] if report.report.groups else none %}
+          {% if top and top.error %}<div class="small">No cause given: {{ top.error }}.</div>{% endif %}
+          {% if top and top.next_step %}<div class="small">Next step: {{ top.next_step }}</div>{% endif %}
+          <div class="small"><a href="/comparisons/{{ report.comparison_id }}">See the comparison and the full report</a></div>
         </div>
         {% endif %}
       </div>

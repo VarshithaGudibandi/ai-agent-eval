@@ -73,7 +73,8 @@ async def test_two_versions_show_the_change_and_the_explained_cause(
     comparison = (await owner.post("/api/v1/comparisons", json=body)).json()
     await owner.post("/api/v1/reports", json={"comparison_id": comparison["id"]})
     await score_now(app, owner.workspace_id)
-    assert CAUSE in await _agent_page(owner)
+    page = await _agent_page(owner)
+    assert CAUSE in page and f'href="/comparisons/{comparison["id"]}"' in page
 
 
 async def test_a_running_experiment_says_its_numbers_will_move(
