@@ -13,7 +13,18 @@ function safeNext() {
 }
 
 async function fieldValue(field) {
+  if (field.value === "" && field.dataset.empty === "null") return null;
   if (field.dataset.type === "int") return Number(field.value);
+  if (field.dataset.type === "bool") return field.value === "true";
+  // A percentage typed by a person, sent as the share the API takes: 5 is 0.05.
+  if (field.dataset.type === "share") return Number(field.value) / 100;
+  if (field.dataset.type === "json") {
+    try {
+      return JSON.parse(field.value);
+    } catch {
+      throw new Error("That is not valid JSON.");
+    }
+  }
   if (field.dataset.type === "list") return field.value.split(/[\s,]+/).filter(Boolean);
   // A JSON Lines file, one object a line, as the SDK's Eval reads it.
   if (field.dataset.type === "jsonl") {
@@ -37,7 +48,8 @@ async function fieldValue(field) {
 async function formBody(form, used) {
   const body = {};
   for (const field of form.elements) {
-    if (!field.name || field.value === "" || used.has(field.name)) continue;
+    if (!field.name || used.has(field.name)) continue;
+    if (field.value === "" && field.dataset.empty !== "null") continue;
     if ((field.type === "radio" || field.type === "checkbox") && !field.checked) continue;
     const path = field.name.split(".");
     let target = body;

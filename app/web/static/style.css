@@ -61,6 +61,8 @@ a:hover { color: var(--accent-strong); text-decoration: underline; }
 main { max-width: 1040px; margin: 0 auto; padding: 28px 24px 56px; display: flex; flex-direction: column; gap: 28px; }
 h1 { font-size: 1.75rem; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
 h2 { font-size: 1.15rem; font-weight: 600; margin: 0; }
+h3 { font-size: 1rem; font-weight: 600; margin: 12px 0 0; }
+textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85rem; }
 section { display: flex; flex-direction: column; gap: 12px; }
 
 .top { background: var(--panel); border-bottom: 1px solid var(--line); }

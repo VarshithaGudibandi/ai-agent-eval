@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "parts/macros.html" import empty %}
 {% block title %}Settings · AI Agent Eval{% endblock %}
 {% block main %}
 <h1>Settings</h1>
@@ -65,5 +66,124 @@
   </form>
 </section>
 {% endif %}
+
+<section>
+  <h2>Budgets</h2>
+  <p class="muted small">Each experiment, judge batch and regression report has its own cap, set when it starts. Used amounts include calls still in flight.</p>
+  {% if not budgets %}
+  <p class="muted">None yet.</p>
+  {% else %}
+  <div class="card table-scroll">
+    <table>
+      <thead><tr><th scope="col">For</th><th scope="col">Requests</th><th scope="col">Tokens</th><th scope="col">Money</th><th scope="col">Last used</th></tr></thead>
+      <tbody>
+        {% for b in budgets %}
+        <tr>
+          <th scope="row">{{ b.owner_kind | replace("_", " ") }} <code>{{ b.owner_id | short }}</code></th>
+          <td>{{ b.requests_used | count }} of {{ b.requests_limit | count if b.requests_limit is not none else "no cap" }}</td>
+          <td>{{ b.tokens_used | count }} of {{ b.tokens_limit | count if b.tokens_limit is not none else "no cap" }}</td>
+          <td>{{ b.money_used_micros | money }} of {{ b.money_limit_micros | money if b.money_limit_micros is not none else "no cap" }}</td>
+          <td class="muted small">{{ b.updated_at | when }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Agent settings</h2>
+  {% if not chosen %}
+  <p class="muted">No agents yet. An agent's eval spec, gates and judge schedule appear here once it has sent a trace.</p>
+  {% else %}
+  {% if agents | length > 1 %}
+  <form class="inline" method="get" action="/settings">
+    <label>Agent <select name="agent">{% for a in agents %}<option value="{{ a.id }}" {% if a.id == chosen.id %}selected{% endif %}>{{ a.name }}</option>{% endfor %}</select></label>
+    <button type="submit" class="secondary">Choose</button>
+  </form>
+  {% endif %}
+  {% if not can_edit %}<p class="note">Viewers can read these settings but not change them.</p>{% endif %}
+
+  <h3>Eval spec{% if spec %} · v{{ spec.version }}{% endif %}</h3>
+  {% if spec %}
+  <div class="card table-scroll">
+    <table>
+      <thead><tr><th scope="col">Scorer</th><th scope="col">Check</th><th scope="col">Severity</th><th scope="col">Threshold</th><th scope="col">Settings</th></tr></thead>
+      <tbody>
+        {% for sc in spec.scorers %}
+        <tr><th scope="row">{{ sc.key }}</th><td>{{ sc.check }}</td><td>{{ sc.severity }}</td><td>{{ sc.threshold }}</td><td><code>{{ sc.params | as_text | truncate(120) }}</code></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% if can_edit %}
+  <form data-api="/api/v1/agents/{{ chosen.id }}/eval-spec" data-method="PUT">
+    <label>Scorers, as JSON. Saving makes a new spec version; old runs keep the version they were scored with.
+      <textarea name="scorers" data-type="json" rows="12" spellcheck="false">{{ spec_json }}</textarea>
+    </label>
+    <button type="submit">Save a new version</button>
+    <p class="error" role="alert"></p>
+  </form>
+  {% endif %}
+
+  <h3>Gates</h3>
+  <p class="muted small">When a new version is held back. A gate trips only on a change the comparison calls real.</p>
+  <form class="inline" data-api="/api/v1/agents/{{ chosen.id }}/gates" data-method="PUT">
+    <label>Success may fall by at most (points) <input name="max_success_drop" type="number" min="0" max="100" step="0.1" data-type="share" value="{{ (gates.max_success_drop * 100) | round(1) }}" required {% if not can_edit %}disabled{% endif %}></label>
+    <label>Cost per success may rise by at most (%; empty for no limit) <input name="max_cost_increase" type="number" min="0" step="1" data-type="share" data-empty="null" value="{{ (gates.max_cost_increase * 100) | round(0) | int if gates.max_cost_increase is not none else '' }}" {% if not can_edit %}disabled{% endif %}></label>
+    <label>Hold on a new hard failure
+      <select name="hold_on_new_hard_failure" data-type="bool" {% if not can_edit %}disabled{% endif %}><option value="true" {% if gates.hold_on_new_hard_failure %}selected{% endif %}>yes</option><option value="false" {% if not gates.hold_on_new_hard_failure %}selected{% endif %}>no</option></select>
+    </label>
+    {% if can_edit %}<button type="submit">Save gates</button>{% endif %}
+    <p class="error" role="alert"></p>
+  </form>
+
+  <h3>Judge schedule</h3>
+  <p class="muted small">Judges never run on live traffic unless asked. A schedule asks for you, on a clock (UTC) and, if set, once for each new version. It needs a Gemini key marked paid.{% if schedule.next_run_at %} Next run: {{ schedule.next_run_at | when }}.{% endif %}</p>
+  {% if schedule.last_error %}<p class="note">The last scheduled batch could not start: {{ schedule.last_error }}</p>{% endif %}
+  <form class="inline" data-api="/api/v1/agents/{{ chosen.id }}/judge-schedule" data-method="PUT">
+    <label>On
+      <select name="enabled" data-type="bool" {% if not can_edit %}disabled{% endif %}><option value="true" {% if schedule.enabled %}selected{% endif %}>yes</option><option value="false" {% if not schedule.enabled %}selected{% endif %}>no</option></select>
+    </label>
+    <label>Day
+      <select name="weekday" data-type="int" {% if not can_edit %}disabled{% endif %}>
+        <option value="">every day</option>
+        {% for name in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ loop.index0 }}" {% if schedule.weekday == loop.index0 %}selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Hour (UTC) <input name="hour" type="number" min="0" max="23" data-type="int" value="{{ schedule.hour }}" required {% if not can_edit %}disabled{% endif %}></label>
+    <label>Judge the last (days) <input name="window_days" type="number" min="1" max="90" data-type="int" value="{{ schedule.window_days }}" required {% if not can_edit %}disabled{% endif %}></label>
+    <label>At most (runs) <input name="limit" type="number" min="1" data-type="int" value="{{ schedule.limit }}" required {% if not can_edit %}disabled{% endif %}></label>
+    <label>New version after (runs; empty for off) <input name="new_version_runs" type="number" min="1" data-type="int" value="{{ schedule.new_version_runs if schedule.new_version_runs is not none else '' }}" {% if not can_edit %}disabled{% endif %}></label>
+    {% if can_edit %}<button type="submit">Save schedule</button>{% endif %}
+    <p class="error" role="alert"></p>
+  </form>
+
+  <h3>Versions</h3>
+  <p class="muted small">A label is the name people use for a version. The shipped version is what new versions are compared with first.</p>
+  <div class="card list">
+    {% for v in chosen.versions | reverse %}
+    <div class="row">
+      <div class="row-key">{{ names[v.id] }}{% if v.id == chosen.shipped_version_id %}<div class="muted small">shipped</div>{% endif %}</div>
+      <div class="row-main">
+        <span class="muted small">first seen {{ v.created_at | when }} · <code>{{ v.fingerprint | short(16) }}</code></span>
+        {% if can_edit %}
+        <form class="inline" data-api="/api/v1/agent-versions/{{ v.id }}" data-method="PATCH">
+          <label>Label <input name="label" maxlength="100" value="{{ v.label or '' }}" data-empty="null"></label>
+          <button type="submit" class="secondary">Save label</button>
+          <p class="error" role="alert"></p>
+        </form>
+        {% if v.id != chosen.shipped_version_id %}
+        <div class="actions"><button type="button" class="secondary" data-api="/api/v1/agents/{{ chosen.id }}/shipped" data-method="POST" data-body='{"version_id": "{{ v.id }}"}'>Mark shipped</button><p class="error" role="alert"></p></div>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
 
 {% endblock %}

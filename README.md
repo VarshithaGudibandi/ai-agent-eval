@@ -2,7 +2,7 @@
 
 A platform for measuring how well an AI agent works, while you build it and after it goes live. It grades every run from the agent's own trace, tracks results per agent version, and explains why a new version got worse.
 
-Status: being rebuilt around traces. Today it takes traces in, from the Python SDK or straight over the API, turns them into runs, span trees, costs and agent versions, and scores every run with deterministic checks and, in experiments, LLM judges. It also has accounts and workspaces, API tokens, encrypted provider keys, prices and budgets, a Postgres job queue with leases, and a metered Gemini provider. The full web pages, the MCP server and a seeded demo come next.
+Status: being rebuilt around traces. Today it takes traces in, from the Python SDK or straight over the API, turns them into runs, span trees, costs and agent versions, and scores every run with deterministic checks and, in experiments, LLM judges. It also has accounts and workspaces, API tokens, encrypted provider keys, prices and budgets, a Postgres job queue with leases, and a metered Gemini provider. It has web pages for agents, runs, comparisons, datasets, live traffic and settings. The MCP server and a seeded demo come next.
 
 ## How it works
 
@@ -60,7 +60,17 @@ On a fresh install, create the first account. That person becomes the owner of t
 curl -X POST http://127.0.0.1:8000/api/v1/auth/setup -H 'content-type: application/json' -d '{"email": "you@example.com", "password": "at least twelve characters", "workspace_name": "My team"}'
 ```
 
-Then open http://127.0.0.1:8000 and sign in. The Agents page lists every agent that has sent a trace; each agent's page shows what it is, its health against the last version (or with only live runs, the last week against the week before), what changed between versions with the regression report's cause, and where it fails. A run's page shows its facts, the task (asked, expected, replied), the span tree with timing and any step opened, and every score with its reason. Compare picks two experiments or two windows of live runs and shows what changed, the six metrics with real or noise, the cases that got worse, and the ship or hold call; from there a member can ask for the regression report, and the page waits for it. Datasets shows each version's cases with their latest result, and adds cases from a JSON Lines file or from runs; failing live runs can be sent there from the agent's page. An agent's Live page shows runs per day, health by day, the alerts, and its review queue, where members label each judge question yes or no. Settings manages members, API tokens and provider keys.
+Then open http://127.0.0.1:8000 and sign in.
+
+| Page | What it shows |
+| --- | --- |
+| Agents | Every agent that has sent a trace |
+| Agent | What it is; its health against the last version, or with only live runs, the last week against the week before; what changed between versions, with the regression report's cause; where it fails |
+| Run | The run's facts; the task (asked, expected, replied); the span tree with timing, any step opened; every score with its reason |
+| Compare | Two experiments, or two windows of live runs: what changed, the six metrics with real or noise, the cases that got worse, and the ship or hold call. A member can ask for the regression report here |
+| Datasets | Each version's cases with their latest result. Add cases from a JSON Lines file or from runs; failing live runs can be sent here from the agent's page |
+| Live | Per agent: runs per day, health by day, alerts, and the review queue, where members label each judge question yes or no |
+| Settings | Members, API tokens, provider keys and budgets; per agent the eval spec, gates, judge schedule, version labels and the shipped version |
 
 A demo with seeded data that needs no key is not built yet.
 
