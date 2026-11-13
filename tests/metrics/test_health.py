@@ -43,3 +43,5 @@ def test_no_runs_and_live_runs_without_cases() -> None:
     live = health([_run(None, "passed"), _run(None, "failed")])
     assert (live.success_rate, live.consistency) == (0.5, None)
     assert percentile([5, 1, 3], 50) == 3
+    unpriced = health([_run(None, "passed", cost_micros=0, cost_known=False)])
+    assert unpriced.cost_per_success_micros is None and not unpriced.cost_exact

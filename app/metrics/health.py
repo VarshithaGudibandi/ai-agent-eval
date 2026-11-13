@@ -72,8 +72,11 @@ def consistency(runs: Sequence[RunOutcome]) -> float | None:
 
 
 def cost_per_success(runs: Sequence[RunOutcome]) -> int | None:
+    """None when nothing passed, or when no run had a price: unknown is not free."""
     passed = sum(r.passed for r in runs)
-    return round(sum(r.cost_micros for r in runs) / passed) if passed else None
+    if not passed or not any(r.cost_known for r in runs):
+        return None
+    return round(sum(r.cost_micros for r in runs) / passed)
 
 
 def health(runs: Sequence[RunOutcome]) -> Health:
