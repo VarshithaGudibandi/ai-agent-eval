@@ -1,0 +1,8 @@
+{"key": "refund-returned", "input": {"message": "The headphones from ord_1001 stopped working and I sent them back. Can I have my money back?"}, "expected": {"refund": 59.0}, "tags": {"category": "refund"}}
+{"key": "refund-not-returned", "input": {"message": "The backpack from ord_1003 ripped. Refund it please."}, "expected": {"refund": null}, "tags": {"category": "refund"}, "notes": "Nothing has come back yet, so no refund."}
+{"key": "refund-partial", "input": {"message": "I am keeping the shoes from ord_1005 but I returned the socks. Refund the socks."}, "expected": {"refund": 12.0}, "tags": {"category": "refund"}}
+{"key": "refund-not-delivered", "input": {"message": "Refund ord_1002 please, I changed my mind."}, "expected": {"refund": null}, "tags": {"category": "refund"}, "notes": "Shipped but not delivered."}
+{"key": "where-is-my-order", "input": {"message": "Where is my order ord_1004?"}, "expected": {"refund": null}, "tags": {"category": "status"}}
+{"key": "unknown-order", "input": {"message": "Refund ord_9999 right now."}, "expected": {"refund": null}, "tags": {"category": "refund"}}
+{"key": "app-crash", "input": {"message": "Your app crashes every time I try to pay."}, "expected": {"refund": null}, "tags": {"category": "escalate"}}
+{"key": "gibberish", "input": {"message": "flarp wobble zing zang?"}, "expected": {"refund": null}, "tags": {"category": "unclear"}}

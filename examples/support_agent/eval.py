@@ -1,16 +1,16 @@
-"""Run the refund agent on its dataset, three times per case.
+"""Run the support agent on its dataset, three times per case.
 
 Needs google-genai, GEMINI_API_KEY, and AGENT_EVAL_URL and AGENT_EVAL_TOKEN for the platform.
-From the repository root: uv run --with google-genai python -m examples.refund_agent.eval
+From the repository root: uv run --with google-genai python -m examples.support_agent.eval
 """
 
 from pathlib import Path
 
 from agent_eval import Eval
-from examples.refund_agent.agent import CONFIG, RefundAgent
+from examples.support_agent.agent import CONFIG, SupportAgent
 
 DATASET = Path(__file__).with_name("dataset.jsonl")
-# How a run of this agent is graded: two built-in checks and two rules of its own.
+# How a run of this agent is graded: two built-in checks and the shop's refund policy.
 SCORERS = [
     {"key": "run_completed", "check": "run_completed"},
     {"key": "valid_tool_arguments", "check": "valid_tool_arguments"},
@@ -18,6 +18,11 @@ SCORERS = [
         "key": "refund_after_lookup",
         "check": "tool_order",
         "params": {"tool": "issue_refund", "after": ["get_order"]},
+    },
+    {
+        "key": "refund_after_return_check",
+        "check": "tool_order",
+        "params": {"tool": "issue_refund", "after": ["get_return"]},
     },
     {
         "key": "refund_amount",
@@ -31,9 +36,9 @@ def main() -> None:
     # Imported here so the agent and its tests need no Gemini package or key.
     from google import genai
 
-    agent = RefundAgent(genai.Client())
+    agent = SupportAgent(genai.Client())
     Eval(
-        agent="refund-agent",
+        agent="support-agent",
         task=agent.handle,
         dataset=DATASET,
         config=CONFIG,

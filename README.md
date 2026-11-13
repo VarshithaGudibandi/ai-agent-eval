@@ -106,10 +106,10 @@ Eval(
 
 A dataset file is JSON Lines, one case a line: `{"key": "refund-1", "input": {...}, "expected": {...}, "tags": {...}}`. Only `key` and `input` are required, and keys must stay the same across versions so results can be compared case by case. The file is uploaded first; a new dataset version is made only when its cases changed. A case that raises is recorded with its error and the rest still run. At the end `Eval` waits until every run is scored, then prints how many passed, which scorers failed and how often, which could not grade some runs (a judge with no Gemini key, say), and a link to the experiment.
 
-`examples/refund_agent/` is a small Gemini support agent wired up this way, with an 8-case dataset. With `GEMINI_API_KEY`, `AGENT_EVAL_URL` and `AGENT_EVAL_TOKEN` set, run it from the repository root:
+`examples/support_agent/` is a small support agent for an online shop, wired up this way: a LangGraph graph whose model step calls Gemini and whose tool step looks up orders, checks returns, refunds and escalates. Its eval holds the shop's refund policy as rules (look the order up and check the return before any refund, and refund only what came back) over an 8-case dataset. With `GEMINI_API_KEY`, `AGENT_EVAL_URL` and `AGENT_EVAL_TOKEN` set, run it from the repository root:
 
 ```bash
-uv run --with google-genai python -m examples.refund_agent.eval
+uv run --with google-genai python -m examples.support_agent.eval
 ```
 
 A scorer is a `key`, a `check` and its `params`. Checks are `hard` by default and judges `soft`; a `soft` one adds to the quality score and fails the run only below its `threshold`. `applies_when` limits it to runs with given `tags`, runs that used one of `tools_used`, or runs with or without an expected outcome (`has_expected`); a scorer that does not apply is left out, not failed.
@@ -173,9 +173,9 @@ The SDK never raises into your code. Its own problems are logged on the `agent_e
 `evalctl` comes with the platform (`pip install ./cli`). `evalctl run eval.py` runs the file's `Eval`, then compares it with the baseline: the newest finished experiment on the same dataset of the version marked shipped, or else of any other version. It exits `0` to ship, `1` to hold (a hard rule failed, or a gate tripped on a real change) and `2` when it could not tell, so a CI step fails on a regression:
 
 ```bash
-evalctl run examples/refund_agent/eval.py
+evalctl run examples/support_agent/eval.py
 evalctl compare exp_baseline exp_candidate
-evalctl compare --live refund-agent --days 7
+evalctl compare --live support-agent --days 7
 evalctl explain cmp_123
 ```
 

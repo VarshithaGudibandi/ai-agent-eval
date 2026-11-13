@@ -10,24 +10,16 @@ from tests.conftest import LivePlatform
 
 EVAL_FILE = """
 from agent_eval import Eval
-from examples.refund_agent.agent import CONFIG, RefundAgent
-from examples.refund_agent.eval import DATASET, SCORERS
-from tests.examples.test_refund_agent import scripted_gemini
-from tests.sdk.fake_gemini import FakeGemini, reply
-
-def careless(model, contents, config):
-    # v2's bug: refunds straight away, without looking the order up.
-    message = contents[0]["parts"][0]["text"]
-    if "refund" in message.lower() and "ord_" in message and len(contents) == 1:
-        order = message[message.index("ord_"):][:8]
-        return reply(None, ("issue_refund", {{"order_id": order, "amount": 59.0}}))
-    return scripted_gemini(model, contents, config)
+from examples.support_agent.agent import CONFIG, SupportAgent
+from examples.support_agent.eval import DATASET, SCORERS
+from tests.examples.brains import careful, careless
+from tests.sdk.fake_gemini import FakeGemini
 
 brain = {brain}
 config = {{**CONFIG, "prompt": CONFIG["prompt"] + "{suffix}"}}
 Eval(
-    agent="refund-agent",
-    task=RefundAgent(FakeGemini(brain)).handle,
+    agent="support-agent",
+    task=SupportAgent(FakeGemini(brain)).handle,
     dataset=DATASET,
     config=config,
     repetitions=2,
@@ -58,7 +50,7 @@ def _file(folder: Path, name: str, brain: str, suffix: str) -> str:
 async def test_evalctl_holds_a_version_that_broke_refunds(
     platform_env: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    v1 = _file(platform_env, "v1.py", "scripted_gemini", "")
+    v1 = _file(platform_env, "v1.py", "careful", "")
     v2 = _file(platform_env, "v2.py", "careless", " Be quick.")
     # The first version has nothing to compare with and broke no rule: ship.
     assert await asyncio.to_thread(main, ["run", v1]) == SHIP
@@ -68,7 +60,7 @@ async def test_evalctl_holds_a_version_that_broke_refunds(
     out = capsys.readouterr().out
     assert f"compared with experiment {first}" in out
     assert "Decision: HOLD" in out and "new hard failures: refund_after_lookup" in out
-    assert "Cases that got worse" in out and "refund-delivered" in out
+    assert "Cases that got worse" in out and "refund-not-returned" in out
     assert "success rate" in out and "(real)" in out
     second = completed[-1].experiment_id
     # The same two experiments compared on their own give the same answer.
@@ -90,7 +82,7 @@ async def test_a_file_without_an_eval_or_a_bad_token_is_an_error(
 async def test_evalctl_explains_a_hold_when_asked(
     platform_env: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    v1 = _file(platform_env, "v1.py", "scripted_gemini", "")
+    v1 = _file(platform_env, "v1.py", "careful", "")
     v2 = _file(platform_env, "v2.py", "careless", " Be quick.")
     assert await asyncio.to_thread(main, ["run", v1]) == SHIP
     capsys.readouterr()
@@ -115,7 +107,7 @@ async def test_evalctl_caps_the_judge_calls_of_each_experiment(
 ) -> None:
     # Recorded here so the value evalctl sets is undone after the test.
     monkeypatch.setenv("AGENT_EVAL_MAX_JUDGE_CALLS", "")
-    v1 = _file(platform_env, "v1.py", "scripted_gemini", "")
+    v1 = _file(platform_env, "v1.py", "careful", "")
     assert await asyncio.to_thread(main, ["run", v1, "--max-judge-calls", "12"]) == SHIP
     experiment = completed[-1].experiment_id
     async with httpx.AsyncClient(

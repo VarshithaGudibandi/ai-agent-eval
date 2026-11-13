@@ -17,25 +17,16 @@ from agent_eval.recording import (
 )
 from app.explain import job as explain_job_module
 from app.settings import Settings
-from examples.refund_agent.agent import CONFIG, PROMPT, RefundAgent
-from examples.refund_agent.eval import DATASET, SCORERS
+from examples.support_agent.agent import CONFIG, PROMPT, SupportAgent
+from examples.support_agent.eval import DATASET, SCORERS
 from tests.api.conftest import Caller, SignIn, score_now
-from tests.examples.test_refund_agent import scripted_gemini
+from tests.examples.brains import careful, careless
 from tests.explain.scripted_auditor import ScriptedAuditor
-from tests.sdk.fake_gemini import FakeGemini, Response, reply
+from tests.sdk.fake_gemini import FakeGemini
 
 LOOKUP = "Always look up the order before you answer."
 V2 = {**CONFIG, "prompt": PROMPT.replace(f" {LOOKUP}", "")}
 CAUSE = "v2's prompt no longer says to look the order up, so refunds go out unchecked."
-
-
-def careless(model: str, contents: list[Any], config: Any) -> Response:
-    """v2's behaviour: without the lookup instruction it refunds straight away."""
-    message = contents[0]["parts"][0]["text"]
-    if "refund" in message.lower() and "ord_" in message and len(contents) == 1:
-        order = message[message.index("ord_") :][:8]
-        return reply(None, ("issue_refund", {"order_id": order, "amount": 59.0}))
-    return scripted_gemini(model, contents, config)
 
 
 async def _experiment(
@@ -46,19 +37,19 @@ async def _experiment(
         await owner.post(
             "/api/v1/experiments",
             json={
-                "agent": "refund-agent",
+                "agent": "support-agent",
                 "config": config_document(config),
                 "dataset_version_id": dataset_id,
                 "repetitions": 2,
             },
         )
     ).json()
-    agent = RefundAgent(FakeGemini(brain))
+    agent = SupportAgent(FakeGemini(brain))
     traces: list[dict[str, Any]] = []
     for case in started["cases"]:
         for rep in (1, 2):
             tags = {"experiment": started["id"], "case": case["key"], "repetition": rep}
-            token = use_eval_context(RunContext("refund-agent", config, None, tags, traces.append))
+            token = use_eval_context(RunContext("support-agent", config, None, tags, traces.append))
             try:
                 agent.handle(case["input"])
             finally:
@@ -90,10 +81,10 @@ async def test_dropping_the_lookup_step_is_named_with_high_confidence(
     )
     dataset_id = dataset.json()["id"]
     # A first run makes the agent, so its own scorers can be saved before the runs compared.
-    await _experiment(owner, app, dataset_id, CONFIG, scripted_gemini)
+    await _experiment(owner, app, dataset_id, CONFIG, careful)
     [agent] = (await owner.get("/api/v1/agents")).json()
     await owner.put(f"/api/v1/agents/{agent['id']}/eval-spec", json={"scorers": SCORERS})
-    v1 = await _experiment(owner, app, dataset_id, CONFIG, scripted_gemini)
+    v1 = await _experiment(owner, app, dataset_id, CONFIG, careful)
     v2 = await _experiment(owner, app, dataset_id, V2, careless)
     body = {"baseline": {"experiment_id": v1}, "candidate": {"experiment_id": v2}}
     comparison = (await owner.post("/api/v1/comparisons", json=body)).json()

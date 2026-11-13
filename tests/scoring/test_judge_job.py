@@ -138,7 +138,7 @@ async def world(
         )
         dataset, _ = await save_version(scope, "refunds", [CaseData("refund", {"m": 1})])
         config = redact_value(golden("refund")["config"])
-        version = await agent_version(scope, "refund-agent", fingerprint(config), config, None)
+        version = await agent_version(scope, "support-agent", fingerprint(config), config, None)
         await ensure_default_spec(scope, version.agent_id)
         await save_definitions(scope, version.agent_id, SPEC)
         experiment, _ = await start_experiment(scope, version, dataset.id, 20, None)

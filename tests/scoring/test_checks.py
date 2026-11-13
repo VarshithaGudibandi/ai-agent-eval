@@ -23,13 +23,14 @@ def test_gemini_shaped_declarations_with_capital_types_are_understood() -> None:
                             "required": ["order_id"],
                         },
                     },
+                    {"name": "get_return"},
                     {"name": "issue_refund"},
                 ]
             }
         ]
     }
     outcomes = valid_tool_arguments(replace(run, config=gemini), NoParams())
-    assert [o.value for o in outcomes] == [1.0, 1.0]
+    assert [o.value for o in outcomes] == [1.0, 1.0, 1.0]
     assert valid_tool_arguments(replace(run, config={}), NoParams()) == []
 
 

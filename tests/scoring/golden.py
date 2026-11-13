@@ -5,11 +5,11 @@ from agent_eval.recording import RunContext, set_live_context
 from app.ingest.trace_format import Trace
 from app.scoring.run_view import RunView
 from app.traces.normalize import normalize
-from examples.refund_agent.agent import CONFIG, DECLARATIONS, RefundAgent
-from tests.examples.test_refund_agent import scripted_gemini
+from examples.support_agent.agent import CONFIG, DECLARATIONS, SupportAgent
+from tests.examples.brains import careful
 from tests.sdk.fake_gemini import FakeGemini
 
-# Runs of the example refund agent, recorded by the real SDK, that every scorer in SPEC
+# Runs of the example support agent, recorded by the real SDK, that every scorer in SPEC
 # below passes. The mutation suite plants one fault at a time into copies of them.
 
 DELETE_ACCOUNT = {
@@ -29,9 +29,9 @@ CASES = {
 
 def _record(message: dict[str, Any]) -> dict[str, Any]:
     traces: list[dict[str, Any]] = []
-    set_live_context(RunContext("refund-agent", CONFIG, None, {}, traces.append))
+    set_live_context(RunContext("support-agent", CONFIG, None, {}, traces.append))
     try:
-        RefundAgent(FakeGemini(scripted_gemini)).handle(message)
+        SupportAgent(FakeGemini(careful)).handle(message)
     finally:
         set_live_context(None)
     [trace] = traces

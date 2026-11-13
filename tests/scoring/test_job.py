@@ -78,8 +78,8 @@ async def test_a_new_run_is_scored_by_the_default_preset_once(fresh_sessionmaker
     [run_id] = await _ingest(fresh_sessionmaker, workspace_id, _trace())
     await _work_one(fresh_sessionmaker)
     assert await _verdicts(fresh_sessionmaker, run_id) == [(1, "passed", [])]
-    # One run-level score each for two scorers, and one per tool call for the other two.
-    assert await _score_count(fresh_sessionmaker, run_id) == 1 + 1 + 2 + 2
+    # One run-level score each for two scorers, and one per tool call (three) for the others.
+    assert await _score_count(fresh_sessionmaker, run_id) == 1 + 1 + 3 + 3
     async with fresh_sessionmaker() as session:
         scope = WorkspaceScope(session, workspace_id)
         agent = await scope.first(scope.query(models.Agent))
@@ -96,7 +96,7 @@ async def test_a_new_run_is_scored_by_the_default_preset_once(fresh_sessionmaker
     async with fresh_sessionmaker.begin() as session:
         assert await queue_scoring(WorkspaceScope(session, workspace_id), run_id)
     await _work_one(fresh_sessionmaker)
-    assert await _score_count(fresh_sessionmaker, run_id) == 6
+    assert await _score_count(fresh_sessionmaker, run_id) == 8
     assert len(await _verdicts(fresh_sessionmaker, run_id)) == 1
 
 

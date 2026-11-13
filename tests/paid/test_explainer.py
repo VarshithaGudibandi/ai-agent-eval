@@ -13,8 +13,9 @@ from app.providers.gemini import GeminiProvider
 from app.scoring.judge_prompts import Transcript
 from app.scoring.run_view import RunView
 from app.traces.normalize import normalize
-from examples.refund_agent.agent import CONFIG, RefundAgent
-from tests.api.test_reports_acceptance import V2, careless
+from examples.support_agent.agent import CONFIG, SupportAgent
+from tests.api.test_reports_acceptance import V2
+from tests.examples.brains import careless
 from tests.sdk.fake_gemini import FakeGemini
 
 MODEL = os.environ.get("EXPLAINER_MODEL", "gemini-3.8-flash")
@@ -22,9 +23,9 @@ MODEL = os.environ.get("EXPLAINER_MODEL", "gemini-3.8-flash")
 
 def _careless_run(message: str) -> RunView:
     traces: list[dict[str, Any]] = []
-    set_live_context(RunContext("refund-agent", V2, None, {}, traces.append))
+    set_live_context(RunContext("support-agent", V2, None, {}, traces.append))
     try:
-        RefundAgent(FakeGemini(careless)).handle({"message": message})
+        SupportAgent(FakeGemini(careless)).handle({"message": message})
     finally:
         set_live_context(None)
     [trace] = traces
