@@ -226,6 +226,7 @@ The response lists which traces were `accepted`, which were `duplicates`, and wh
 | `app/auth/` | Accounts, passwords, sessions, invites and API tokens |
 | `app/budget/` | Prices, worst-case estimates, reservations, warnings and pausing |
 | `app/db/` | Tables, the workspace-scoped data layer, the job queue, audit log |
+| `app/explain/` | The regression explainer: config diff, failure groups, the auditor and its evidence check |
 | `app/ingest/` | The trace format, secret masking and storing raw traces |
 | `app/jobs/` | The worker and its lease heartbeat |
 | `app/metrics/` | Health metrics, comparisons, bootstrap intervals and gates |
