@@ -36,5 +36,5 @@ def test_numbers_built_on_untrusted_judge_questions_carry_a_label() -> None:
         pending_calibration=True,
     )
     macro = TEMPLATES.env.get_template("parts/macros.html").module.untrusted_note  # type: ignore[attr-defined]
-    assert "not trusted yet" in str(macro(health))
-    assert str(macro(health.model_copy(update={"pending_calibration": False}))).strip() == ""
+    assert "not trusted yet" in str(macro(health.pending_calibration))
+    assert str(macro(False)).strip() == ""

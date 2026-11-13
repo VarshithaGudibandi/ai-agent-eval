@@ -38,8 +38,8 @@
 {% else %}<span class="badge">Waiting to be scored</span>{% endif %}
 {%- endmacro %}
 
-{% macro untrusted_note(health) -%}
-{% if health and health.pending_calibration %}
+{% macro untrusted_note(pending) -%}
+{% if pending %}
 <p class="note">Includes judge questions that are not trusted yet: they need 10 labels and 80% agreement with people before they count.</p>
 {% endif %}
 {%- endmacro %}

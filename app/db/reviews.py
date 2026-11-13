@@ -26,13 +26,23 @@ async def add_review_item(scope: WorkspaceScope, run_id: str, reason: str) -> bo
     return added is not None
 
 
-async def pending_items(scope: WorkspaceScope, limit: int) -> list[models.ReviewItem]:
-    return await scope.all(
+async def pending_items(
+    scope: WorkspaceScope, limit: int, agent_id: str | None = None
+) -> list[models.ReviewItem]:
+    """Items waiting for labels, oldest first, of every agent or of one."""
+    statement = (
         scope.query(models.ReviewItem)
         .where(models.ReviewItem.status == models.ReviewStatus.PENDING)
         .order_by(models.ReviewItem.created_at)
         .limit(limit)
     )
+    if agent_id is not None:
+        statement = (
+            statement.join(models.Run, models.Run.id == models.ReviewItem.run_id)
+            .join(models.AgentVersion, models.AgentVersion.id == models.Run.agent_version_id)
+            .where(models.AgentVersion.agent_id == agent_id)
+        )
+    return await scope.all(statement)
 
 
 @dataclass(frozen=True)

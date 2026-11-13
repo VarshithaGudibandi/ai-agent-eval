@@ -31,15 +31,19 @@ async function fieldValue(field) {
   return field.value;
 }
 
-// A field named "baseline.experiment_id" fills body.baseline.experiment_id. A field the
-// form's URL names, as in /datasets/{dataset_id}/cases, goes into the URL instead.
+// A field named "baseline.experiment_id" fills body.baseline.experiment_id, and a number in
+// the name makes a list: "labels.0.answer" fills body.labels[0].answer. A field the form's
+// URL names, as in /datasets/{dataset_id}/cases, goes into the URL instead.
 async function formBody(form, used) {
   const body = {};
   for (const field of form.elements) {
     if (!field.name || field.value === "" || used.has(field.name)) continue;
+    if ((field.type === "radio" || field.type === "checkbox") && !field.checked) continue;
     const path = field.name.split(".");
     let target = body;
-    for (const key of path.slice(0, -1)) target = target[key] = target[key] || {};
+    path.slice(0, -1).forEach((key, n) => {
+      target = target[key] = target[key] || (/^\d+$/.test(path[n + 1]) ? [] : {});
+    });
     target[path[path.length - 1]] = await fieldValue(field);
   }
   return body;

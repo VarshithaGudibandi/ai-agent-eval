@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% from "parts/macros.html" import heading, empty, untrusted_note %}
+{% block title %}{{ agent.name }} live · AI Agent Eval{% endblock %}
+{% block main %}
+<div class="page-head">
+  <div>
+    <div class="breadcrumb"><a href="/agents/{{ agent.id }}">{{ agent.name }}</a> / live</div>
+    <h1>{{ agent.name }} · live traffic</h1>
+  </div>
+</div>
+
+<section aria-labelledby="l1">
+  {{ heading(1, "l1", "Traffic", "runs per day for the last 14 days, and how many were scored") }}
+  {% if not total_runs %}
+    {{ empty("No live runs in the last 14 days", "Live traces arrive from agent_eval.init in your running app. Runs from experiments are not live traffic.") }}
+  {% else %}
+  <div class="card">
+    <p class="small">{{ total_runs | count }} runs, {{ total_scored | count }} scored ({{ (total_scored / total_runs) | percent }}).</p>
+    <ol class="traffic" aria-label="Runs per day">
+      {% for t in traffic %}
+      <li>
+        <svg class="column" viewBox="0 0 10 100" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="10" height="100"/><rect class="fill" y="{{ (100 - t.height) | round(2) }}" width="10" height="{{ t.height | round(2) }}"/></svg>
+        <span class="small">{{ t.day.strftime("%d") }}</span>
+        <span class="visually-hidden">{{ t.day.strftime("%b %d") }}: {{ t.runs }} runs, {{ t.scored }} scored</span>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endif %}
+</section>
+
+<section aria-labelledby="l2">
+  {{ heading(2, "l2", "Health by day", "the same six metrics, per version and day (UTC)") }}
+  {% if not days %}
+    {{ empty("Nothing to show yet", "Daily health is worked out as live runs are scored.") }}
+  {% else %}
+  <div class="card table-scroll">
+    <table>
+      <thead><tr><th scope="col">Day</th><th scope="col">Version</th><th scope="col">Runs</th><th scope="col">Success</th><th scope="col">Rule violations</th><th scope="col">Run time</th><th scope="col">Cost per success</th><th scope="col">Scored</th></tr></thead>
+      <tbody>
+        {% for d in days %}
+        <tr>
+          <th scope="row">{{ d.day.strftime("%b %d") }}</th>
+          <td>{{ names.get(d.agent_version_id, "?") }}</td>
+          <td>{{ d.runs }}</td>
+          <td>{{ d.health.success_rate | percent }}</td>
+          <td>{{ d.health.rule_violation_rate | percent }}</td>
+          <td>{{ d.health.duration_p50_ms | duration }} / {{ d.health.duration_p95_ms | duration }}</td>
+          <td>{{ d.health.cost_per_success_micros | money }}</td>
+          <td>{{ d.health.runs_scored }} of {{ d.health.runs }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ untrusted_note(days | selectattr("health.pending_calibration") | list | length > 0) }}
+  {% endif %}
+</section>
+
+<section aria-labelledby="l3">
+  {{ heading(3, "l3", "Alerts", "last 7 days against the 7 before, through this agent's gates") }}
+  {% if not alerts.alerts %}
+    {{ empty("No alerts", "An alert appears when last week's live runs break a gate against the week before and the change is real, which takes at least 30 scored runs a week; or when a judge schedule could not start.") }}
+  {% else %}
+  <div class="card list" role="status">
+    {% for a in alerts.alerts %}
+    <div class="row"><div class="row-key">{{ "Gate" if a.kind == "gate" else "Schedule" }}</div><div class="row-main tone-bad">{{ a.message }}</div></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<section aria-labelledby="l4">
+  {{ heading(4, "l4", "Review queue", "label what the judge was asked, without seeing its answer") }}
+  {% if not queue %}
+    {{ empty("Nothing to review", "Borderline judged runs and a sample of the rest land here, and anyone can send a run from its page.") }}
+  {% else %}
+  {% for item in queue %}
+  <div class="card review">
+    <div class="review-head"><a href="/runs/{{ item.run_id }}">Run from {{ item.created_at | when }}</a><span class="muted small">{{ item.reason | replace("_", " ") }}</span></div>
+    <div class="task">
+      <div class="card"><div class="tile-label">Asked</div><pre>{{ item.request | as_text }}</pre></div>
+      <div class="card"><div class="tile-label">Agent replied</div><pre>{{ item.reply | as_text }}</pre></div>
+    </div>
+    {% if item.tool_calls %}
+    <details><summary>{{ item.tool_calls | length }} tool calls</summary>
+      {% for call in item.tool_calls %}<div class="tile-label">{{ call.name }}</div><pre>{{ call.output | as_text }}</pre>{% endfor %}
+    </details>
+    {% endif %}
+    {% if not item.questions %}
+    <p class="muted small">No judge question was asked about this run yet, so there is nothing to label. Judge it in a batch first.</p>
+    {% elif can_edit %}
+    <form data-api="/api/v1/review-items/{{ item.id }}/label" data-method="POST">
+      {% for q in item.questions %}
+      {% set i = loop.index0 %}
+      <fieldset>
+        <legend>{{ q.text }}</legend>
+        <input type="hidden" name="labels.{{ i }}.scorer_key" value="{{ q.scorer_key }}">
+        <input type="hidden" name="labels.{{ i }}.question_id" value="{{ q.question_id }}">
+        <label class="choice"><input type="radio" name="labels.{{ i }}.answer" value="yes" required> Yes</label>
+        <label class="choice"><input type="radio" name="labels.{{ i }}.answer" value="no"> No</label>
+      </fieldset>
+      {% endfor %}
+      <label>Note (optional) <input name="note" maxlength="2000"></label>
+      <button type="submit">Save labels</button>
+      <p class="error" role="alert"></p>
+    </form>
+    {% else %}
+    <ul>{% for q in item.questions %}<li>{{ q.text }}</li>{% endfor %}</ul>
+    <p class="muted small">A member can label these.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+</section>
+{% endblock %}

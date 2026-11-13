@@ -194,6 +194,7 @@ def _foreign_id_attacks(w: Any) -> list[tuple[str, str, Any]]:
         ("GET", f"/api/v1/agents/{w.b_agent_id}/health", None),
         ("GET", f"/api/v1/agents/{w.b_agent_id}/failures", None),
         ("GET", f"/api/v1/agents/{w.b_agent_id}/alerts", None),
+        ("GET", f"/api/v1/review-queue?agent_id={w.b_agent_id}", None),
         ("GET", f"/api/v1/agent-versions/{w.b_agent_version_id}", None),
         ("PATCH", f"/api/v1/agent-versions/{w.b_agent_version_id}", {"label": "stolen"}),
         # Bodies naming B's experiment or agent must not compare B's runs.

@@ -3,7 +3,7 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import RedirectResponse, Response
 from starlette.exceptions import HTTPException
 
-from app.web.pages import agents, compare, datasets, login, runs, settings
+from app.web.pages import agents, compare, datasets, live, login, runs, settings
 from app.web.rendering import SignInRequiredError, render_error
 
 
@@ -19,5 +19,5 @@ def register_pages(app: FastAPI) -> None:
 
     app.add_exception_handler(SignInRequiredError, sign_in_first)
     app.add_exception_handler(HTTPException, unknown_page)
-    for module in (login, agents, runs, compare, datasets, settings):
+    for module in (login, agents, live, runs, compare, datasets, settings):
         app.include_router(module.router)

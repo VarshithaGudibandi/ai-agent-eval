@@ -5,6 +5,7 @@
 <div class="page-head">
   <h1>{{ agent.name }}</h1>
   <div class="head-actions">
+  <a class="button" href="/agents/{{ agent.id }}/live">Live traffic</a>
   <a class="button" href="/compare?agent={{ agent.id }}">Compare versions</a>
   <details class="actions">
     <summary class="button">Run an eval</summary>
@@ -64,7 +65,7 @@
     {% endif %}
     {{ tile_grid(tiles) }}
     {% for note in health.fairness %}<p class="note">Note: {{ note }}.</p>{% endfor %}
-    {{ untrusted_note(health.current.health) }}
+    {{ untrusted_note(health.current.health.pending_calibration) }}
   {% endif %}
 </section>
 

@@ -78,12 +78,17 @@ class CalibrationOut(BaseModel):
 
 @router.get("/review-queue")
 async def review_queue(
-    principal: Viewer, session: Db, limit: Annotated[int, Query(ge=1, le=100)] = 20
+    principal: Viewer,
+    session: Db,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    agent_id: Annotated[str | None, Query(max_length=100)] = None,
 ) -> list[ReviewItemOut]:
-    """Runs waiting for a person's labels, oldest first."""
+    """Runs waiting for a person's labels, oldest first, of every agent or of one."""
     scope = scope_for(session, principal)
+    if agent_id is not None:
+        await scope.require(models.Agent, agent_id)
     items = []
-    for item in await pending_items(scope, limit):
+    for item in await pending_items(scope, limit, agent_id):
         spans = await spans_of(scope, item.run_id)
         root = next(s for s in spans if s.parent_span_id is None)
         items.append(

@@ -153,3 +153,28 @@ async def test_saving_the_spec_again_takes_labelled_runs_as_examples(
     await owner.post("/api/v1/traces", json={"traces": [support_trace("t-live")]})
     await score_now(app, owner.workspace_id)
     assert judge.calls == calls
+
+
+async def test_the_queue_can_be_narrowed_to_one_agent(new_owner: SignIn, app: FastAPI) -> None:
+    owner = await new_owner()
+    await owner.post(
+        "/api/v1/traces",
+        json={"traces": [support_trace("t-a"), support_trace("t-b", agent="other-bot")]},
+    )
+    async with app.state.sessionmaker() as session:
+        runs = list(
+            await session.execute(
+                select(models.Run.id, models.Trace.agent_name)
+                .join(models.Trace, models.Trace.id == models.Run.trace_row_id)
+                .where(models.Run.workspace_id == owner.workspace_id)
+            )
+        )
+    for run_id, _ in runs:
+        await owner.post("/api/v1/review-items", json={"run_id": run_id})
+    agents = {a["name"]: a["id"] for a in (await owner.get("/api/v1/agents")).json()}
+    everything = (await owner.get("/api/v1/review-queue")).json()
+    narrowed = (await owner.get(f"/api/v1/review-queue?agent_id={agents['other-bot']}")).json()
+    assert len(everything) == 2
+    assert [i["run_id"] for i in narrowed] == [r for r, name in runs if name == "other-bot"]
+    missing = await owner.get("/api/v1/review-queue?agent_id=agent_nope")
+    assert missing.status_code == 404
