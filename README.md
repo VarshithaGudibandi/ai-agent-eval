@@ -2,7 +2,7 @@
 
 A platform for measuring how well an AI agent works, while you build it and after it goes live. It grades every run from the agent's own trace, tracks results per agent version, and explains why a new version got worse.
 
-Status: being rebuilt around traces. Today it takes traces in, from the Python SDK or straight over the API, turns them into runs, span trees, costs and agent versions, and scores every run with deterministic checks and, in experiments, LLM judges. It also has accounts and workspaces, API tokens, encrypted provider keys, prices and budgets, a Postgres job queue with leases, and a metered Gemini provider. Metrics, the regression explainer and the full web pages come next.
+Status: being rebuilt around traces. Today it takes traces in, from the Python SDK or straight over the API, turns them into runs, span trees, costs and agent versions, and scores every run with deterministic checks and, in experiments, LLM judges. It also has accounts and workspaces, API tokens, encrypted provider keys, prices and budgets, a Postgres job queue with leases, and a metered Gemini provider. Live judging on demand, the `evalctl` CLI, the regression explainer and the full web pages come next.
 
 ## How it works
 
@@ -31,6 +31,7 @@ What exists today:
 | Scoring | Each agent has a versioned eval spec: the scorers that grade its runs. A new agent starts with four built-in checks: the run finished, no tool call failed, tool arguments fit the declared schemas, and the run stayed under 10 model calls. Every new run is scored by a worker job under the spec in force when its trace arrived. Its verdict is `passed` when every hard scorer passes and every soft one meets its threshold. `PUT /api/v1/agents/{id}/eval-spec` saves a new spec version, `POST /api/v1/agents/{id}/rescore` grades old runs under it, and `GET /api/v1/runs/{id}` shows a run's spans, scores and verdicts |
 | Judges | `checklist` asks a model 1 to 5 yes/no questions about a run, or a built-in pack (`support`, `tool_use`, `retrieval`); `claim_check` checks each claim in the final reply against the tool results. Every answer must quote the run, and a quote not found in it turns the answer into "can't tell", which is left out of the score. Judges are soft, use the workspace's Gemini key and the experiment's budget, and run in their own job, so a judge outage never holds up rule scores. Live runs are graded by rules alone for now |
 | Review | Borderline judged runs, and a share of the rest, go into a review queue (`GET /api/v1/review-queue`); `POST /api/v1/review-items` adds any run. People label each judge question yes or no without seeing the judge's answer. A question counts toward scores only once it is trusted: at least 10 labels and 80% agreement with people (`GET /api/v1/agents/{id}/calibration`). Saving an eval spec takes the newest labelled yes and no per question as worked examples in the judge's prompt, so a judge version always asks the same thing |
+| Comparisons | `POST /api/v1/comparisons` compares two experiments, paired case by case, or two windows of live runs. Each of the health metrics (success rate, rule violations, consistency, run time, cost per successful run, runs scored) gets its change and a 95% bootstrap interval, so noise is not read as a regression. Cases are listed worst first, and the agent's gates (`GET/PUT /api/v1/agents/{id}/gates`) turn the result into `ship`, `hold` or `insufficient_data`. A comparison across dataset or eval spec versions decides nothing. `POST /api/v1/agents/{id}/shipped` marks the version in production, and `GET /api/v1/experiments/{id}/baseline` finds what a new experiment is compared with |
 | Datasets | Versioned cases: an input, an optional expected outcome, tags and notes. `POST /api/v1/datasets` stores a new version; uploading the same cases again reuses the newest one. Case keys stay the same across versions, so results can be paired by case |
 | Experiments | One agent version run on one dataset version, each case a set number of times. `POST /api/v1/experiments` returns the cases to run; an `Idempotency-Key` header makes a retried start return the same experiment. Each run's trace names its slot with tags, and a trace that does not fit its slot is rejected |
 | Workspaces | Every row carries its workspace and every query is filtered by it. A row in another workspace answers exactly like a missing one (`404`) |
@@ -215,7 +216,7 @@ The response lists which traces were `accepted`, which were `duplicates`, and wh
 | `app/db/` | Tables, the workspace-scoped data layer, the job queue, audit log |
 | `app/ingest/` | The trace format, secret masking and storing raw traces |
 | `app/jobs/` | The worker and its lease heartbeat |
-| `app/metrics/` | Scorecard and comparison maths |
+| `app/metrics/` | Health metrics, comparisons, bootstrap intervals and gates |
 | `app/providers/` | The Gemini provider, encrypted keys, rate limiting, metered calls |
 | `app/scoring/` | Scorers: the built-in checks, rule templates, and the verdict for a run |
 | `app/traces/` | Turning a trace into a run, spans, cost and an agent version |

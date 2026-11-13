@@ -8,6 +8,7 @@ from app.api import (
     agents,
     api_tokens,
     auth,
+    comparisons,
     datasets,
     experiments,
     feedback,
@@ -56,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         agents,
         runs,
         reviews,
+        comparisons,
     ):
         app.include_router(module.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

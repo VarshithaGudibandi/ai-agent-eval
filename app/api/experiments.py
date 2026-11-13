@@ -9,10 +9,12 @@ from app.db import models
 from app.db.audit import record_audit
 from app.db.datasets import cases_of
 from app.db.experiments import finish_experiment, runs_received, start_experiment
+from app.db.outcomes import baseline_experiment, experiment_outcomes
 from app.db.scope import WorkspaceScope
 from app.db.scores import experiment_scoring
 from app.db.traces import agent_version
 from app.ingest.redact import redact_value
+from app.metrics.health import Health, health
 from app.scoring.specs import ensure_default_spec
 from app.traces.normalize import fingerprint
 
@@ -47,6 +49,7 @@ class ExperimentOut(BaseModel):
     runs_received: int
     # From each run's newest verdict. Scoring runs on the worker, so it trails behind.
     runs_scored: int
+    health: Health
     runs_passed: int
     failures: dict[str, int]
     errors: dict[str, int]
@@ -58,6 +61,7 @@ class StartedExperimentOut(ExperimentOut):
 
 async def _out(scope: WorkspaceScope, row: models.Experiment, cases: int) -> ExperimentOut:
     scoring = await experiment_scoring(scope, row.id)
+    outcomes = await experiment_outcomes(scope, row.id)
     return ExperimentOut(
         id=row.id,
         agent_version_id=row.agent_version_id,
@@ -69,6 +73,7 @@ async def _out(scope: WorkspaceScope, row: models.Experiment, cases: int) -> Exp
         expected_runs=cases * row.repetitions,
         runs_received=await runs_received(scope, row.id),
         runs_scored=scoring.runs_scored,
+        health=health(outcomes.outcomes),
         runs_passed=scoring.runs_passed,
         failures=scoring.failures,
         errors=scoring.errors,
@@ -132,3 +137,21 @@ async def finish(experiment_id: str, principal: Member, session: Db) -> Experime
     await scope.flush()
     await session.refresh(row)
     return await _out(scope, row, len(await cases_of(scope, row.dataset_version_id)))
+
+
+class BaselineOut(BaseModel):
+    # None when there is nothing to compare with yet, such as an agent's first experiment.
+    experiment_id: str | None
+    agent_version_id: str | None
+
+
+@router.get("/{experiment_id}/baseline")
+async def baseline(experiment_id: str, principal: Viewer, session: Db) -> BaselineOut:
+    """What this experiment is compared with: the newest finished experiment on the same
+    dataset version of the version marked shipped, or else of any other version."""
+    scope = scope_for(session, principal)
+    found = await baseline_experiment(scope, await scope.require(models.Experiment, experiment_id))
+    return BaselineOut(
+        experiment_id=found.id if found else None,
+        agent_version_id=found.agent_version_id if found else None,
+    )

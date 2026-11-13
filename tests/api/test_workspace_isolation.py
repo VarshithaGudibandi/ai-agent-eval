@@ -35,6 +35,7 @@ class World:
     b_agent_id: str
     b_run_id: str
     b_review_item_id: str
+    b_comparison_id: str
 
 
 PRICE = {
@@ -77,6 +78,13 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         )
     await b_person.post("/api/v1/review-items", json={"run_id": str(b_run_id)})
     [b_review] = (await b_person.get("/api/v1/review-queue")).json()
+    b_comparison = await b_person.post(
+        "/api/v1/comparisons",
+        json={
+            "baseline": {"experiment_id": experiment.json()["id"]},
+            "candidate": {"experiment_id": experiment.json()["id"]},
+        },
+    )
     return World(
         a_person,
         a_token,
@@ -91,6 +99,7 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         str(b_agent_id),
         str(b_run_id),
         b_review["id"],
+        b_comparison.json()["id"],
     )
 
 
@@ -114,6 +123,36 @@ def _foreign_id_attacks(w: Any) -> list[tuple[str, str, Any]]:
             "POST",
             f"/api/v1/review-items/{w.b_review_item_id}/label",
             {"labels": [{"scorer_key": "k", "question_id": "q", "answer": "yes"}]},
+        ),
+        ("GET", f"/api/v1/comparisons/{w.b_comparison_id}", None),
+        ("GET", f"/api/v1/experiments/{w.b_experiment_id}/baseline", None),
+        ("GET", f"/api/v1/agents/{w.b_agent_id}/gates", None),
+        ("PUT", f"/api/v1/agents/{w.b_agent_id}/gates", {"max_success_drop": 1}),
+        ("POST", f"/api/v1/agents/{w.b_agent_id}/shipped", {"version_id": "x"}),
+        # Bodies naming B's experiment or agent must not compare B's runs.
+        (
+            "POST",
+            "/api/v1/comparisons",
+            {
+                "baseline": {"experiment_id": w.b_experiment_id},
+                "candidate": {"experiment_id": w.b_experiment_id},
+            },
+        ),
+        (
+            "POST",
+            "/api/v1/comparisons",
+            {
+                "baseline": {
+                    "agent_id": w.b_agent_id,
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2027-01-01T00:00:00Z",
+                },
+                "candidate": {
+                    "agent_id": w.b_agent_id,
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2027-01-01T00:00:00Z",
+                },
+            },
         ),
         # A body naming B's run must not put it in A's review queue.
         ("POST", "/api/v1/review-items", {"run_id": w.b_run_id}),
@@ -148,6 +187,7 @@ def _b_ids(w: World) -> list[str]:
         w.b_agent_id,
         w.b_run_id,
         w.b_review_item_id,
+        w.b_comparison_id,
         str(w.b_person.email),
     ]
 
@@ -164,6 +204,7 @@ async def _b_view(w: World) -> dict[str, Any]:
     view["spec"] = (await w.b_person.get(f"/api/v1/agents/{w.b_agent_id}/eval-spec")).json()
     view["agents"] = (await w.b_person.get("/api/v1/agents")).json()
     view["review"] = (await w.b_person.get("/api/v1/review-queue")).json()
+    view["gates"] = (await w.b_person.get(f"/api/v1/agents/{w.b_agent_id}/gates")).json()
     return view
 
 
@@ -306,6 +347,11 @@ FOREIGN_ID_ROUTES = {
     ("GET", "/api/v1/runs/{run_id}"),
     ("GET", "/api/v1/agents/{agent_id}/calibration"),
     ("POST", "/api/v1/review-items/{item_id}/label"),
+    ("GET", "/api/v1/comparisons/{comparison_id}"),
+    ("GET", "/api/v1/experiments/{experiment_id}/baseline"),
+    ("GET", "/api/v1/agents/{agent_id}/gates"),
+    ("PUT", "/api/v1/agents/{agent_id}/gates"),
+    ("POST", "/api/v1/agents/{agent_id}/shipped"),
 }
 LIST_ROUTES = [
     "/api/v1/agents",
@@ -321,6 +367,7 @@ BODY_ROUTES = {
     ("POST", "/api/v1/traces"),
     ("POST", "/api/v1/feedback"),
     ("POST", "/api/v1/review-items"),
+    ("POST", "/api/v1/comparisons"),
     ("POST", "/api/v1/datasets"),
     ("POST", "/api/v1/experiments"),
     ("POST", "/api/v1/api-tokens"),
@@ -363,6 +410,7 @@ def test_every_foreign_id_route_is_really_attacked() -> None:
         b_agent_id="x",
         b_run_id="x",
         b_review_item_id="x",
+        b_comparison_id="x",
     )
     sent = {(method, path) for method, path, _ in _foreign_id_attacks(fake)}
     templates = {(method, re.sub(r"\{[a-z_]+\}", "x", path)) for method, path in FOREIGN_ID_ROUTES}

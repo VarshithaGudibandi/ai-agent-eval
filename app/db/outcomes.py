@@ -1,0 +1,146 @@
+from dataclasses import dataclass
+from datetime import datetime
+
+from sqlalchemy import Select, select
+from sqlalchemy.dialects.postgresql import distinct_on
+
+from app.db import models
+from app.db.scope import WorkspaceScope
+from app.metrics.health import RunOutcome
+
+
+@dataclass(frozen=True)
+class Loaded:
+    outcomes: list[RunOutcome]
+    # Eval spec versions the newest verdicts came from.
+    spec_ids: frozenset[str]
+
+
+async def _hard_rule_keys(scope: WorkspaceScope, spec_ids: set[str]) -> dict[str, set[str]]:
+    rows = await scope.session.execute(
+        select(models.EvalSpecScorer.eval_spec_id, models.Scorer.key)
+        .join(models.Scorer, models.Scorer.id == models.EvalSpecScorer.scorer_id)
+        .where(
+            models.EvalSpecScorer.workspace_id == scope.workspace_id,
+            models.EvalSpecScorer.eval_spec_id.in_(spec_ids),
+            models.Scorer.severity == models.Severity.HARD,
+            models.Scorer.kind != models.ScorerKind.JUDGE,
+        )
+    )
+    keys: dict[str, set[str]] = {}
+    for spec_id, key in rows:
+        keys.setdefault(spec_id, set()).add(key)
+    return keys
+
+
+async def _load(scope: WorkspaceScope, runs: Select[models.Run]) -> Loaded:
+    run_rows = await scope.all(runs)
+    run_ids = [r.id for r in run_rows]
+    newest = (
+        await scope.session.execute(
+            select(models.Verdict)
+            .where(
+                models.Verdict.workspace_id == scope.workspace_id,
+                models.Verdict.run_id.in_(run_ids),
+            )
+            .ext(distinct_on(models.Verdict.run_id))
+            .order_by(models.Verdict.run_id, models.Verdict.created_at.desc())
+        )
+    ).scalars()
+    verdicts = {v.run_id: v for v in newest}
+    case_rows = await scope.session.execute(
+        select(models.DatasetCase.id, models.DatasetCase.case_key).where(
+            models.DatasetCase.workspace_id == scope.workspace_id,
+            models.DatasetCase.id.in_([r.case_id for r in run_rows if r.case_id]),
+        )
+    )
+    case_keys = {case_id: key for case_id, key in case_rows}
+    pending = set(
+        await scope.session.scalars(
+            select(models.JudgeAnswer.run_id).where(
+                models.JudgeAnswer.workspace_id == scope.workspace_id,
+                models.JudgeAnswer.run_id.in_(run_ids),
+                models.JudgeAnswer.trusted.is_(False),
+                models.JudgeAnswer.answer != models.JudgeAnswerValue.CANT_TELL,
+            )
+        )
+    )
+    spec_ids = {v.eval_spec_id for v in verdicts.values()}
+    hard = await _hard_rule_keys(scope, spec_ids)
+    outcomes = []
+    for run in run_rows:
+        verdict = verdicts.get(run.id)
+        failures = (
+            tuple(k for k in verdict.failed if k in hard.get(verdict.eval_spec_id, set()))
+            if verdict
+            else ()
+        )
+        outcomes.append(
+            RunOutcome(
+                run_id=run.id,
+                case_key=case_keys.get(run.case_id) if run.case_id else None,
+                status=verdict.status if verdict else None,
+                duration_ms=run.duration_ms,
+                cost_micros=run.cost_micros,
+                cost_known=run.cost_known,
+                hard_failures=failures,
+                pending_calibration=run.id in pending,
+            )
+        )
+    return Loaded(outcomes, frozenset(spec_ids))
+
+
+async def experiment_outcomes(scope: WorkspaceScope, experiment_id: str) -> Loaded:
+    return await _load(
+        scope, scope.query(models.Run).where(models.Run.experiment_id == experiment_id)
+    )
+
+
+async def live_outcomes(
+    scope: WorkspaceScope,
+    agent_id: str,
+    version_id: str | None,
+    start: datetime,
+    end: datetime,
+) -> Loaded:
+    """Live runs of an agent, or of one version of it, that started in [start, end)."""
+    statement = (
+        scope.query(models.Run)
+        .join(models.AgentVersion, models.AgentVersion.id == models.Run.agent_version_id)
+        .where(
+            models.AgentVersion.agent_id == agent_id,
+            models.Run.experiment_id.is_(None),
+            models.Run.started_at >= start,
+            models.Run.started_at < end,
+        )
+    )
+    if version_id is not None:
+        statement = statement.where(models.Run.agent_version_id == version_id)
+    return await _load(scope, statement)
+
+
+async def baseline_experiment(
+    scope: WorkspaceScope, candidate: models.Experiment
+) -> models.Experiment | None:
+    """What a new experiment is compared with: the newest finished experiment on the same
+    dataset version of the version last marked shipped, or else of any other version."""
+    version = await scope.require(models.AgentVersion, candidate.agent_version_id)
+    agent = await scope.require(models.Agent, version.agent_id)
+    others = (
+        scope.query(models.Experiment)
+        .join(models.AgentVersion, models.AgentVersion.id == models.Experiment.agent_version_id)
+        .where(
+            models.AgentVersion.agent_id == agent.id,
+            models.Experiment.dataset_version_id == candidate.dataset_version_id,
+            models.Experiment.status == models.ExperimentStatus.FINISHED,
+            models.Experiment.agent_version_id != candidate.agent_version_id,
+        )
+        .order_by(models.Experiment.created_at.desc())
+    )
+    if agent.shipped_version_id and agent.shipped_version_id != candidate.agent_version_id:
+        shipped = await scope.first(
+            others.where(models.Experiment.agent_version_id == agent.shipped_version_id)
+        )
+        if shipped is not None:
+            return shipped
+    return await scope.first(others)

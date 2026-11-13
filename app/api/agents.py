@@ -8,9 +8,11 @@ from app.api.dependencies import Db, Member, Viewer, scope_for
 from app.db import models
 from app.db.audit import record_audit
 from app.db.eval_specs import current_spec, require_current_spec, scorers_of, spec_version
-from app.db.scope import WorkspaceScope
+from app.db.scope import NotFoundError, WorkspaceScope
 from app.db.scores import run_ids
 from app.db.traces import agents_with_versions
+from app.metrics.comparison import Gates
+from app.metrics.comparisons import stored_gates
 from app.scoring.definitions import EvalSpecDefinition
 from app.scoring.job import queue_scoring
 from app.scoring.specs import save_definitions
@@ -31,6 +33,7 @@ class AgentOut(BaseModel):
     created_at: datetime
     versions: list[VersionOut]
     eval_spec_version: int | None
+    shipped_version_id: str | None
 
 
 class ScorerOut(BaseModel):
@@ -82,6 +85,7 @@ async def _agents(scope: WorkspaceScope, agent_id: str | None = None) -> list[Ag
                     for v in versions
                 ],
                 eval_spec_version=spec.version if spec else None,
+                shipped_version_id=agent.shipped_version_id,
             )
         )
     return found
@@ -183,3 +187,54 @@ async def rescore(
     return RescoreOut(
         eval_spec_version=spec.version, queued=queued, already_waiting=len(runs) - queued
     )
+
+
+@router.get("/{agent_id}/gates")
+async def gates(agent_id: str, principal: Viewer, session: Db) -> Gates:
+    """When a new version of the agent is worse enough to hold back."""
+    return await stored_gates(scope_for(session, principal), agent_id)
+
+
+@router.put("/{agent_id}/gates")
+async def save_gates(agent_id: str, body: Gates, principal: Member, session: Db) -> Gates:
+    """Set the agent's gates. Every comparison and evalctl run uses them unless told otherwise."""
+    scope = scope_for(session, principal)
+    agent = await scope.require(models.Agent, agent_id)
+    agent.gates = body.model_dump(mode="json")
+    record_audit(
+        scope,
+        principal.actor_type,
+        principal.actor_id,
+        "agent.gates_changed",
+        "agent",
+        agent.id,
+        agent.gates,
+    )
+    return body
+
+
+class ShippedIn(BaseModel):
+    version_id: str
+
+
+@router.post("/{agent_id}/shipped")
+async def mark_shipped(agent_id: str, body: ShippedIn, principal: Member, session: Db) -> AgentOut:
+    """Mark the version now in production. New versions are compared with it."""
+    scope = scope_for(session, principal)
+    agent = await scope.require(models.Agent, agent_id)
+    version = await scope.require(models.AgentVersion, body.version_id)
+    if version.agent_id != agent.id:
+        raise NotFoundError(f"agent_versions:{body.version_id}")
+    agent.shipped_version_id = version.id
+    record_audit(
+        scope,
+        principal.actor_type,
+        principal.actor_id,
+        "agent.version_shipped",
+        "agent",
+        agent.id,
+        {"version_id": version.id},
+    )
+    await scope.flush()
+    [found] = await _agents(scope, agent_id)
+    return found

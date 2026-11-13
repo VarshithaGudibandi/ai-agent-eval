@@ -514,6 +514,11 @@ class Agent(WorkspaceScoped, Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     name: Mapped[str]
+    # When a new version is worse enough to hold back; empty means the defaults.
+    gates: Mapped[dict[str, Any]] = mapped_column(server_default=text("'{}'::jsonb"))
+    # The version last marked as shipped, which comparisons use as the baseline. Checked
+    # by the API; not a foreign key, as agent_versions already points at agents.
+    shipped_version_id: Mapped[str | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
@@ -835,4 +840,20 @@ class ReviewLabel(WorkspaceScoped, Base):
     question_id: Mapped[str]
     question_hash: Mapped[str]
     answer: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Comparison(WorkspaceScoped, Base):
+    """Two sets of runs compared: two experiments, or two windows of live traffic."""
+
+    __tablename__ = "comparisons"
+    __table_args__ = (UniqueConstraint("workspace_id", "id"),)
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    # What each side is: {"experiment_id": ...} or {"agent_id", "version_id", "from", "to"}.
+    baseline: Mapped[dict[str, Any]]
+    candidate: Mapped[dict[str, Any]]
+    gates: Mapped[dict[str, Any]]
+    decision: Mapped[str]
+    result: Mapped[dict[str, Any]]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
