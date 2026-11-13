@@ -1,7 +1,11 @@
-.PHONY: up demo down logs ps migrate db test-db test test-paid lint format typecheck check
+.PHONY: up up-hosted demo down logs ps migrate db test-db test test-paid lint format typecheck check
 
 up:
 	docker compose up -d --build --wait
+
+# On a server: HTTPS for DOMAIN through Caddy, nothing else reachable from outside.
+up-hosted:
+	docker compose -f compose.yaml -f compose.hosted.yaml up -d --build --wait
 
 # Loads the demo workspace into the running stack. Set DEMO_MODE=true to show its sign-in button.
 demo:

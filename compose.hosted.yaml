@@ -1,0 +1,45 @@
+# Running on a server: layered on compose.yaml with
+#   docker compose -f compose.yaml -f compose.hosted.yaml up -d --build --wait
+# Caddy is the only thing reachable from outside. It gets a certificate for DOMAIN and
+# serves the API over HTTPS. Postgres and the API listen on the internal network only.
+
+x-hosted: &hosted
+  environment:
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-agent_eval}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-agent_eval}
+    APP_MASTER_KEY: ${APP_MASTER_KEY:?set APP_MASTER_KEY in .env}
+    # Cookies only travel over HTTPS, which Caddy provides.
+    SESSION_COOKIE_SECURE: "true"
+    DEMO_MODE: ${DEMO_MODE:-false}
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports: !reset []
+
+  migrate:
+    <<: *hosted
+
+  api:
+    <<: *hosted
+    ports: !reset []
+
+  worker:
+    <<: *hosted
+
+  caddy:
+    image: caddy:2-alpine
+    command: ["caddy", "reverse-proxy", "--from", "${DOMAIN:?set DOMAIN in .env}", "--to", "api:8000"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  caddy-data:

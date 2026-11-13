@@ -245,6 +245,7 @@ It reads results that already exist and runs nothing: to measure a change, the a
 | Command | What it does |
 | --- | --- |
 | `make up` | Build and start the stack, wait until healthy |
+| `make up-hosted` | Start on a server: HTTPS for `DOMAIN` through Caddy, with Postgres and the API reachable only inside. Needs `DOMAIN`, `APP_MASTER_KEY` and `POSTGRES_PASSWORD` |
 | `make demo` | Load the demo workspace into the running stack. Running it again changes nothing |
 | `make down` | Stop the stack |
 | `make logs` | Follow logs from every service |
@@ -289,6 +290,7 @@ All settings are in `.env.example`. The main ones:
 | --- | --- | --- |
 | `DATABASE_URL` | local Postgres | Database for running outside Docker. Compose sets its own |
 | `API_PORT` | `8000` | Host port for the API |
+| `DOMAIN` | none | Only for `make up-hosted`: the domain that points at the server. Caddy gets its HTTPS certificate |
 | `POSTGRES_PORT` | `5432` | Host port for Postgres |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 | `LOG_FORMAT` | `json` | `json` or `text` |
