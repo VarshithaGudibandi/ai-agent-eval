@@ -8,7 +8,7 @@ from app.api.dependencies import Db
 from app.db import models
 from app.web.formatting import version_name
 from app.web.rendering import Person, render
-from app.web.trace_view import selected_span, span_rows, tokens_per_second
+from app.web.trace_view import selected_span, span_rows, step_of, tokens_per_second
 
 router = APIRouter(include_in_schema=False)
 
@@ -39,6 +39,7 @@ async def run_page(
         root=rows[0].span,
         rows=rows,
         selected=selected,
+        steps={i: step_of(s, {r.span.span_id for r in rows}) for i, s in enumerate(run.scores)},
         speed=tokens_per_second(selected.span),
         model_steps=kinds.count("model"),
         tool_steps=kinds.count("tool"),

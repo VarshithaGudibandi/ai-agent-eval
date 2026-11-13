@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from app.api.runs import ScoreOut, SpanOut
-from app.web.trace_view import selected_span, span_rows, tokens_per_second
+from app.web.trace_view import selected_span, span_rows, step_of, tokens_per_second
 
 START = datetime(2026, 11, 12, 10, tzinfo=UTC)
 
@@ -76,3 +76,11 @@ def test_speed_needs_a_first_token_time() -> None:
     )
     assert tokens_per_second(model) == 100
     assert tokens_per_second(_span("m", None, 0, 800, attributes={"output_tokens": 50})) is None
+
+
+def test_a_score_on_the_whole_run_points_at_the_step_its_evidence_names() -> None:
+    rows = span_rows(SPANS)
+    run_level = _score(None, False).model_copy(update={"evidence": ["not-a-span", "late"]})
+    assert step_of(run_level, {r.span.span_id for r in rows}) == "late"
+    assert selected_span(rows, [run_level], None).span.span_id == "late"
+    assert step_of(_score(None, True), {"root"}) is None

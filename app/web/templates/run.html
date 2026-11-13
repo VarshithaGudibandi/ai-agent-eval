@@ -107,7 +107,7 @@
         {% if score.error %}could not grade{% elif score.value is none %}–{% else %}{{ score.value | round(2) }}{% endif %}
       </div>
       <div class="row-main">{{ score.error or score.reason }}</div>
-      {% if score.span_id %}<a class="row-side small" href="?span={{ score.span_id | urlencode }}#trace">Show step</a>{% endif %}
+      {% if steps[loop.index0] %}<a class="row-side small" href="?span={{ steps[loop.index0] | urlencode }}#trace">Show step</a>{% endif %}
     </div>
     {% endfor %}
     {% for answer in run.judge_answers %}

@@ -46,6 +46,15 @@ def span_rows(spans: list[SpanOut]) -> list[SpanRow]:
     return rows
 
 
+def step_of(score: ScoreOut, span_ids: set[str]) -> str | None:
+    """The step a score is about: its own span, or for a score on the whole run, the first
+    span its evidence names."""
+    for candidate in [score.span_id, *score.evidence]:
+        if candidate in span_ids:
+            return candidate
+    return None
+
+
 def selected_span(rows: list[SpanRow], scores: list[ScoreOut], asked: str | None) -> SpanRow:
     """The span to show: the one asked for, else the first a failing score points at, else
     the first with an error, else the root."""
@@ -53,8 +62,9 @@ def selected_span(rows: list[SpanRow], scores: list[ScoreOut], asked: str | None
     if asked in by_id:
         return by_id[asked]
     for score in scores:
-        if score.passed is False and score.span_id in by_id:
-            return by_id[score.span_id]
+        step = step_of(score, set(by_id))
+        if score.passed is False and step is not None:
+            return by_id[step]
     return next((r for r in rows if r.span.error), rows[0])
 
 
