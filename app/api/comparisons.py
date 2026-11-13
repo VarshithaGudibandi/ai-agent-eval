@@ -1,11 +1,12 @@
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Query, status
 from pydantic import BaseModel
 
 from app.api.dependencies import Db, Member, Viewer, scope_for
 from app.db import models
+from app.db.comparisons import comparisons_of
 from app.metrics.comparison import ComparisonResult
 from app.metrics.comparisons import NewComparison, run_comparison
 
@@ -43,6 +44,19 @@ async def create(body: NewComparison, principal: Member, session: Db) -> Compari
     row, _ = await run_comparison(scope, body)
     await session.refresh(row)
     return _out(row)
+
+
+@router.get("")
+async def comparisons(
+    principal: Viewer,
+    session: Db,
+    candidate_experiment_id: Annotated[str | None, Query(max_length=100)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[ComparisonOut]:
+    """Comparisons newest first: all of them, or those whose candidate is one experiment, such
+    as the one evalctl run stored for it."""
+    found = await comparisons_of(scope_for(session, principal), candidate_experiment_id, limit)
+    return [_out(row) for row in found]
 
 
 @router.get("/{comparison_id}")

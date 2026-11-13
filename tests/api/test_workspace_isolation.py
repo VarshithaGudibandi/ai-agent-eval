@@ -340,6 +340,14 @@ async def test_rescoring_cannot_name_another_workspaces_experiment(world: World)
     assert (response.status_code, response.json()) == (404, {"error": "not_found"})
 
 
+async def test_comparisons_cannot_be_found_by_another_workspaces_experiment(
+    world: World,
+) -> None:
+    path = f"/api/v1/comparisons?candidate_experiment_id={world.b_experiment_id}"
+    assert (await world.a_token.get(path)).json() == []
+    assert len((await world.b_person.get(path)).json()) == 1
+
+
 async def test_cases_cannot_be_made_from_another_workspaces_run(world: World) -> None:
     saved = await world.a_person.post(
         "/api/v1/datasets", json={"name": "a-data", "cases": [{"key": "k", "input": 1}]}
@@ -465,6 +473,7 @@ LIST_ROUTES = [
     "/api/v1/price-versions",
     "/api/v1/reports",
     "/api/v1/budgets",
+    "/api/v1/comparisons",
 ]
 BODY_ROUTES = {
     ("POST", "/api/v1/traces"),

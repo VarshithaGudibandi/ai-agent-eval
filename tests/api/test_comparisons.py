@@ -96,3 +96,20 @@ async def test_live_windows_compare_unpaired_and_mixed_sides_are_refused(
     assert result["candidate"]["runs"] == 1 and result["decision"] == "insufficient_data"
     mixed = {"baseline": body["baseline"], "candidate": {"experiment_id": "exp_x"}}
     assert (await owner.post("/api/v1/comparisons", json=mixed)).status_code == 422
+
+
+async def test_comparisons_can_be_found_by_their_candidate(new_owner: SignIn, app: FastAPI) -> None:
+    owner = await new_owner()
+    dataset_id = await add_dataset(owner)
+    v1 = await run_experiment(owner, app, dataset_id, CONFIG, crash=set())
+    v2 = await run_experiment(owner, app, dataset_id, V2, crash={0})
+    forward = {"baseline": {"experiment_id": v1["id"]}, "candidate": {"experiment_id": v2["id"]}}
+    backward = {"baseline": {"experiment_id": v2["id"]}, "candidate": {"experiment_id": v1["id"]}}
+    first = (await owner.post("/api/v1/comparisons", json=forward)).json()
+    await owner.post("/api/v1/comparisons", json=backward)
+    second = (await owner.post("/api/v1/comparisons", json=forward)).json()
+    found = (await owner.get(f"/api/v1/comparisons?candidate_experiment_id={v2['id']}")).json()
+    assert [c["id"] for c in found] == [second["id"], first["id"]]
+    assert found[0]["result"]["decision"] == "hold"
+    assert len((await owner.get("/api/v1/comparisons")).json()) == 3
+    assert len((await owner.get("/api/v1/comparisons?limit=1")).json()) == 1
