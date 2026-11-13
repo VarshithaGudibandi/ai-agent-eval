@@ -1,5 +1,4 @@
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Callable
 
 import httpx
 import pytest
@@ -7,12 +6,9 @@ from fastapi import FastAPI
 from sqlalchemy import select
 
 from app.db import models
-from app.scoring import judge_job
-from app.settings import Settings
 from tests.api.conftest import Caller, SignIn, score_now, viewer_caller
-from tests.api.seeding import add_dataset, run_experiment
+from tests.api.seeding import add_dataset, judged_live_run, run_experiment
 from tests.ingest.sample_traces import CONFIG, support_trace
-from tests.scoring.scripted_judge import AnsweringJudge
 
 CASES = [{"key": "where-is-my-order", "input": {"q": "where?"}, "expected": {"reply": "shipped"}}]
 
@@ -80,36 +76,8 @@ async def test_judged_runs_show_each_answer_and_members_can_send_them_for_review
     monkeypatch: pytest.MonkeyPatch,
     clients: Callable[[], httpx.AsyncClient],
 ) -> None:
-    scripted = AnsweringJudge({"says_shipped": ("yes", "shipped yesterday")})
-
-    @asynccontextmanager
-    async def provider(api_key: str, _: Settings) -> AsyncIterator[AnsweringJudge]:
-        yield scripted
-
-    monkeypatch.setattr(judge_job, "judge_provider", provider)
-    app.state.settings = app.state.settings.model_copy(update={"review_sample_share": 0.0})
     owner = await new_owner()
-    await owner.post(
-        "/api/v1/provider-credentials",
-        json={"provider": "gemini", "label": "j", "api_key": "AIza" + "B" * 35, "paid": True},
-    )
-    await owner.post("/api/v1/traces", json={"traces": [support_trace("t-0")]})
-    [agent] = (await owner.get("/api/v1/agents")).json()
-    question = {"id": "says_shipped", "text": "Does the reply say the order has shipped?"}
-    await owner.put(
-        f"/api/v1/agents/{agent['id']}/eval-spec",
-        json={
-            "scorers": [
-                {"key": "support", "check": "checklist", "params": {"questions": [question]}}
-            ]
-        },
-    )
-    await owner.post("/api/v1/traces", json={"traces": [support_trace("t-1")]})
-    await score_now(app, owner.workspace_id)
-    window = {"start": "2026-11-01T00:00:00Z", "end": "2026-12-01T00:00:00Z"}
-    await owner.post("/api/v1/judge-batches", json={"agent_id": agent["id"], **window})
-    await score_now(app, owner.workspace_id)
-    run_id = await _run_id(app, owner.workspace_id, "t-1")
+    run_id = await judged_live_run(owner, app, monkeypatch)
     page = await _page(owner, run_id)
     assert "Does the reply say the order has shipped?" in page
     assert "“shipped yesterday”" in page and "not trusted yet" in page

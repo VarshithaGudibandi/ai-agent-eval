@@ -1,10 +1,18 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
+from sqlalchemy import select
 
+from app.db import models
+from app.scoring import judge_job
+from app.settings import Settings
 from tests.api.conftest import Caller, score_now
 from tests.ingest.sample_traces import CONFIG, support_trace
+from tests.scoring.scripted_judge import AnsweringJudge
 
 # Seeding through the API, so tests see data exactly as the platform stores it.
 
@@ -82,3 +90,39 @@ async def send_live(
     for start in range(0, len(traces), 100):
         await owner.post("/api/v1/traces", json={"traces": traces[start : start + 100]})
     await score_now(app, owner.workspace_id)
+
+
+QUESTION = {"id": "says_shipped", "text": "Does the reply say the order has shipped?"}
+
+
+async def judged_live_run(owner: Caller, app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> str:
+    """A live run judged by a scripted checklist judge through a judge batch. Returns its id.
+    Nothing is sampled into the review queue."""
+    scripted = AnsweringJudge({"says_shipped": ("yes", "shipped yesterday")})
+
+    @asynccontextmanager
+    async def provider(api_key: str, _: Settings) -> AsyncIterator[AnsweringJudge]:
+        yield scripted
+
+    monkeypatch.setattr(judge_job, "judge_provider", provider)
+    app.state.settings = app.state.settings.model_copy(update={"review_sample_share": 0.0})
+    await owner.post(
+        "/api/v1/provider-credentials",
+        json={"provider": "gemini", "label": "j", "api_key": "AIza" + "B" * 35, "paid": True},
+    )
+    await owner.post("/api/v1/traces", json={"traces": [support_trace("t-0")]})
+    [agent] = (await owner.get("/api/v1/agents")).json()
+    judge = {"key": "support", "check": "checklist", "params": {"questions": [QUESTION]}}
+    await owner.put(f"/api/v1/agents/{agent['id']}/eval-spec", json={"scorers": [judge]})
+    await owner.post("/api/v1/traces", json={"traces": [support_trace("t-1")]})
+    await score_now(app, owner.workspace_id)
+    window = {"start": "2026-11-01T00:00:00Z", "end": "2026-12-01T00:00:00Z"}
+    await owner.post("/api/v1/judge-batches", json={"agent_id": agent["id"], **window})
+    await score_now(app, owner.workspace_id)
+    async with app.state.sessionmaker() as session:
+        run_id = await session.scalar(
+            select(models.Run.id)
+            .join(models.Trace, models.Trace.id == models.Run.trace_row_id)
+            .where(models.Trace.workspace_id == owner.workspace_id, models.Trace.trace_id == "t-1")
+        )
+    return str(run_id)
