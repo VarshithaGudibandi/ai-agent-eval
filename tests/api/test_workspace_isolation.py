@@ -191,6 +191,9 @@ def _foreign_id_attacks(w: Any) -> list[tuple[str, str, Any]]:
         ("PUT", f"/api/v1/agents/{w.b_agent_id}/gates", {"max_success_drop": 1}),
         ("POST", f"/api/v1/agents/{w.b_agent_id}/shipped", {"version_id": "x"}),
         ("GET", f"/api/v1/agents/{w.b_agent_id}/experiments", None),
+        ("GET", f"/api/v1/agents/{w.b_agent_id}/health", None),
+        ("GET", f"/api/v1/agents/{w.b_agent_id}/failures", None),
+        ("GET", f"/api/v1/agents/{w.b_agent_id}/alerts", None),
         ("GET", f"/api/v1/agent-versions/{w.b_agent_version_id}", None),
         ("PATCH", f"/api/v1/agent-versions/{w.b_agent_version_id}", {"label": "stolen"}),
         # Bodies naming B's experiment or agent must not compare B's runs.
@@ -434,6 +437,9 @@ FOREIGN_ID_ROUTES = {
     ("PUT", "/api/v1/agents/{agent_id}/gates"),
     ("POST", "/api/v1/agents/{agent_id}/shipped"),
     ("GET", "/api/v1/agents/{agent_id}/experiments"),
+    ("GET", "/api/v1/agents/{agent_id}/health"),
+    ("GET", "/api/v1/agents/{agent_id}/failures"),
+    ("GET", "/api/v1/agents/{agent_id}/alerts"),
     ("GET", "/api/v1/agent-versions/{version_id}"),
     ("PATCH", "/api/v1/agent-versions/{version_id}"),
 }

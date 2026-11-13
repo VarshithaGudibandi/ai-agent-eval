@@ -100,3 +100,52 @@ def test_the_same_inputs_give_the_same_intervals() -> None:
     base = _side({c: (3 if n % 3 else 1) for n, c in enumerate(CASES)})
     cand = _side({c: (2 if n % 2 else 3) for n, c in enumerate(CASES)})
     assert _compare(base, cand).metrics == _compare(base, cand).metrics
+
+
+def _live(passed: int, failed: int, prefix: str) -> list[RunOutcome]:
+    return [
+        RunOutcome(
+            run_id=f"{prefix}-{n}",
+            case_key=None,
+            status="passed" if n < passed else "failed",
+            duration_ms=1000,
+            cost_micros=100,
+            cost_known=True,
+        )
+        for n in range(passed + failed)
+    ]
+
+
+def _quick(base: list[RunOutcome], cand: list[RunOutcome]) -> ComparisonResult:
+    live = _facts("x", dataset_version_id=None, repetitions=None)
+    return compare(base, cand, live, live, Gates(), paired=False, seed=1, bootstrap=False)
+
+
+def test_the_quick_interval_agrees_with_the_bootstrap_on_shares() -> None:
+    base, cand = _live(180, 20, "b"), _live(150, 50, "c")
+    quick = {m.name: m for m in _quick(base, cand).metrics}["success_rate"]
+    live = _facts("x", dataset_version_id=None, repetitions=None)
+    slow = {
+        m.name: m for m in compare(base, cand, live, live, Gates(), paired=False, seed=1).metrics
+    }["success_rate"]
+    assert quick.real and slow.real
+    assert quick.low is not None and slow.low is not None
+    assert abs(quick.low - slow.low) < 0.02
+    # Metrics that are not a share get no quick interval, so they never decide on their own.
+    assert {m.name for m in _quick(base, cand).metrics if m.low is not None} == {
+        "success_rate",
+        "rule_violation_rate",
+    }
+
+
+def test_the_quick_interval_needs_enough_runs_and_holds_only_on_a_real_drop() -> None:
+    # A 20-point drop on 20 runs a side is not trusted at all.
+    thin = _quick(_live(18, 2, "b"), _live(14, 6, "c"))
+    assert {m.name: m.real for m in thin.metrics}["success_rate"] is None
+    assert thin.decision == "insufficient_data"
+    # A 1-point wobble on plenty of runs is noise.
+    wobble = _quick(_live(900, 100, "b"), _live(890, 110, "c"))
+    assert {m.name: m.real for m in wobble.metrics}["success_rate"] is False
+    assert wobble.decision == "ship"
+    drop = _quick(_live(900, 100, "b"), _live(700, 300, "c"))
+    assert drop.decision == "hold" and "success rate down 20.0 points" in drop.reasons[0]

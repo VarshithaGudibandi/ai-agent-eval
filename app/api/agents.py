@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Response, status
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
 from app.api.dependencies import Db, Member, Viewer, scope_for
 from app.api.experiments import ExperimentOut, experiment_out
@@ -16,6 +16,8 @@ from app.db.outcomes import daily_aggregates
 from app.db.scope import NotFoundError, WorkspaceScope
 from app.db.scores import run_ids
 from app.db.traces import agents_with_versions
+from app.metrics.agent_health import AgentHealth, agent_health, current_runs, failing_ways
+from app.metrics.alerts import AlertsOut, agent_alerts
 from app.metrics.comparison import Gates
 from app.metrics.comparisons import stored_gates
 from app.metrics.health import Health
@@ -264,6 +266,76 @@ async def mark_shipped(agent_id: str, body: ShippedIn, principal: Member, sessio
     await scope.flush()
     [found] = await _agents(scope, agent_id)
     return found
+
+
+# Live windows end now unless the caller names another moment, as a test or an "as of" view.
+AsOf = Annotated[AwareDatetime | None, Query()]
+
+
+def _end(end: datetime | None) -> datetime:
+    return end or datetime.now(UTC)
+
+
+@router.get("/{agent_id}/health")
+async def health(agent_id: str, principal: Viewer, session: Db, end: AsOf = None) -> AgentHealth:
+    """How the agent is doing: its newest experiment against that one's baseline, or with
+    only live runs, the last week against the week before."""
+    scope = scope_for(session, principal)
+    await scope.require(models.Agent, agent_id)
+    return await agent_health(scope, agent_id, await stored_gates(scope, agent_id), _end(end))
+
+
+class FailureGroupOut(BaseModel):
+    scorer_key: str
+    question_id: str | None
+    count: int
+    reasons: list[str]
+    example_runs: list[str]
+
+
+class FailuresOut(BaseModel):
+    runs: int
+    failed: int
+    groups: list[FailureGroupOut]
+
+
+@router.get("/{agent_id}/failures")
+async def failures(
+    agent_id: str,
+    principal: Viewer,
+    session: Db,
+    experiment_id: Annotated[str | None, Query(max_length=100)] = None,
+    end: AsOf = None,
+) -> FailuresOut:
+    """Where the agent fails: the commonest ways the runs of an experiment (the newest when
+    none is named) or, with no experiments, the last week of live runs failed."""
+    scope = scope_for(session, principal)
+    await scope.require(models.Agent, agent_id)
+    loaded = await current_runs(scope, agent_id, experiment_id, _end(end))
+    groups = await failing_ways(scope, loaded)
+    return FailuresOut(
+        runs=len(loaded.outcomes),
+        failed=sum(o.status == models.VerdictStatus.FAILED for o in loaded.outcomes),
+        groups=[
+            FailureGroupOut(
+                scorer_key=g.scorer_key,
+                question_id=g.question_id,
+                count=g.count,
+                reasons=list(g.reasons),
+                example_runs=list(g.run_ids[:5]),
+            )
+            for g in groups
+        ],
+    )
+
+
+@router.get("/{agent_id}/alerts")
+async def alerts(agent_id: str, principal: Viewer, session: Db, end: AsOf = None) -> AlertsOut:
+    """Alerts on live traffic, worked out now: a gate the last week trips against the week
+    before, or a judge schedule that could not start."""
+    scope = scope_for(session, principal)
+    await scope.require(models.Agent, agent_id)
+    return await agent_alerts(scope, agent_id, await stored_gates(scope, agent_id), _end(end))
 
 
 class DayOut(BaseModel):

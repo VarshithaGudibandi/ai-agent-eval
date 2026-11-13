@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import FastAPI
@@ -52,3 +53,32 @@ async def run_experiment(
     await owner.post(f"/api/v1/experiments/{experiment['id']}/finish")
     await score_now(app, owner.workspace_id)
     return experiment
+
+
+# The sample trace starts at 2026-11-12T10:00:00Z; live helpers move it to the time asked.
+SAMPLE_START = datetime.fromisoformat("2026-11-12T10:00:00+00:00")
+
+
+def at(trace: dict[str, Any], when: datetime) -> dict[str, Any]:
+    """The trace with every span moved so the run starts at when."""
+    shift = when - SAMPLE_START
+    for span in trace["spans"]:
+        for field in ("start", "end"):
+            moved = datetime.fromisoformat(span[field]) + shift
+            span[field] = moved.isoformat()
+    return trace
+
+
+async def send_live(
+    owner: Caller, app: FastAPI, prefix: str, day: datetime, passed: int, failed: int
+) -> None:
+    """Live runs spread over one day, the last `failed` of them crashing, all scored."""
+    traces = []
+    for n in range(passed + failed):
+        trace = at(support_trace(f"{prefix}-{n}"), day + timedelta(minutes=n))
+        if n >= passed:
+            trace["spans"][0]["error"] = "RuntimeError: timed out"
+        traces.append(trace)
+    for start in range(0, len(traces), 100):
+        await owner.post("/api/v1/traces", json={"traces": traces[start : start + 100]})
+    await score_now(app, owner.workspace_id)

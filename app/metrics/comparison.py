@@ -2,6 +2,7 @@ import hashlib
 import random
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from statistics import NormalDist
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,6 +24,8 @@ RESAMPLES = 2000
 CONFIDENCE = 0.95
 MIN_CASES = 5
 MIN_RUNS = 30
+# The z value for CONFIDENCE, for the quick interval.
+Z = NormalDist().inv_cdf(1 - (1 - CONFIDENCE) / 2)
 
 CaseOutcome = Literal["worse", "better", "same"]
 Decision = Literal["ship", "hold", "insufficient_data"]
@@ -175,6 +178,29 @@ def _interval(
     ]
 
 
+# The metrics that are a share of decided runs, which the quick interval can cover.
+PROPORTIONS: dict[str, Callable[[RunOutcome], bool]] = {
+    "success_rate": lambda r: r.passed,
+    "rule_violation_rate": lambda r: bool(r.hard_failures),
+}
+
+
+def _quick_interval(
+    name: str, baseline: Sequence[RunOutcome], candidate: Sequence[RunOutcome]
+) -> tuple[float | None, float | None]:
+    """A normal-approximation interval for a difference of two shares, with no resampling,
+    so a page can afford it on thousands of live runs. Other metrics get none, and with fewer
+    than MIN_RUNS decided runs on a side the approximation is not trusted at all."""
+    pick = PROPORTIONS.get(name)
+    b = [pick(r) for r in baseline if r.decided] if pick else []
+    c = [pick(r) for r in candidate if r.decided] if pick else []
+    if min(len(b), len(c)) < MIN_RUNS:
+        return None, None
+    pb, pc = sum(b) / len(b), sum(c) / len(c)
+    spread = Z * (pb * (1 - pb) / len(b) + pc * (1 - pc) / len(c)) ** 0.5
+    return pc - pb - spread, pc - pb + spread
+
+
 def _cases(
     baseline: Sequence[RunOutcome], candidate: Sequence[RunOutcome]
 ) -> tuple[list[CaseResult], list[tuple[list[RunOutcome], list[RunOutcome]]]]:
@@ -215,13 +241,20 @@ def compare(
     gates: Gates,
     paired: bool,
     seed: int,
+    bootstrap: bool = True,
 ) -> ComparisonResult:
+    """Compare two sides. Without bootstrap, only success and rule violations get an
+    interval (see _quick_interval), which is enough for the gates to decide."""
     notes, blocking = fairness(baseline_facts, candidate_facts)
     cases, groups = _cases(baseline, candidate) if paired else ([], [])
     metrics = []
     for name, stat, higher_is_better in METRICS:
         b, c = stat(baseline), stat(candidate)
-        low, high = _interval(stat, groups if paired else None, baseline, candidate, seed)
+        low, high = (
+            _interval(stat, groups if paired else None, baseline, candidate, seed)
+            if bootstrap
+            else _quick_interval(name, baseline, candidate)
+        )
         delta = None if b is None or c is None else c - b
         metrics.append(
             MetricChange(
