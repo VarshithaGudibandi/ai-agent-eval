@@ -22,6 +22,7 @@ from app.db.jobs import (
 )
 from app.db.schema_status import schema_status
 from app.jobs.leases import LeaseOutcome, hold_lease
+from app.metrics.aggregate_job import AGGREGATE_DAY, aggregate_day_job
 from app.scoring.job import SCORE_RUN, score_run_job
 from app.scoring.judge_job import JUDGE_RUN, judge_run_job
 from app.settings import Settings, get_settings
@@ -64,7 +65,11 @@ class JobContext:
 Handler = Callable[[JobContext], Coroutine[Any, Any, None]]
 
 # Job kinds this platform runs, by name. Stages add theirs as they are built.
-HANDLERS: dict[str, Handler] = {SCORE_RUN: score_run_job, JUDGE_RUN: judge_run_job}
+HANDLERS: dict[str, Handler] = {
+    SCORE_RUN: score_run_job,
+    JUDGE_RUN: judge_run_job,
+    AGGREGATE_DAY: aggregate_day_job,
+}
 
 
 class Worker:

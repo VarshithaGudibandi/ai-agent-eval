@@ -1,18 +1,20 @@
-from datetime import datetime
-from typing import Any
+from datetime import UTC, date, datetime, timedelta
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Query, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import Db, Member, Viewer, scope_for
 from app.db import models
 from app.db.audit import record_audit
 from app.db.eval_specs import current_spec, require_current_spec, scorers_of, spec_version
+from app.db.outcomes import daily_aggregates
 from app.db.scope import NotFoundError, WorkspaceScope
 from app.db.scores import run_ids
 from app.db.traces import agents_with_versions
 from app.metrics.comparison import Gates
 from app.metrics.comparisons import stored_gates
+from app.metrics.health import Health
 from app.scoring.definitions import EvalSpecDefinition
 from app.scoring.job import queue_scoring
 from app.scoring.specs import save_definitions
@@ -238,3 +240,32 @@ async def mark_shipped(agent_id: str, body: ShippedIn, principal: Member, sessio
     await scope.flush()
     [found] = await _agents(scope, agent_id)
     return found
+
+
+class DayOut(BaseModel):
+    agent_version_id: str
+    day: date
+    runs: int
+    health: Health
+
+
+@router.get("/{agent_id}/health/daily")
+async def daily_health(
+    agent_id: str,
+    principal: Viewer,
+    session: Db,
+    days: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> list[DayOut]:
+    """Health of the agent's live runs, per version and per day, for the last days (UTC)."""
+    scope = scope_for(session, principal)
+    await scope.require(models.Agent, agent_id)
+    since = datetime.now(UTC).date() - timedelta(days=days - 1)
+    return [
+        DayOut(
+            agent_version_id=a.agent_version_id,
+            day=a.day,
+            runs=a.runs,
+            health=Health.model_validate(a.health),
+        )
+        for a in await daily_aggregates(scope, agent_id, since)
+    ]

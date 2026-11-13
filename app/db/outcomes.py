@@ -1,10 +1,12 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
+from typing import Any
 
-from sqlalchemy import Select, select
-from sqlalchemy.dialects.postgresql import distinct_on
+from sqlalchemy import Select, func, select
+from sqlalchemy.dialects.postgresql import distinct_on, insert
 
 from app.db import models
+from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
 from app.metrics.health import RunOutcome
 
@@ -144,3 +146,35 @@ async def baseline_experiment(
         if shipped is not None:
             return shipped
     return await scope.first(others)
+
+
+async def save_aggregate(
+    scope: WorkspaceScope, version_id: str, day: date, runs: int, health: dict[str, Any]
+) -> None:
+    """Store a day's health, replacing what was stored for that version and day."""
+    await scope.session.execute(
+        insert(models.Aggregate)
+        .values(
+            id=new_id("agg"),
+            workspace_id=scope.workspace_id,
+            agent_version_id=version_id,
+            day=day,
+            runs=runs,
+            health=health,
+        )
+        .on_conflict_do_update(
+            index_elements=["agent_version_id", "day"],
+            set_={"runs": runs, "health": health, "updated_at": func.now()},
+        )
+    )
+
+
+async def daily_aggregates(
+    scope: WorkspaceScope, agent_id: str, since: date
+) -> list[models.Aggregate]:
+    return await scope.all(
+        scope.query(models.Aggregate)
+        .join(models.AgentVersion, models.AgentVersion.id == models.Aggregate.agent_version_id)
+        .where(models.AgentVersion.agent_id == agent_id, models.Aggregate.day >= since)
+        .order_by(models.Aggregate.day, models.Aggregate.agent_version_id)
+    )

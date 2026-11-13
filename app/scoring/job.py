@@ -4,6 +4,7 @@ from app.db.eval_specs import spec_at
 from app.db.jobs import enqueue, require_lease
 from app.db.scope import WorkspaceScope
 from app.db.scores import NewScore, save_scores, save_verdict, scoring_input
+from app.metrics.aggregate_job import queue_aggregate
 from app.scoring.engine import score, verdict
 from app.scoring.judge_job import queue_judging
 from app.scoring.run_view import RunView
@@ -66,3 +67,4 @@ async def score_run_job(ctx: "JobContext") -> None:
             list(result.failed),
             list(result.errored),
         )
+        await queue_aggregate(scope, data.run)

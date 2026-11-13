@@ -78,9 +78,10 @@ async def test_rescoring_grades_old_runs_under_the_new_spec(
         "queued": 0,
         "already_waiting": 2,
     }
-    assert await score_now(app, owner.workspace_id) == 2
+    # Two scoring jobs, then one job to rebuild the day the two live runs fall on.
+    assert await score_now(app, owner.workspace_id) == 3
     assert (await owner.post(rescore, json={})).json()["queued"] == 2
-    assert await score_now(app, owner.workspace_id) == 2
+    assert await score_now(app, owner.workspace_id) == 3
 
 
 async def test_a_judge_from_a_pack_can_be_saved_and_read(new_owner: SignIn) -> None:
@@ -95,3 +96,20 @@ async def test_a_judge_from_a_pack_can_be_saved_and_read(new_owner: SignIn) -> N
     [judge] = (await owner.get(path)).json()["scorers"]
     assert (judge["kind"], judge["severity"], judge["threshold"]) == ("judge", "soft", 0.7)
     assert len(judge["params"]["questions"]) == 3
+
+
+async def test_live_health_is_kept_per_version_and_day(new_owner: SignIn, app: FastAPI) -> None:
+    owner = await new_owner()
+    crashed = support_trace("t-2")
+    crashed["spans"][0]["error"] = "RuntimeError: down"
+    await owner.post("/api/v1/traces", json={"traces": [support_trace("t-1"), crashed]})
+    await score_now(app, owner.workspace_id)
+    [agent] = (await owner.get("/api/v1/agents")).json()
+    path = f"/api/v1/agents/{agent['id']}/health/daily?days=365"
+    [day] = (await owner.get(path)).json()
+    assert (day["day"], day["runs"], day["health"]["success_rate"]) == ("2026-11-12", 2, 0.5)
+    # A later run on the same day rebuilds that day, not a second row.
+    await owner.post("/api/v1/traces", json={"traces": [support_trace("t-3")]})
+    await score_now(app, owner.workspace_id)
+    [day] = (await owner.get(path)).json()
+    assert (day["runs"], day["health"]["success_rate"]) == (3, 2 / 3)

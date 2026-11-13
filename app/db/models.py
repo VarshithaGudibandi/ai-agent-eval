@@ -1,10 +1,11 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, ClassVar
 
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -857,3 +858,21 @@ class Comparison(WorkspaceScoped, Base):
     decision: Mapped[str]
     result: Mapped[dict[str, Any]]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Aggregate(WorkspaceScoped, Base):
+    """Health of one agent version's live runs on one day, rebuilt from its verdicts."""
+
+    __tablename__ = "aggregates"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("agent_version_id", "day"),
+        workspace_fk("agent_version_id", "agent_versions"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    agent_version_id: Mapped[str]
+    day: Mapped[date] = mapped_column(Date)
+    runs: Mapped[int]
+    health: Mapped[dict[str, Any]]
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())

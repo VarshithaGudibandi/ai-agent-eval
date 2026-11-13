@@ -14,6 +14,7 @@ from app.db.jobs import LeaseLostError, enqueue, require_lease
 from app.db.reviews import NewJudgeAnswer, add_review_item, labelled_answers, save_judge_answers
 from app.db.scope import WorkspaceScope
 from app.db.scores import NewScore, save_scores, save_verdict, scores_by, scoring_input
+from app.metrics.aggregate_job import queue_aggregate
 from app.providers.contract import GenerationSettings, Message, ModelProvider, ModelResponse
 from app.providers.credentials import active_credential, decrypt_credential
 from app.providers.gemini import GeminiProvider
@@ -300,6 +301,7 @@ async def _store(
             list(final.failed),
             list(final.errored),
         )
+        await queue_aggregate(scope, prepared.run)
         if answers and (borderline or _sampled(run_id, ctx.settings.review_sample_share)):
             reason = models.ReviewReason.BORDERLINE if borderline else models.ReviewReason.SAMPLED
             await add_review_item(scope, run_id, reason)

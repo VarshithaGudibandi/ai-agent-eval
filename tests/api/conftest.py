@@ -18,6 +18,7 @@ from app.db.ids import new_id
 from app.db.jobs import Claim, finish
 from app.db.scope import WorkspaceScope
 from app.jobs.worker import JobContext
+from app.metrics.aggregate_job import AGGREGATE_DAY, aggregate_day_job
 from app.scoring.job import SCORE_RUN, score_run_job
 from app.scoring.judge_job import JUDGE_RUN, judge_run_job
 from app.settings import Settings
@@ -144,7 +145,11 @@ async def score_now(app: FastAPI, workspace_id: str) -> int:
     so tests take their own workspace's jobs directly.
     """
     sessionmaker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
-    handlers = {SCORE_RUN: score_run_job, JUDGE_RUN: judge_run_job}
+    handlers = {
+        SCORE_RUN: score_run_job,
+        JUDGE_RUN: judge_run_job,
+        AGGREGATE_DAY: aggregate_day_job,
+    }
     done = 0
     while True:
         async with sessionmaker.begin() as session:
