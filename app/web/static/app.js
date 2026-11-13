@@ -12,22 +12,35 @@ function safeNext() {
   return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/settings";
 }
 
-function fieldValue(field) {
+async function fieldValue(field) {
   if (field.dataset.type === "int") return Number(field.value);
+  if (field.dataset.type === "list") return field.value.split(/[\s,]+/).filter(Boolean);
+  // A JSON Lines file, one object a line, as the SDK's Eval reads it.
+  if (field.dataset.type === "jsonl") {
+    const text = await field.files[0].text();
+    return text.split("\n").filter((line) => line.trim()).map((line, n) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        throw new Error(`Line ${n + 1} of the file is not valid JSON.`);
+      }
+    });
+  }
   // A date is the start of that day in UTC, which is how windows are stored.
   if (field.dataset.type === "date") return `${field.value}T00:00:00Z`;
   return field.value;
 }
 
-// A field named "baseline.experiment_id" fills body.baseline.experiment_id.
-function formBody(form) {
+// A field named "baseline.experiment_id" fills body.baseline.experiment_id. A field the
+// form's URL names, as in /datasets/{dataset_id}/cases, goes into the URL instead.
+async function formBody(form, used) {
   const body = {};
   for (const field of form.elements) {
-    if (!field.name || field.value === "") continue;
+    if (!field.name || field.value === "" || used.has(field.name)) continue;
     const path = field.name.split(".");
     let target = body;
     for (const key of path.slice(0, -1)) target = target[key] = target[key] || {};
-    target[path[path.length - 1]] = fieldValue(field);
+    target[path[path.length - 1]] = await fieldValue(field);
   }
   return body;
 }
@@ -52,15 +65,25 @@ async function send(element) {
     credentials: "same-origin",
     headers: { "x-csrf-token": csrfToken(), accept: "application/json" },
   };
+  const used = new Set();
+  const url = element.dataset.api.replace(/\{([a-z_]+)\}/g, (_, name) => {
+    used.add(name);
+    return encodeURIComponent(form.elements[name].value);
+  });
   if (form || element.dataset.body) {
     options.headers["content-type"] = "application/json";
-    options.body = form ? JSON.stringify(formBody(form)) : element.dataset.body;
+    try {
+      options.body = form ? JSON.stringify(await formBody(form, used)) : element.dataset.body;
+    } catch (error) {
+      if (errorBox) errorBox.textContent = error.message;
+      return;
+    }
   }
-  const response = await fetch(element.dataset.api, options);
+  const response = await fetch(url, options);
   const text = await response.text();
   const payload = text ? JSON.parse(text) : null;
   if (!response.ok) {
-    if (response.status === 401 && !element.dataset.api.endsWith("/login")) {
+    if (response.status === 401 && !url.endsWith("/login")) {
       location.href = `/login?next=${encodeURIComponent(location.pathname)}`;
       return;
     }

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
-from app.api import agent_versions, agents, experiments, reports
+from app.api import agent_versions, agents, datasets, experiments, reports
 from app.api.dependencies import Db
 from app.db import models
 from app.explain.diff import tool_names
@@ -65,4 +65,6 @@ async def overview(request: Request, agent_id: str, principal: Person, session: 
         timeline=timeline,
         report=report,
         failures=await agents.failures(agent_id, principal, session, experiment_id=experiment_id),
+        datasets=await datasets.datasets(principal, session),
+        can_edit=principal.role in (models.Role.MEMBER, models.Role.OWNER),
     )

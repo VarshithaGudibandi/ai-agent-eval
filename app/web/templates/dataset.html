@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% from "parts/macros.html" import heading, empty, status_badge %}
+{% block title %}{{ dataset.name }} v{{ version.version }} · AI Agent Eval{% endblock %}
+{% block main %}
+<div class="page-head">
+  <div>
+    <div class="breadcrumb"><a href="/datasets">Datasets</a> / {{ dataset.name }}</div>
+    <h1>{{ dataset.name }} · v{{ version.version }}</h1>
+  </div>
+</div>
+
+<section aria-labelledby="d1">
+  {{ heading(1, "d1", "Dataset", "this version and its tags") }}
+  <div class="card">
+    <dl class="facts">
+      <div><dt>Version</dt><dd>v{{ version.version }} of {{ dataset.versions | length }}{% if version.id != newest.id %} · <a href="/dataset-versions/{{ newest.id }}">see the newest</a>{% endif %}</dd></div>
+      <div><dt>Cases</dt><dd>{{ version.case_count }}</dd></div>
+      <div><dt>Have run</dt><dd>{{ ran }} of {{ version.case_count }}</dd></div>
+      <div><dt>Content hash</dt><dd><code>{{ version.content_hash | short(16) }}</code></dd></div>
+    </dl>
+    {% if tags %}
+    <div class="chips">
+      <span class="muted small">Tags</span>
+      {% for key, values in tags | dictsort %}{% for value, n in values | dictsort %}<code class="chip">{{ key }}={{ value }} ({{ n }})</code>{% endfor %}{% endfor %}
+    </div>
+    {% endif %}
+    {% if dataset.versions | length > 1 %}
+    <p class="small">Versions: {% for v in dataset.versions %}{% if v.id == version.id %}<strong>v{{ v.version }}</strong>{% else %}<a href="/dataset-versions/{{ v.id }}">v{{ v.version }}</a>{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+    {% endif %}
+  </div>
+</section>
+
+<section aria-labelledby="d2">
+  {{ heading(2, "d2", "Cases", "input, what should happen, and the newest result") }}
+  {% if not version.cases %}
+    {{ empty("No cases", "This version holds no cases.") }}
+  {% else %}
+  <div class="card table-scroll">
+    <table>
+      <thead><tr><th scope="col">Case</th><th scope="col">Input</th><th scope="col">Expected</th><th scope="col">Last result</th></tr></thead>
+      <tbody>
+        {% for c in version.cases %}
+        <tr>
+          <th scope="row">{{ c.key }}{% if c.notes %}<div class="muted small">{{ c.notes | truncate(120) }}</div>{% endif %}</th>
+          <td><code>{{ c.input | as_text | truncate(160) }}</code></td>
+          <td>{% if c.expected is none %}<span class="muted">none</span>{% else %}<code>{{ c.expected | as_text | truncate(120) }}</code>{% endif %}</td>
+          <td>{% if c.last_result %}<a href="/runs/{{ c.last_result.run_id }}">{{ status_badge(c.last_result.status) }}</a>{% else %}<span class="muted">never run</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+<section aria-labelledby="d3">
+  {{ heading(3, "d3", "Add cases", "each addition makes a new version, so older results stay comparable") }}
+  {% if not can_edit %}
+    <p class="muted small">A member can add cases.</p>
+  {% else %}
+  <div class="card">
+    <form class="inline" data-api="/api/v1/datasets/{{ dataset.id }}/cases" data-method="POST" data-redirect="/dataset-versions/{id}">
+      <label>From a JSON Lines file <input type="file" name="cases" accept=".jsonl,.json,application/json" data-type="jsonl" required></label>
+      <button type="submit">Add from file</button>
+      <p class="error" role="alert"></p>
+    </form>
+    <form class="inline" data-api="/api/v1/datasets/{{ dataset.id }}/cases" data-method="POST" data-redirect="/dataset-versions/{id}">
+      <label>From runs: run ids, one a line or comma separated <textarea name="run_ids" data-type="list" rows="2" required></textarea></label>
+      <button type="submit">Add from runs</button>
+      <p class="error" role="alert"></p>
+    </form>
+    <p class="muted small">A run becomes a case with its input and no expected outcome; add one later in a file if you need it. The same run is never added twice. The agent page can add failing live runs here in one click.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

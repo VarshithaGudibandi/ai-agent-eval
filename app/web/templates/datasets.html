@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "parts/macros.html" import empty %}
+{% block title %}Datasets · AI Agent Eval{% endblock %}
+{% block main %}
+<h1>Datasets</h1>
+{% if not datasets %}
+{% call empty("No datasets yet", "A dataset is the set of cases an eval runs. Eval uploads one from a JSON Lines file, one case a line:") %}
+<pre><code>{"key": "refund-1", "input": {"message": "My headphones broke"}, "expected": {"refund": 59.0}}</code></pre>
+<p class="muted small">Only <code>key</code> and <code>input</code> are required. Keys stay the same across versions so results pair up case by case.</p>
+{% endcall %}
+{% else %}
+<div class="card">
+  <table>
+    <thead><tr><th scope="col">Dataset</th><th scope="col">Newest version</th><th scope="col">Cases</th><th scope="col">Versions</th></tr></thead>
+    <tbody>
+      {% for d in datasets %}
+      {% set newest = d.versions[-1] if d.versions else none %}
+      <tr>
+        <th scope="row">{% if newest %}<a href="/dataset-versions/{{ newest.id }}">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}</th>
+        <td>{% if newest %}v{{ newest.version }}{% endif %}</td>
+        <td>{{ newest.case_count if newest else 0 }}</td>
+        <td>{{ d.versions | length }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -16,6 +16,7 @@
       <nav aria-label="Main">
         {% set here = request.url.path %}
         <a href="/agents" {% if here.startswith("/agents") or here.startswith("/runs") %}aria-current="page"{% endif %}>Agents</a>
+        <a href="/datasets" {% if here.startswith("/dataset") %}aria-current="page"{% endif %}>Datasets</a>
         <a href="/compare" {% if here.startswith("/compare") or here.startswith("/comparisons") %}aria-current="page"{% endif %}>Compare</a>
         <a href="/settings" {% if here.startswith("/settings") %}aria-current="page"{% endif %}>Settings</a>
       </nav>

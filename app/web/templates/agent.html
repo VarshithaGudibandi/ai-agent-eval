@@ -117,6 +117,21 @@
     <p class="small">{{ failures.failed }} of {{ failures.runs }} runs failed. Examples:
       {% for g in failures.groups[:1] %}{% for run_id in g.example_runs %}<a href="/runs/{{ run_id }}">run {{ loop.index }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% endfor %}
     </p>
+    {% if not (health.current and health.current.experiment_id) and can_edit %}
+      {% set examples = [] %}{% for g in failures.groups %}{% for r in g.example_runs %}{% if r not in examples %}{% set _ = examples.append(r) %}{% endif %}{% endfor %}{% endfor %}
+      {% if datasets %}
+      <form class="inline" data-api="/api/v1/datasets/{dataset_id}/cases" data-method="POST" data-redirect="/dataset-versions/{id}">
+        <input type="hidden" name="run_ids" data-type="list" value="{{ examples | join(',') }}">
+        <label>Turn these {{ examples | length }} failing runs into test cases in
+          <select name="dataset_id">{% for d in datasets %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select>
+        </label>
+        <button type="submit">Add to dataset</button>
+        <p class="error" role="alert"></p>
+      </form>
+      {% else %}
+      <p class="muted small">Make a dataset to keep failing live runs as test cases.</p>
+      {% endif %}
+    {% endif %}
   </div>
   {% endif %}
 </section>
