@@ -19,6 +19,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "agent-eval-cli",
     "agent-eval-sdk",
     "mypy>=2.4.1",
     "pytest>=9.2.0",
@@ -28,10 +29,11 @@ dev = [
 ]
 
 [tool.uv.workspace]
-members = ["sdk"]
+members = ["sdk", "cli"]
 
 [tool.uv.sources]
 agent-eval-sdk = { workspace = true }
+agent-eval-cli = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -55,7 +57,7 @@ select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "S", "RUF"]
 ignore = ["ASYNC109"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["agent_eval", "app", "tests"]
+known-first-party = ["agent_eval", "app", "evalctl", "tests"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106"]

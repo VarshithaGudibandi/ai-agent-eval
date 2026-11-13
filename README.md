@@ -2,7 +2,7 @@
 
 A platform for measuring how well an AI agent works, while you build it and after it goes live. It grades every run from the agent's own trace, tracks results per agent version, and explains why a new version got worse.
 
-Status: being rebuilt around traces. Today it takes traces in, from the Python SDK or straight over the API, turns them into runs, span trees, costs and agent versions, and scores every run with deterministic checks and, in experiments, LLM judges. It also has accounts and workspaces, API tokens, encrypted provider keys, prices and budgets, a Postgres job queue with leases, and a metered Gemini provider. Live judging on demand, the `evalctl` CLI, the regression explainer and the full web pages come next.
+Status: being rebuilt around traces. Today it takes traces in, from the Python SDK or straight over the API, turns them into runs, span trees, costs and agent versions, and scores every run with deterministic checks and, in experiments, LLM judges. It also has accounts and workspaces, API tokens, encrypted provider keys, prices and budgets, a Postgres job queue with leases, and a metered Gemini provider. Live judging on demand, the regression explainer and the full web pages come next.
 
 ## How it works
 
@@ -157,6 +157,18 @@ log_feedback(trace_id, 0, "Refunded the wrong order")  # 1 is thumbs up, 0 thumb
 
 The SDK never raises into your code. Its own problems are logged on the `agent_eval` logger.
 
+### Gate changes in CI with evalctl
+
+`evalctl` comes with the platform (`pip install ./cli`). `evalctl run eval.py` runs the file's `Eval`, then compares it with the baseline: the newest finished experiment on the same dataset of the version marked shipped, or else of any other version. It exits `0` to ship, `1` to hold (a hard rule failed, or a gate tripped on a real change) and `2` when it could not tell, so a CI step fails on a regression:
+
+```bash
+evalctl run examples/refund_agent/eval.py
+evalctl compare exp_baseline exp_candidate
+evalctl compare --live refund-agent --days 7
+```
+
+It prints the decision, why, each metric with its change and whether it is real or noise, and the cases that got worse.
+
 Other languages can post traces directly with a member API token:
 
 ```bash
@@ -203,7 +215,7 @@ The response lists which traces were `accepted`, which were `duplicates`, and wh
 | `make test-paid` | Run the tests that call the real Gemini API: the provider and both judges. Needs `GEMINI_API_KEY` |
 | `make lint` | Check lint and formatting |
 | `make format` | Fix formatting and safe lint issues |
-| `make typecheck` | Run mypy in strict mode on `app/` and the SDK |
+| `make typecheck` | Run mypy in strict mode on `app/`, the SDK and `evalctl` |
 | `make check` | Lint, typecheck and test |
 
 ## Folders
@@ -222,9 +234,10 @@ The response lists which traces were `accepted`, which were `duplicates`, and wh
 | `app/traces/` | Turning a trace into a run, spans, cost and an agent version |
 | `app/web/` | The web pages, their templates and static files |
 | `sdk/` | The `agent_eval` Python package agents use to send traces |
+| `cli/` | `evalctl`, which runs evals and compares versions from a terminal or CI |
 | `examples/` | A small example agent and dataset that use the SDK |
 | `migrations/` | Alembic migrations |
-| `tests/` | Tests, laid out like `app/`, `sdk/` and `examples/` |
+| `tests/` | Tests, laid out like `app/`, `sdk/`, `cli/` and `examples/` |
 
 ## Settings
 

@@ -24,6 +24,8 @@ from agent_eval.redact import RedactHook
 logger = logging.getLogger("agent_eval")
 
 CASE_FIELDS = {"key", "input", "expected", "tags", "notes"}
+# Every Eval that ran in this process, so evalctl can check them after running a file.
+completed: list["Eval"] = []
 
 
 def load_cases(path: Path) -> list[dict[str, Any]]:
@@ -104,6 +106,7 @@ class Eval:
             self._finish()
         finally:
             self._client.close()
+        completed.append(self)
         print(self.summary())
 
     def _flush_earlier(self) -> None:

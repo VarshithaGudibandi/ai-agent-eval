@@ -125,6 +125,14 @@ class PlatformClient:
         )
         return result
 
+    def baseline(self, experiment_id: str) -> dict[str, Any]:
+        result: dict[str, Any] = self._call("GET", f"/api/v1/experiments/{experiment_id}/baseline")
+        return result
+
+    def compare(self, body: dict[str, Any]) -> dict[str, Any]:
+        result: dict[str, Any] = self._call("POST", "/api/v1/comparisons", body)
+        return result
+
     def finish_experiment(self, experiment_id: str) -> dict[str, Any]:
         result: dict[str, Any] = self._call("POST", f"/api/v1/experiments/{experiment_id}/finish")
         return result

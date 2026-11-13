@@ -1,0 +1,19 @@
+[project]
+name = "agent-eval-cli"
+version = "0.1.0"
+description = "evalctl: run evals and compare agent versions from a terminal or CI."
+requires-python = ">=3.12"
+dependencies = ["agent-eval-sdk"]
+
+[project.scripts]
+evalctl = "evalctl.main:main"
+
+[tool.uv.sources]
+agent-eval-sdk = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["evalctl"]
