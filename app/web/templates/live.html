@@ -73,7 +73,7 @@
 <section aria-labelledby="l4">
   {{ heading(4, "l4", "Review queue", "label what the judge was asked, without seeing its answer") }}
   {% if not queue %}
-    {{ empty("Nothing to review", "Borderline judged runs and a sample of the rest land here, and anyone can send a run from its page.") }}
+    {{ empty("Nothing to review", "Borderline judged runs and a sample of the rest land here, and a member can send any judged run from its page.") }}
   {% else %}
   {% for item in queue %}
   <div class="card review">

@@ -266,5 +266,10 @@ label.choice { flex-direction: row; align-items: center; gap: 6px; color: var(--
   table.compact { min-width: 100%; }
   form.inline label, form.inline select, form.inline input { width: 100%; }
   .bars { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px; gap: 10px; }
+  /* On a phone the step name gets the full width and the timing bar goes underneath. */
+  .span-row { grid-template-columns: minmax(0, 1fr) 64px; grid-template-areas: "name time" "bar bar"; row-gap: 6px; }
+  .span-row .span-name { grid-area: name; overflow-wrap: normal; word-break: normal; }
+  .span-row svg.bar { grid-area: bar; }
+  .span-row .span-time { grid-area: time; }
   details.actions .popover { left: 0; right: auto; }
 }
