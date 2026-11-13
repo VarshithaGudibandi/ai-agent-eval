@@ -4,6 +4,8 @@
 {% block main %}
 <div class="page-head">
   <h1>{{ agent.name }}</h1>
+  <div class="head-actions">
+  <a class="button" href="/compare?agent={{ agent.id }}">Compare versions</a>
   <details class="actions">
     <summary class="button">Run an eval</summary>
     <div class="card popover">
@@ -12,6 +14,7 @@
       <p class="muted small">It exits 1 when the new version should be held back.</p>
     </div>
   </details>
+  </div>
 </div>
 
 <section aria-labelledby="s1">

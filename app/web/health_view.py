@@ -82,3 +82,58 @@ def tiles(current: Health, metrics: list[MetricChange]) -> list[Tile]:
         ),
         tile("Runs scored", f"{current.runs_scored} of {current.runs}", None),
     ]
+
+
+@dataclass(frozen=True)
+class MetricRow:
+    label: str
+    baseline: str
+    candidate: str
+    change: str | None
+    verdict: str | None
+    tone: Tone
+
+
+LABELS = {
+    "success_rate": "Success rate",
+    "rule_violation_rate": "Rule violations",
+    "consistency": "Consistency",
+    "duration_p50_ms": "Run time, typical",
+    "cost_per_success_micros": "Cost per successful run",
+}
+
+
+def _value(name: str, value: float | None) -> str:
+    if name == "duration_p50_ms":
+        return duration(value)
+    if name == "cost_per_success_micros":
+        return money(value)
+    return percent(value)
+
+
+def metric_rows(
+    baseline: Health, candidate: Health, metrics: list[MetricChange]
+) -> list[MetricRow]:
+    """The six metrics side by side: A, B, the change, and whether it is real."""
+    rows = [
+        MetricRow(
+            label=LABELS.get(m.name, m.name),
+            baseline=_value(m.name, m.baseline),
+            candidate=_value(m.name, m.candidate),
+            change=_change(m),
+            verdict=_verdict(m),
+            tone=_tone(m),
+        )
+        for m in metrics
+    ]
+    rows.append(
+        MetricRow(
+            label="Runs scored",
+            baseline=f"{baseline.runs_scored} of {baseline.runs}",
+            candidate=f"{candidate.runs_scored} of {candidate.runs}",
+            change=None,
+            verdict=None,
+            tone="neutral",
+        )
+    )
+    return rows

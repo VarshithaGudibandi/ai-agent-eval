@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% from "parts/macros.html" import heading, empty, untrusted_note %}
+{% block title %}{{ base.title }} vs {{ cand.title }} · AI Agent Eval{% endblock %}
+{% block main %}
+<div class="page-head">
+  <div>
+    <div class="breadcrumb"><a href="/agents/{{ agent.id }}">{{ agent.name }}</a> / <a href="/compare?agent={{ agent.id }}">compare</a></div>
+    <div class="title-line">
+      <h1>{{ base.title }} → {{ cand.title }}</h1>
+      {% if result.decision == "hold" %}<span class="badge bad">Hold</span>
+      {% elif result.decision == "ship" %}<span class="badge good">Ship</span>
+      {% else %}<span class="badge warn">Not enough to decide</span>{% endif %}
+    </div>
+  </div>
+</div>
+
+<section aria-labelledby="k1">
+  {{ heading(1, "k1", "What's compared", "and whether it is a fair fight") }}
+  <div class="card">
+    <dl class="facts">
+      <div><dt>A · baseline</dt><dd>{{ base.title }}</dd><dd class="muted small">{{ base.detail }}</dd></div>
+      <div><dt>B · candidate</dt><dd>{{ cand.title }}</dd><dd class="muted small">{{ cand.detail }}</dd></div>
+      <div><dt>Paired by case</dt><dd>{{ "yes" if result.paired else "no, live runs" }}</dd></div>
+      <div><dt>Compared</dt><dd>{{ comparison.created_at | when }}</dd></div>
+    </dl>
+    <div class="changes">
+      <div class="tile-label">What changed in the config</div>
+      {% if changes %}
+        {% for c in changes %}
+        <details>
+          <summary>{{ c.summary }}</summary>
+          {% if c.detail %}<pre>{% for line in c.detail %}{{ line }}
+{% endfor %}</pre>{% endif %}
+        </details>
+        {% endfor %}
+      {% elif base.version and cand.version %}
+        <p class="muted small">{{ "Both sides ran the same version." if base.version.id == cand.version.id else "No config change found." }}</p>
+      {% else %}
+        <p class="muted small">At least one side spans all versions, so there is no single config to compare.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% for note in result.fairness %}<p class="note">Note: {{ note }}.</p>{% endfor %}
+  {% if base.unfinished or cand.unfinished %}<p class="note" role="status">A side is still running. The result was taken when the comparison was made; compare again once it finishes.</p>{% endif %}
+</section>
+
+<section aria-labelledby="k2">
+  {{ heading(2, "k2", "Result", "the six health metrics, and whether each change is real or noise") }}
+  <div class="card table-scroll">
+    <table>
+      <thead><tr><th scope="col">Metric</th><th scope="col">A</th><th scope="col">B</th><th scope="col">Change</th><th scope="col">Real or noise</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <th scope="row">{{ row.label }}</th>
+          <td>{{ row.baseline }}</td>
+          <td>{{ row.candidate }}</td>
+          <td class="tone-{{ row.tone }}">{{ row.change or "–" }}</td>
+          <td class="muted">{{ row.verdict or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ untrusted_note(result.candidate) }}
+</section>
+
+<section aria-labelledby="k3">
+  {{ heading(3, "k3", "Task by task", (counts.worse ~ " worse · " ~ counts.better ~ " better · " ~ counts.same ~ " same") if result.paired else "") }}
+  {% if not result.paired %}
+    {{ empty("Not paired", "Live runs do not share cases, so there is no task-by-task view. Compare two experiments for that.") }}
+  {% elif not result.cases %}
+    {{ empty("No cases in common", "The two sides share no scored case.") }}
+  {% else %}
+  <div class="card table-scroll">
+    <table>
+      <thead><tr><th scope="col">Case</th><th scope="col">A passed</th><th scope="col">B passed</th><th scope="col">Outcome</th></tr></thead>
+      <tbody>
+        {% for c in result.cases[:50] %}
+        <tr>
+          <th scope="row">{{ c.case_key }}</th>
+          <td>{{ c.baseline_pass_rate | percent }}</td>
+          <td>{{ c.candidate_pass_rate | percent }}</td>
+          <td class="{{ 'tone-bad' if c.outcome == 'worse' else 'tone-good' if c.outcome == 'better' else 'muted' }}">{{ c.outcome }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if result.cases | length > 50 %}<p class="muted small">Showing the first 50 of {{ result.cases | length }}, worst first.</p>{% endif %}
+  </div>
+  {% endif %}
+</section>
+
+<section aria-labelledby="k4">
+  {{ heading(4, "k4", "Why, and the call", "from the team's gates") }}
+  <div class="card">
+    <p><strong>{% if result.decision == "hold" %}Hold this version back.{% elif result.decision == "ship" %}Fine to ship.{% else %}Not enough to decide.{% endif %}</strong></p>
+    <ul class="reasons">{% for r in result.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+    <p class="muted small">Gates: success may fall at most {{ (comparison.gates.max_success_drop * 100) | round(1) }} points{% if comparison.gates.max_cost_increase is not none %}, cost per success may rise at most {{ (comparison.gates.max_cost_increase * 100) | round(0) | int }}%{% endif %}{% if comparison.gates.hold_on_new_hard_failure %}, and a new hard failure holds{% endif %}.</p>
+  </div>
+
+  {% if report and report.status == "done" and report.report %}
+  {% set r = report.report %}
+  <div class="card">
+    <p><strong>{{ r.headline }}</strong></p>
+    {% for g in r.groups %}
+    <div class="group">
+      <div class="tile-label">{{ g.scorer_key }}{% if g.question_id %} · {{ g.question_id }}{% endif %} · {{ g.count }} runs now, {{ g.baseline_count }} before</div>
+      {% if g.cause %}
+      <p>{{ g.cause }} <span class="badge">{{ g.confidence }} confidence</span></p>
+      <ul>
+        {% for claim in g.claims %}
+        <li>{{ claim.text }} {% for s in claim.spans %}<a href="/runs/{{ s.run_id }}?span={{ s.span_id | urlencode }}#trace">see step</a>{% if not loop.last %}, {% endif %}{% endfor %}</li>
+        {% endfor %}
+      </ul>
+      {% if g.next_step %}<p class="small">Next step: {{ g.next_step }}</p>{% endif %}
+      {% elif g.error %}
+      <p class="muted">No cause: {{ g.error }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <ul class="muted small">{% for limit in r.limits %}<li>{{ limit }}</li>{% endfor %}</ul>
+    <p class="muted small">Written by {{ report.model }} on {{ report.finished_at | when }}.</p>
+  </div>
+  {% elif report and report.status == "queued" %}
+  <div class="card" data-poll="3000" role="status">
+    <p><strong>Writing the report…</strong> This page refreshes on its own.</p>
+  </div>
+  {% elif report and report.status == "failed" %}
+  <div class="card">
+    <p class="tone-bad">The report could not be written: {{ report.error }}</p>
+    {% if can_edit %}<button data-api="/api/v1/reports" data-method="POST" data-body='{"comparison_id": "{{ comparison.id }}"}'>Try again</button><p class="error" role="alert"></p>{% endif %}
+  </div>
+  {% elif anything_worse %}
+  <div class="card">
+    <p>Ask why B got worse: the report names what changed, groups the new failures, and cites the steps that show each cause. It uses this workspace's Gemini key, at most ten calls.</p>
+    {% if can_edit %}<button data-api="/api/v1/reports" data-method="POST" data-body='{"comparison_id": "{{ comparison.id }}"}'>Explain</button><p class="error" role="alert"></p>{% else %}<p class="muted small">A member can ask for an explanation.</p>{% endif %}
+  </div>
+  {% else %}
+  <p class="muted small">Nothing got worse, so there is nothing to explain.</p>
+  {% endif %}
+</section>
+{% endblock %}

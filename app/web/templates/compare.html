@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "parts/macros.html" import heading, empty %}
+{% block title %}Compare · AI Agent Eval{% endblock %}
+{% block main %}
+<h1>Compare</h1>
+{% if not chosen %}
+  {{ empty("No agents yet", "Comparisons need an agent with runs. Send traces or run an eval first.") }}
+{% else %}
+  {% if agents | length > 1 %}
+  <form class="inline" method="get" action="/compare">
+    <label>Agent
+      <select name="agent">{% for a in agents %}<option value="{{ a.id }}" {% if a.id == chosen.id %}selected{% endif %}>{{ a.name }}</option>{% endfor %}</select>
+    </label>
+    <button type="submit" class="secondary">Choose</button>
+  </form>
+  {% endif %}
+  {% if not can_edit %}<p class="note">Viewers can read comparisons but not start them.</p>{% endif %}
+
+  <section aria-labelledby="c1">
+    {{ heading(1, "c1", "Two experiments", "paired case by case, the fairest comparison") }}
+    {% if experiments | length < 2 %}
+      {{ empty("Only one experiment so far" if experiments else "No experiments yet", "Run the same eval on two versions, then compare them here. Until then the agent's page shows the one version's health.") }}
+    {% else %}
+    <div class="card">
+      <form class="inline" data-api="/api/v1/comparisons" data-method="POST" data-redirect="/comparisons/{id}">
+        <label>Baseline (A)
+          <select name="baseline.experiment_id">
+            {% for e in experiments %}<option value="{{ e.id }}" {% if e.id == default_baseline or (not default_baseline and loop.index == 2) %}selected{% endif %}>{{ names.get(e.agent_version_id, "?") }} · {{ e.created_at | when }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Candidate (B)
+          <select name="candidate.experiment_id">
+            {% for e in experiments %}<option value="{{ e.id }}" {% if loop.first %}selected{% endif %}>{{ names.get(e.agent_version_id, "?") }} · {{ e.created_at | when }}</option>{% endfor %}
+          </select>
+        </label>
+        {% if can_edit %}<button type="submit">Compare</button>{% endif %}
+        <p class="error" role="alert"></p>
+      </form>
+    </div>
+    {% endif %}
+  </section>
+
+  <section aria-labelledby="c2">
+    {{ heading(2, "c2", "Two windows of live runs", "not paired, so only big changes show as real") }}
+    <div class="card">
+      <form class="inline" data-api="/api/v1/comparisons" data-method="POST" data-redirect="/comparisons/{id}">
+        <input type="hidden" name="baseline.agent_id" value="{{ chosen.id }}">
+        <input type="hidden" name="candidate.agent_id" value="{{ chosen.id }}">
+        {% for side, title in (("baseline", "A"), ("candidate", "B")) %}
+        <fieldset>
+          <legend>{{ title }}</legend>
+          <label>Version
+            <select name="{{ side }}.version_id">
+              <option value="">all versions</option>
+              {% for v in chosen.versions | reverse %}<option value="{{ v.id }}">{{ names[v.id] }}</option>{% endfor %}
+            </select>
+          </label>
+          <label>From <input type="date" name="{{ side }}.start" data-type="date" value="{{ windows[side ~ '_start'] }}" required></label>
+          <label>Until <input type="date" name="{{ side }}.end" data-type="date" value="{{ windows[side ~ '_end'] }}" required></label>
+        </fieldset>
+        {% endfor %}
+        {% if can_edit %}<button type="submit">Compare</button>{% endif %}
+        <p class="error" role="alert"></p>
+      </form>
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

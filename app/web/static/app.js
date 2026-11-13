@@ -12,11 +12,22 @@ function safeNext() {
   return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/settings";
 }
 
+function fieldValue(field) {
+  if (field.dataset.type === "int") return Number(field.value);
+  // A date is the start of that day in UTC, which is how windows are stored.
+  if (field.dataset.type === "date") return `${field.value}T00:00:00Z`;
+  return field.value;
+}
+
+// A field named "baseline.experiment_id" fills body.baseline.experiment_id.
 function formBody(form) {
   const body = {};
   for (const field of form.elements) {
     if (!field.name || field.value === "") continue;
-    body[field.name] = field.dataset.type === "int" ? Number(field.value) : field.value;
+    const path = field.name.split(".");
+    let target = body;
+    for (const key of path.slice(0, -1)) target = target[key] = target[key] || {};
+    target[path[path.length - 1]] = fieldValue(field);
   }
   return body;
 }
@@ -41,9 +52,9 @@ async function send(element) {
     credentials: "same-origin",
     headers: { "x-csrf-token": csrfToken(), accept: "application/json" },
   };
-  if (form) {
+  if (form || element.dataset.body) {
     options.headers["content-type"] = "application/json";
-    options.body = JSON.stringify(formBody(form));
+    options.body = form ? JSON.stringify(formBody(form)) : element.dataset.body;
   }
   const response = await fetch(element.dataset.api, options);
   const text = await response.text();
@@ -86,3 +97,7 @@ document.addEventListener("click", (event) => {
   if (!button || button.closest("form[data-api]")) return;
   send(button);
 });
+
+// While something is being worked on, such as a report, its page checks back on its own.
+const poll = document.querySelector("[data-poll]");
+if (poll) setTimeout(() => location.reload(), Number(poll.dataset.poll) || 3000);
