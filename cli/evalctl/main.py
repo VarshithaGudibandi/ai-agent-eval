@@ -1,4 +1,5 @@
 import argparse
+import os
 import runpy
 import sys
 import time
@@ -83,6 +84,9 @@ def run(args: argparse.Namespace) -> int:
     path = Path(args.file)
     if not path.is_file():
         raise SystemExit(f"no such file: {path}")
+    if args.max_judge_calls is not None:
+        # Eval reads the cap from here, so it applies to every Eval in the file.
+        os.environ["AGENT_EVAL_MAX_JUDGE_CALLS"] = str(args.max_judge_calls)
     before = len(completed)
     sys.path.insert(0, str(path.resolve().parent))
     runpy.run_path(str(path), run_name="__main__")
@@ -133,6 +137,12 @@ def compare(args: argparse.Namespace) -> int:
         client.close()
 
 
+def _cap(value: str) -> int:
+    if not value.isdigit():
+        raise argparse.ArgumentTypeError("must be a whole number, 0 or more")
+    return int(value)
+
+
 def parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(
         prog="evalctl",
@@ -144,6 +154,12 @@ def parser() -> argparse.ArgumentParser:
     run_cmd = commands.add_parser("run", help="run an Eval file and check it against its baseline")
     run_cmd.add_argument("file")
     run_cmd.add_argument("--baseline", help="experiment id to compare with, instead of the default")
+    run_cmd.add_argument(
+        "--max-judge-calls",
+        type=_cap,
+        metavar="N",
+        help="cap the model calls judges may make in each experiment the file runs",
+    )
     run_cmd.add_argument(
         "--explain", action="store_true", help="on a hold, ask why and print the report"
     )

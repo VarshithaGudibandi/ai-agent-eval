@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import json
 import logging
+import os
 import time
 import uuid
 from collections.abc import Callable
@@ -47,6 +48,17 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
     return cases
 
 
+def judge_cap(given: int | None) -> int | None:
+    """The judge-call cap for an experiment: the lower of the argument and the environment's."""
+    raw = os.environ.get("AGENT_EVAL_MAX_JUDGE_CALLS", "").strip()
+    if raw and not raw.isdigit():
+        raise ValueError("AGENT_EVAL_MAX_JUDGE_CALLS must be a whole number")
+    if given is not None and (not isinstance(given, int) or given < 0):
+        raise ValueError("max_judge_calls must be a whole number, 0 or more")
+    caps = [c for c in (given, int(raw) if raw else None) if c is not None]
+    return min(caps) if caps else None
+
+
 class Eval:
     """Run an agent on every case of a dataset and send each run to the platform.
 
@@ -59,6 +71,10 @@ class Eval:
 
     scorers, if given, are saved as the agent's eval spec before any case runs. At the end
     Eval waits up to score_timeout seconds for every run to be scored.
+
+    max_judge_calls caps the model calls the agent's judges may make on this experiment;
+    once it is used up, the rest is graded by rules alone. AGENT_EVAL_MAX_JUDGE_CALLS sets a
+    cap too, as evalctl run --max-judge-calls does, and the lower of the two wins.
     """
 
     def __init__(
@@ -75,9 +91,11 @@ class Eval:
         pending_dir: Path | None = None,
         scorers: list[dict[str, Any]] | None = None,
         score_timeout: float = 120.0,
+        max_judge_calls: int | None = None,
     ) -> None:
         if not isinstance(repetitions, int) or not 1 <= repetitions <= 100:
             raise ValueError("repetitions must be a whole number from 1 to 100")
+        self.max_judge_calls = judge_cap(max_judge_calls)
         base_url, api_token = settings(url, token)
         if api_token is None:
             raise ValueError("set AGENT_EVAL_TOKEN or pass token= to run an Eval")
@@ -133,6 +151,7 @@ class Eval:
             "label": self.label,
             "dataset_version_id": self._dataset_version(dataset),
             "repetitions": self.repetitions,
+            "max_judge_calls": self.max_judge_calls,
         }
         # The same key on every retry, so a start whose answer was lost is not started twice.
         key = uuid.uuid4().hex

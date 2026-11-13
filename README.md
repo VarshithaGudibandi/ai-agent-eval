@@ -179,7 +179,7 @@ evalctl compare --live refund-agent --days 7
 evalctl explain cmp_123
 ```
 
-It prints the decision, why, each metric with its change and whether it is real or noise, and the cases that got worse. Add `--explain` to `run` or `compare`, or use `evalctl explain`, to also get a regression report: what changed in the config, the new failures, and each one's likely cause with the spans it rests on.
+It prints the decision, why, each metric with its change and whether it is real or noise, and the cases that got worse. Add `--explain` to `run` or `compare`, or use `evalctl explain`, to also get a regression report: what changed in the config, the new failures, and each one's likely cause with the spans it rests on. `--max-judge-calls N` caps the model calls judges may make in each experiment the file runs, the same as `Eval(max_judge_calls=N)`; once it is used up, the rest is graded by rules alone. Without it, judging an experiment is not capped.
 
 Other languages can post traces directly with a member API token:
 

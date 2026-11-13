@@ -27,6 +27,8 @@ class NewExperimentRequest(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=100)
     dataset_version_id: str
     repetitions: int = Field(default=1, ge=1, le=100)
+    # Caps the model calls its judges may make. Left out, judging is not capped.
+    max_judge_calls: int | None = Field(default=None, ge=0, le=10_000_000)
 
 
 class CaseOut(BaseModel):
@@ -100,7 +102,12 @@ async def start(
     version = await agent_version(scope, body.agent, fingerprint(config), config, body.label)
     await ensure_default_spec(scope, version.agent_id)
     experiment, created = await start_experiment(
-        scope, version, body.dataset_version_id, body.repetitions, idempotency_key
+        scope,
+        version,
+        body.dataset_version_id,
+        body.repetitions,
+        idempotency_key,
+        body.max_judge_calls,
     )
     if created:
         record_audit(

@@ -121,3 +121,17 @@ async def test_another_workspaces_dataset_cannot_be_used(new_owner: SignIn) -> N
         json={"agent": "a", "config": {}, "dataset_version_id": dataset.json()["id"]},
     )
     assert response.status_code == 404
+
+
+async def test_an_experiment_can_cap_its_judge_calls(new_owner: SignIn) -> None:
+    owner = await new_owner()
+    capped = await _start(owner, max_judge_calls=40)
+    open_ended = await _start(owner, repetitions=3)
+    budgets = {b["owner_id"]: b for b in (await owner.get("/api/v1/budgets")).json()}
+    assert budgets[capped["id"]]["requests_limit"] == 40
+    assert budgets[open_ended["id"]]["requests_limit"] is None
+    refused = await owner.post(
+        "/api/v1/experiments",
+        json={"agent": "a", "config": {}, "dataset_version_id": "x", "max_judge_calls": -1},
+    )
+    assert refused.status_code == 422

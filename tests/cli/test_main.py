@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 
+import httpx
 import pytest
 
 from agent_eval.evaluation import completed
@@ -104,3 +105,23 @@ async def test_evalctl_explains_a_hold_when_asked(
     comparison = out[out.index("/api/v1/comparisons/") + len("/api/v1/comparisons/") :].split()[0]
     assert await asyncio.to_thread(main, ["explain", comparison]) == SHIP
     assert "refund_after_lookup now fails" in capsys.readouterr().out
+
+
+async def test_evalctl_caps_the_judge_calls_of_each_experiment(
+    platform_env: Path,
+    live_platform: LivePlatform,
+    member_token: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Recorded here so the value evalctl sets is undone after the test.
+    monkeypatch.setenv("AGENT_EVAL_MAX_JUDGE_CALLS", "")
+    v1 = _file(platform_env, "v1.py", "scripted_gemini", "")
+    assert await asyncio.to_thread(main, ["run", v1, "--max-judge-calls", "12"]) == SHIP
+    experiment = completed[-1].experiment_id
+    async with httpx.AsyncClient(
+        base_url=live_platform.url, headers={"authorization": f"Bearer {member_token[0]}"}
+    ) as client:
+        budgets = (await client.get("/api/v1/budgets")).json()
+    assert [b["requests_limit"] for b in budgets if b["owner_id"] == experiment] == [12]
+    with pytest.raises(SystemExit):
+        main(["run", v1, "--max-judge-calls", "many"])

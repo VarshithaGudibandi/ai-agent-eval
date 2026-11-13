@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent_eval import Eval, flush, save_eval_spec, traced
+from agent_eval.evaluation import judge_cap
 from app.db import models
 from tests.conftest import LivePlatform
 
@@ -243,3 +244,13 @@ async def test_a_judge_that_cannot_run_is_reported_not_counted_as_a_failure(
     assert (result.runs_scored, result.runs_passed, result.failures) == (2, 0, {})
     assert result.errors == {"support": 2}
     assert "support could not grade 2 runs" in capsys.readouterr().out
+
+
+def test_the_lower_judge_cap_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AGENT_EVAL_MAX_JUDGE_CALLS", raising=False)
+    assert (judge_cap(None), judge_cap(30)) == (None, 30)
+    monkeypatch.setenv("AGENT_EVAL_MAX_JUDGE_CALLS", "20")
+    assert (judge_cap(None), judge_cap(30), judge_cap(5)) == (20, 20, 5)
+    monkeypatch.setenv("AGENT_EVAL_MAX_JUDGE_CALLS", "lots")
+    with pytest.raises(ValueError, match="whole number"):
+        judge_cap(None)

@@ -65,8 +65,10 @@ async def start_experiment(
     dataset_version_id: str,
     repetitions: int,
     idempotency_key: str | None,
+    max_judge_calls: int | None = None,
 ) -> tuple[models.Experiment, bool]:
-    """Start an experiment with its budget. Returns it and whether it is new.
+    """Start an experiment with its budget, its judges capped at max_judge_calls model calls
+    when given. Returns it and whether it is new.
 
     A retried start with the same key returns the first experiment, never a second one.
     """
@@ -96,7 +98,7 @@ async def start_experiment(
         if winner is None:
             raise
         return winner, False
-    await create_budget(scope, experiment.id, BudgetLimits())
+    await create_budget(scope, experiment.id, BudgetLimits(requests=max_judge_calls))
     return experiment, True
 
 
