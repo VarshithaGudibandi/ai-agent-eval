@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.db import models
 from app.scoring import judge_job
 from app.settings import Settings
-from tests.api.conftest import Caller, SignIn, score_now
+from tests.api.conftest import Caller, SignIn, score_now, viewer_caller
 from tests.api.seeding import add_dataset, run_experiment
 from tests.ingest.sample_traces import CONFIG, support_trace
 from tests.scoring.scripted_judge import AnsweringJudge
@@ -114,27 +114,8 @@ async def test_judged_runs_show_each_answer_and_members_can_send_them_for_review
     assert "Does the reply say the order has shipped?" in page
     assert "“shipped yesterday”" in page and "not trusted yet" in page
     assert 'data-api="/api/v1/review-items"' in page
-    invite = await owner.post(
-        f"/api/v1/workspaces/{owner.workspace_id}/invites", json={"role": "viewer"}
-    )
-    browser = clients()
-    await browser.post(
-        "/api/v1/invites/accept",
-        json={
-            "token": invite.json()["token"],
-            "email": "v@example.com",
-            "password": "a long enough password",
-        },
-    )
-    await browser.post(
-        "/api/v1/auth/login",
-        json={
-            "email": "v@example.com",
-            "password": "a long enough password",
-            "workspace_id": owner.workspace_id,
-        },
-    )
-    seen = await browser.get(f"/runs/{run_id}")
+    viewer = await viewer_caller(owner, clients())
+    seen = await viewer.get(f"/runs/{run_id}")
     assert seen.status_code == 200 and 'data-api="/api/v1/review-items"' not in seen.text
 
 

@@ -121,6 +121,20 @@ async def token_caller(owner: Caller, client: httpx.AsyncClient, role: str = "me
     )
 
 
+async def viewer_caller(owner: Caller, client: httpx.AsyncClient) -> Caller:
+    """A person the owner invited as a viewer, signed in through the API."""
+    invite = await owner.post(
+        f"/api/v1/workspaces/{owner.workspace_id}/invites", json={"role": "viewer"}
+    )
+    email = f"{new_id('viewer')}@example.com"
+    accepted = await client.post(
+        "/api/v1/invites/accept",
+        json={"token": invite.json()["token"], "email": email, "password": PASSWORD},
+    )
+    assert accepted.status_code == 200, accepted.text
+    return await sign_in(client, email, owner.workspace_id)
+
+
 async def add_dataset(app: FastAPI, workspace_id: str, name: str) -> tuple[str, str]:
     """A dataset with one version, straight into the database. Returns both ids."""
     dataset_id, version_id = new_id("ds"), new_id("dsv")

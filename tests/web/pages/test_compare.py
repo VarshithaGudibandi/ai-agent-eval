@@ -10,7 +10,7 @@ from sqlalchemy import update
 from app.db import models
 from app.explain import job as explain_job
 from app.settings import Settings
-from tests.api.conftest import PASSWORD, Caller, SignIn, score_now, sign_in
+from tests.api.conftest import Caller, SignIn, score_now, viewer_caller
 from tests.api.seeding import V2, add_dataset, run_experiment, send_live
 from tests.explain.scripted_auditor import ScriptedAuditor
 from tests.ingest.sample_traces import CONFIG
@@ -24,19 +24,6 @@ async def _held(owner: Caller, app: FastAPI) -> str:
     v2 = await run_experiment(owner, app, dataset_id, V2, crash=set(range(6)))
     body = {"baseline": {"experiment_id": v1["id"]}, "candidate": {"experiment_id": v2["id"]}}
     return str((await owner.post("/api/v1/comparisons", json=body)).json()["id"])
-
-
-async def _viewer(owner: Caller, clients: Callable[[], httpx.AsyncClient]) -> Caller:
-    invite = await owner.post(
-        f"/api/v1/workspaces/{owner.workspace_id}/invites", json={"role": "viewer"}
-    )
-    client = clients()
-    email = f"viewer-{owner.workspace_id}@example.com"
-    await client.post(
-        "/api/v1/invites/accept",
-        json={"token": invite.json()["token"], "email": email, "password": PASSWORD},
-    )
-    return await sign_in(client, email, owner.workspace_id)
 
 
 async def test_the_form_needs_two_experiments_and_picks_the_baseline(
@@ -147,7 +134,7 @@ async def test_viewers_can_read_but_not_start_or_explain(
 ) -> None:
     owner = await new_owner()
     comparison_id = await _held(owner, app)
-    viewer = await _viewer(owner, clients)
+    viewer = await viewer_caller(owner, clients())
     form = (await viewer.get("/compare")).text
     assert "Viewers can read comparisons but not start them." in form
     assert ">Compare</button>" not in form
