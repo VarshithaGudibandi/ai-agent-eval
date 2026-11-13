@@ -213,6 +213,23 @@ A batch is `{"traces": [...]}`. Each trace looks like this:
 
 The response lists which traces were `accepted`, which were `duplicates`, and which were `rejected` and why. A bad trace is rejected on its own; the rest of the batch still goes in. Cost uses the workspace's newest price for each span's provider and model, and is marked unknown when there is none.
 
+### Ask from your assistant with MCP
+
+`agent-eval-mcp` lets an AI assistant such as Claude Code ask the platform about your agents. It runs on your machine, talks to the assistant over stdin and stdout, and only calls the API with the token you give it, so it sees one workspace and can do no more than that token's role allows.
+
+```bash
+pip install ./sdk ./mcp
+claude mcp add --env AGENT_EVAL_URL=http://127.0.0.1:8000 --env AGENT_EVAL_TOKEN=aet_... --transport stdio agent-eval -- agent-eval-mcp
+```
+
+| Tool | Answers | Token |
+| --- | --- | --- |
+| `list_agents` | Your agents, their newest and shipped versions | viewer |
+| `agent_health` | The six metrics for an agent's newest experiment against its baseline, or the last 7 days of live runs against the 7 before | viewer |
+| `show_failing_runs` | How the newest experiment's runs failed, by reason, with links to example runs | viewer |
+
+It reads results that already exist and runs nothing: to measure a change, the assistant runs `evalctl run eval.py` in its terminal first, where you approve the command. Every answer names the experiment it is about and how old it is. Answers carry numbers, scorer reasons and links, never what a run received or replied, so text from your agent's users cannot become instructions to your assistant.
+
 ## Make commands
 
 | Command | What it does |
@@ -248,6 +265,7 @@ The response lists which traces were `accepted`, which were `duplicates`, and wh
 | `app/web/` | The web pages, their templates and static files |
 | `sdk/` | The `agent_eval` Python package agents use to send traces |
 | `cli/` | `evalctl`, which runs evals and compares versions from a terminal or CI |
+| `mcp/` | `agent-eval-mcp`, the MCP server assistants use to ask about your agents |
 | `examples/` | A small example agent and dataset that use the SDK |
 | `migrations/` | Alembic migrations |
 | `tests/` | Tests, laid out like `app/`, `sdk/`, `cli/` and `examples/` |

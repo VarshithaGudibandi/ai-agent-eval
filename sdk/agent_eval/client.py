@@ -119,6 +119,20 @@ class PlatformClient:
         result: list[dict[str, Any]] = self._call("GET", "/api/v1/agents")
         return result
 
+    def agent_health(self, agent_id: str) -> dict[str, Any]:
+        result: dict[str, Any] = self._call("GET", f"/api/v1/agents/{agent_id}/health")
+        return result
+
+    def failures(self, agent_id: str) -> dict[str, Any]:
+        result: dict[str, Any] = self._call("GET", f"/api/v1/agents/{agent_id}/failures")
+        return result
+
+    def experiments(self, agent_id: str, limit: int) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = self._call(
+            "GET", f"/api/v1/agents/{agent_id}/experiments?limit={limit}"
+        )
+        return result
+
     def save_eval_spec(self, agent_id: str, scorers: list[dict[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = self._call(
             "PUT", f"/api/v1/agents/{agent_id}/eval-spec", {"scorers": scorers}

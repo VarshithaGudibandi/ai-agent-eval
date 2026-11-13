@@ -20,6 +20,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "agent-eval-cli",
+    "agent-eval-mcp",
     "agent-eval-sdk",
     "mypy>=2.4.1",
     "pytest>=9.2.0",
@@ -29,11 +30,12 @@ dev = [
 ]
 
 [tool.uv.workspace]
-members = ["sdk", "cli"]
+members = ["sdk", "cli", "mcp"]
 
 [tool.uv.sources]
 agent-eval-sdk = { workspace = true }
 agent-eval-cli = { workspace = true }
+agent-eval-mcp = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

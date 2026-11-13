@@ -41,6 +41,6 @@ format:
 	uv run ruff check --fix .
 
 typecheck:
-	uv run mypy app sdk/agent_eval cli/evalctl
+	uv run mypy app sdk/agent_eval cli/evalctl mcp/agent_eval_mcp
 
 check: lint typecheck test
