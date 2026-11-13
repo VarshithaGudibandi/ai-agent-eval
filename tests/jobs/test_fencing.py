@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.budget.reservations import BudgetGuard
+from app.budget.reservations import BudgetGuard, BudgetOwner
 from app.db import models
 from app.db.budgets import BudgetLimits, budget_for_experiment
 from app.db.jobs import Claim, LeaseLostError, cancel, claim_next, enqueue
@@ -32,7 +32,14 @@ async def _guard(
     experiment = await make_experiment(BudgetLimits())
     async with sessionmaker() as session:
         budget = await budget_for_experiment(WorkspaceScope(session, workspace_id), experiment.id)
-    guard = BudgetGuard(sessionmaker, workspace_id, experiment.id, budget.id, claim.job_id, token)
+    guard = BudgetGuard(
+        sessionmaker,
+        workspace_id,
+        BudgetOwner("experiment", experiment.id),
+        budget.id,
+        claim.job_id,
+        token,
+    )
     return guard, budget.id
 
 

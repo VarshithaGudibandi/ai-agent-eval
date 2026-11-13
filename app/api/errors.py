@@ -16,6 +16,7 @@ from app.db.datasets import CaseKeysClashError
 from app.db.experiments import IdempotencyKeyReusedError
 from app.db.scope import NotFoundError
 from app.ingest.service import BatchInvalidError, BatchTooLargeError, IngestRateLimitedError
+from app.scoring.judge_batches import JudgingRefusedError
 from app.scoring.review import UnknownQuestionError
 
 # Another workspace's rows answer exactly like missing rows, so ids cannot be probed.
@@ -33,6 +34,7 @@ _ERRORS: dict[type[Exception], tuple[int, str]] = {
     CaseKeysClashError: (422, "case_keys_clash"),
     IdempotencyKeyReusedError: (409, "idempotency_key_reused"),
     UnknownQuestionError: (422, "unknown_question"),
+    JudgingRefusedError: (409, "judging_refused"),
 }
 _SHOW_MESSAGE = (
     LimitBelowUsageError,
@@ -40,6 +42,7 @@ _SHOW_MESSAGE = (
     BatchInvalidError,
     CaseKeysClashError,
     UnknownQuestionError,
+    JudgingRefusedError,
 )
 
 

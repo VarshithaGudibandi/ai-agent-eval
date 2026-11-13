@@ -23,6 +23,9 @@ class NewCredentialRequest(BaseModel):
     api_key: SecretStr = Field(min_length=8, max_length=500)
     requests_per_minute: int | None = Field(default=None, gt=0)
     tokens_per_minute: int | None = Field(default=None, gt=0)
+    # Say the key is on a paid tier. Live judging needs one: free-tier traffic may be used
+    # by the provider, and live traces are your customers' data.
+    paid: bool = False
 
 
 class CredentialOut(BaseModel):
@@ -34,6 +37,7 @@ class CredentialOut(BaseModel):
     revoked: bool
     requests_per_minute: int | None
     tokens_per_minute: int | None
+    paid: bool
     warning: str | None
 
     @classmethod
@@ -48,7 +52,8 @@ class CredentialOut(BaseModel):
             revoked=row.revoked_at is not None,
             requests_per_minute=row.requests_per_minute,
             tokens_per_minute=row.tokens_per_minute,
-            warning=FREE_TIER_WARNING.get(provider),
+            paid=row.paid,
+            warning=None if row.paid else FREE_TIER_WARNING.get(provider),
         )
 
 
@@ -78,6 +83,7 @@ async def new_credential(
         vault,
         requests_per_minute=body.requests_per_minute,
         tokens_per_minute=body.tokens_per_minute,
+        paid=body.paid,
     )
     await session.refresh(row)
     return CredentialOut.of(row)

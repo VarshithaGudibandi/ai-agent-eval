@@ -1,4 +1,6 @@
 import logging
+from dataclasses import dataclass
+from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -7,6 +9,7 @@ from app.db.audit import record_audit
 from app.db.budgets import mark_warned, settle, try_reserve
 from app.db.experiments import pause_for_budget
 from app.db.jobs import require_lease
+from app.db.judge_batches import pause_batch_for_budget
 from app.db.scope import WorkspaceScope
 
 logger = logging.getLogger(__name__)
@@ -15,7 +18,15 @@ WARNING_SHARE = 0.8
 
 
 class BudgetExhaustedError(Exception):
-    """The next call cannot fit in what is left. The experiment has been paused."""
+    """The next call cannot fit in what is left. The budget's owner has been paused."""
+
+
+@dataclass(frozen=True)
+class BudgetOwner:
+    """What a budget belongs to, and what pauses when it runs out."""
+
+    kind: Literal["experiment", "judge_batch"]
+    id: str
 
 
 class BudgetGuard:
@@ -25,14 +36,14 @@ class BudgetGuard:
         self,
         sessionmaker: async_sessionmaker[AsyncSession],
         workspace_id: str,
-        experiment_id: str,
+        owner: BudgetOwner,
         budget_id: str,
         job_id: str | None = None,
         lease_token: str | None = None,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._workspace_id = workspace_id
-        self._experiment_id = experiment_id
+        self._owner = owner
         self._budget_id = budget_id
         self._job_id = job_id
         self._lease_token = lease_token
@@ -52,7 +63,7 @@ class BudgetGuard:
             )
         if entry is None:
             await self._pause("a call did not fit in the remaining budget")
-            raise BudgetExhaustedError(self._experiment_id)
+            raise BudgetExhaustedError(self._owner.id)
         return entry
 
     async def settle(
@@ -77,34 +88,37 @@ class BudgetGuard:
                 models.ActorType.SYSTEM,
                 "budget",
                 "budget.warning",
-                "experiment",
-                self._experiment_id,
+                self._owner.kind,
+                self._owner.id,
                 {"share_used": round(_share_used(budget), 3)},
             )
             logger.warning(
-                "experiment passed 80% of a budget", extra={"experiment_id": self._experiment_id}
+                "a budget passed 80%", extra={"owner": self._owner.kind, "id": self._owner.id}
             )
         # Pause before the next call fails rather than after: if what is left cannot cover
         # another call like this one, no new call should start.
         if not _fits(budget, reservation):
-            await _pause_in(scope, self._experiment_id, "remaining budget is below one more call")
+            await _pause_in(scope, self._owner, "remaining budget is below one more call")
 
     async def _pause(self, reason: str) -> None:
         async with self._sessionmaker.begin() as session:
-            await _pause_in(
-                WorkspaceScope(session, self._workspace_id), self._experiment_id, reason
-            )
+            await _pause_in(WorkspaceScope(session, self._workspace_id), self._owner, reason)
 
 
-async def _pause_in(scope: WorkspaceScope, experiment_id: str, reason: str) -> None:
-    if await pause_for_budget(scope, experiment_id):
+async def _pause_in(scope: WorkspaceScope, owner: BudgetOwner, reason: str) -> None:
+    paused = (
+        await pause_for_budget(scope, owner.id)
+        if owner.kind == "experiment"
+        else await pause_batch_for_budget(scope, owner.id)
+    )
+    if paused:
         record_audit(
             scope,
             models.ActorType.SYSTEM,
             "budget",
-            "experiment.paused",
-            "experiment",
-            experiment_id,
+            f"{owner.kind}.paused",
+            owner.kind,
+            owner.id,
             {"reason": reason},
         )
 

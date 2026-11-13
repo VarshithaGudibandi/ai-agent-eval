@@ -178,3 +178,11 @@ async def daily_aggregates(
         .where(models.AgentVersion.agent_id == agent_id, models.Aggregate.day >= since)
         .order_by(models.Aggregate.day, models.Aggregate.agent_version_id)
     )
+
+
+async def batch_outcomes(scope: WorkspaceScope, batch_id: str) -> Loaded:
+    members = select(models.JudgeBatchRun.run_id).where(
+        models.JudgeBatchRun.workspace_id == scope.workspace_id,
+        models.JudgeBatchRun.judge_batch_id == batch_id,
+    )
+    return await _load(scope, scope.query(models.Run).where(models.Run.id.in_(members)))

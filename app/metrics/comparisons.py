@@ -2,7 +2,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, model_validator
 
 from app.db import models
 from app.db.ids import new_id
-from app.db.outcomes import Loaded, experiment_outcomes, live_outcomes
+from app.db.outcomes import Loaded, batch_outcomes, experiment_outcomes, live_outcomes
 from app.db.scope import NotFoundError, WorkspaceScope
 from app.metrics.comparison import ComparisonResult, Gates, SideFacts, compare, seed_for
 
@@ -28,18 +28,25 @@ class WindowSide(BaseModel):
         return self
 
 
+class BatchSide(BaseModel):
+    """The live runs of one judge batch."""
+
+    model_config = ConfigDict(extra="forbid")
+    judge_batch_id: str
+
+
 class NewComparison(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    baseline: ExperimentSide | WindowSide
-    candidate: ExperimentSide | WindowSide
+    baseline: ExperimentSide | WindowSide | BatchSide
+    candidate: ExperimentSide | WindowSide | BatchSide
     # Leave out to use the agent's stored gates.
     gates: Gates | None = None
 
     @model_validator(mode="after")
     def _same_kind(self) -> "NewComparison":
         if type(self.baseline) is not type(self.candidate):
-            raise ValueError("compare two experiments or two live windows, not one of each")
+            raise ValueError("compare two of a kind: experiments, live windows or judge batches")
         return self
 
 
@@ -71,6 +78,15 @@ async def _window_side(
     return loaded, SideFacts(label, None, loaded.spec_ids, True, None), side.agent_id
 
 
+async def _batch_side(
+    scope: WorkspaceScope, side: BatchSide, label: str
+) -> tuple[Loaded, SideFacts, str]:
+    batch = await scope.require(models.JudgeBatch, side.judge_batch_id)
+    loaded = await batch_outcomes(scope, batch.id)
+    finished = batch.status == models.JudgeBatchStatus.FINISHED
+    return loaded, SideFacts(label, None, loaded.spec_ids, finished, None), batch.agent_id
+
+
 async def stored_gates(scope: WorkspaceScope, agent_id: str) -> Gates:
     agent = await scope.require(models.Agent, agent_id)
     return Gates.model_validate(agent.gates)
@@ -84,8 +100,10 @@ async def run_comparison(
     for side, label in ((request.baseline, "baseline"), (request.candidate, "candidate")):
         if isinstance(side, ExperimentSide):
             sides.append(await _experiment_side(scope, side, label))
-        else:
+        elif isinstance(side, WindowSide):
             sides.append(await _window_side(scope, side, label))
+        else:
+            sides.append(await _batch_side(scope, side, label))
     (base, base_facts, agent_id), (cand, cand_facts, _) = sides
     gates = request.gates or await stored_gates(scope, agent_id)
     paired = isinstance(request.baseline, ExperimentSide)

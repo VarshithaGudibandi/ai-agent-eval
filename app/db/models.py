@@ -139,6 +139,18 @@ class ReviewStatus(StrEnum):
     LABELED = "labeled"
 
 
+class JudgeBatchStatus(StrEnum):
+    RUNNING = "running"
+    FINISHED = "finished"
+    PAUSED_BUDGET = "paused_budget"
+
+
+class JudgeBatchTrigger(StrEnum):
+    MANUAL = "manual"
+    SCHEDULE = "schedule"
+    NEW_VERSION = "new_version"
+
+
 class KeyedProvider(StrEnum):
     GEMINI = "gemini"
 
@@ -393,6 +405,9 @@ class ProviderCredential(WorkspaceScoped, Base):
     nonce: Mapped[bytes] = mapped_column(LargeBinary)
     ciphertext: Mapped[bytes] = mapped_column(LargeBinary)
     key_last4: Mapped[str]
+    # The owner says the key is on a paid tier. Live traces are customers' data, and
+    # free-tier traffic may be used by the provider, so live judging needs a paid key.
+    paid: Mapped[bool] = mapped_column(server_default=text("false"))
     created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     revoked_at: Mapped[datetime | None]
@@ -429,7 +444,8 @@ class PriceVersion(WorkspaceScoped, Base):
 
 
 class Budget(WorkspaceScoped, Base):
-    """Limits and running totals for one experiment. A null limit means no cap.
+    """Limits and running totals for one experiment or one judge batch. A null limit means
+    no cap.
 
     The used totals include amounts reserved for calls still in flight.
     """
@@ -438,7 +454,10 @@ class Budget(WorkspaceScoped, Base):
     __table_args__ = (
         UniqueConstraint("workspace_id", "id"),
         UniqueConstraint("experiment_id"),
+        UniqueConstraint("judge_batch_id"),
         workspace_fk("experiment_id", "experiments"),
+        workspace_fk("judge_batch_id", "judge_batches"),
+        CheckConstraint("(experiment_id IS NULL) <> (judge_batch_id IS NULL)", name="one_owner"),
         CheckConstraint(
             "money_used_micros >= 0 AND tokens_used >= 0 AND requests_used >= 0",
             name="used_not_negative",
@@ -446,7 +465,8 @@ class Budget(WorkspaceScoped, Base):
     )
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    experiment_id: Mapped[str]
+    experiment_id: Mapped[str | None]
+    judge_batch_id: Mapped[str | None]
     currency: Mapped[str]
     money_limit_micros: Mapped[int | None] = mapped_column(BigInteger)
     tokens_limit: Mapped[int | None] = mapped_column(BigInteger)
@@ -876,3 +896,49 @@ class Aggregate(WorkspaceScoped, Base):
     runs: Mapped[int]
     health: Mapped[dict[str, Any]]
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class JudgeBatch(WorkspaceScoped, Base):
+    """Stored live runs picked to be judged together, with their own budget."""
+
+    __tablename__ = "judge_batches"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        workspace_fk("agent_id", "agents"),
+        workspace_fk("eval_spec_id", "eval_specs"),
+        one_of("status", JudgeBatchStatus),
+        one_of("trigger", JudgeBatchTrigger),
+        # A new version is judged automatically once, never twice.
+        Index(
+            "uq_judge_batches_new_version",
+            "agent_version_id",
+            unique=True,
+            postgresql_where=text("trigger = 'new_version'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    agent_id: Mapped[str]
+    agent_version_id: Mapped[str | None]
+    eval_spec_id: Mapped[str]
+    window_start: Mapped[datetime]
+    window_end: Mapped[datetime]
+    tags: Mapped[dict[str, Any]]
+    run_limit: Mapped[int]
+    trigger: Mapped[str]
+    status: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    finished_at: Mapped[datetime | None]
+
+
+class JudgeBatchRun(WorkspaceScoped, Base):
+    __tablename__ = "judge_batch_runs"
+    __table_args__ = (
+        PrimaryKeyConstraint("judge_batch_id", "run_id"),
+        workspace_fk("judge_batch_id", "judge_batches"),
+        workspace_fk("run_id", "runs"),
+    )
+
+    judge_batch_id: Mapped[str]
+    run_id: Mapped[str]
+    judged_at: Mapped[datetime | None]

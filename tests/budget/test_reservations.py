@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.budget.reservations import BudgetExhaustedError, BudgetGuard
+from app.budget.reservations import BudgetExhaustedError, BudgetGuard, BudgetOwner
 from app.db import models
 from app.db.budgets import BudgetLimits, budget_for_experiment
 from app.db.scope import WorkspaceScope
@@ -13,7 +13,9 @@ async def _guard(
 ) -> BudgetGuard:
     async with sessionmaker() as session:
         budget = await budget_for_experiment(WorkspaceScope(session, workspace_id), experiment.id)
-    return BudgetGuard(sessionmaker, workspace_id, experiment.id, budget.id)
+    return BudgetGuard(
+        sessionmaker, workspace_id, BudgetOwner("experiment", experiment.id), budget.id
+    )
 
 
 async def _state(

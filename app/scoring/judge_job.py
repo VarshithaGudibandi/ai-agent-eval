@@ -11,6 +11,7 @@ from app.budget.pricing import Price, latest_price
 from app.budget.reservations import BudgetExhaustedError, BudgetGuard
 from app.db import models
 from app.db.jobs import LeaseLostError, enqueue, require_lease
+from app.db.judge_batches import mark_judged
 from app.db.reviews import NewJudgeAnswer, add_review_item, labelled_answers, save_judge_answers
 from app.db.scope import WorkspaceScope
 from app.db.scores import NewScore, save_scores, save_verdict, scores_by, scoring_input
@@ -89,13 +90,13 @@ class _Prepared:
     prices: dict[str, Price | None]
 
 
-async def _prepare(ctx: "JobContext", spec_id: str) -> _Prepared | None:
+async def _prepare(ctx: "JobContext", spec_id: str, batch_id: str | None) -> _Prepared | None:
     claim = ctx.claim
     async with ctx.sessionmaker.begin() as session:
         await require_lease(session, claim.workspace_id, claim.job_id, claim.lease_token)
         scope = WorkspaceScope(session, claim.workspace_id)
         data = await scoring_input(scope, claim.subject_id)
-        access = await judge_access(scope, data.run)
+        access = await judge_access(scope, data.run, batch_id)
         if access is None:
             return None
         scorers = await scorers_for(scope, spec_id)
@@ -141,7 +142,7 @@ async def _judge(
         guard=BudgetGuard(
             ctx.sessionmaker,
             claim.workspace_id,
-            prepared.access.experiment_id,
+            prepared.access.owner,
             prepared.access.budget_id,
             claim.job_id,
             claim.lease_token,
@@ -202,7 +203,8 @@ async def judge_run_job(ctx: "JobContext") -> None:
     """
     claim = ctx.claim
     spec_id = str(claim.payload["eval_spec_id"])
-    prepared = await _prepare(ctx, spec_id)
+    batch_id = claim.payload.get("judge_batch_id")
+    prepared = await _prepare(ctx, spec_id, batch_id)
     if prepared is None:
         return
     results: dict[str, JudgeResult | str] = {}
@@ -223,7 +225,10 @@ async def judge_run_job(ctx: "JobContext") -> None:
 
 
 async def _store(
-    ctx: "JobContext", prepared: _Prepared, spec_id: str, results: dict[str, JudgeResult | str]
+    ctx: "JobContext",
+    prepared: _Prepared,
+    spec_id: str,
+    results: dict[str, JudgeResult | str],
 ) -> None:
     claim = ctx.claim
     answers: list[NewJudgeAnswer] = []
@@ -302,6 +307,7 @@ async def _store(
             list(final.errored),
         )
         await queue_aggregate(scope, prepared.run)
+        await mark_judged(scope, run_id)
         if answers and (borderline or _sampled(run_id, ctx.settings.review_sample_share)):
             reason = models.ReviewReason.BORDERLINE if borderline else models.ReviewReason.SAMPLED
             await add_review_item(scope, run_id, reason)

@@ -36,6 +36,7 @@ class World:
     b_run_id: str
     b_review_item_id: str
     b_comparison_id: str
+    b_batch_id: str
 
 
 PRICE = {
@@ -78,6 +79,27 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         )
     await b_person.post("/api/v1/review-items", json={"run_id": str(b_run_id)})
     [b_review] = (await b_person.get("/api/v1/review-queue")).json()
+    await b_person.post(
+        "/api/v1/provider-credentials",
+        json={
+            "provider": "gemini",
+            "label": "paid",
+            "api_key": "AIzaB-paid-key-0000",
+            "paid": True,
+        },
+    )
+    await b_person.put(
+        f"/api/v1/agents/{b_agent_id}/eval-spec",
+        json={"scorers": [{"key": "j", "check": "checklist", "params": {"pack": "support"}}]},
+    )
+    b_batch = await b_person.post(
+        "/api/v1/judge-batches",
+        json={
+            "agent_id": str(b_agent_id),
+            "start": "2026-01-01T00:00:00Z",
+            "end": "2027-01-01T00:00:00Z",
+        },
+    )
     b_comparison = await b_person.post(
         "/api/v1/comparisons",
         json={
@@ -100,6 +122,7 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         str(b_run_id),
         b_review["id"],
         b_comparison.json()["id"],
+        b_batch.json()["id"],
     )
 
 
@@ -125,6 +148,25 @@ def _foreign_id_attacks(w: Any) -> list[tuple[str, str, Any]]:
             {"labels": [{"scorer_key": "k", "question_id": "q", "answer": "yes"}]},
         ),
         ("GET", f"/api/v1/comparisons/{w.b_comparison_id}", None),
+        ("GET", f"/api/v1/judge-batches/{w.b_batch_id}", None),
+        # A body naming B's agent must not judge B's runs.
+        (
+            "POST",
+            "/api/v1/judge-batches",
+            {
+                "agent_id": w.b_agent_id,
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2027-01-01T00:00:00Z",
+            },
+        ),
+        (
+            "POST",
+            "/api/v1/comparisons",
+            {
+                "baseline": {"judge_batch_id": w.b_batch_id},
+                "candidate": {"judge_batch_id": w.b_batch_id},
+            },
+        ),
         ("GET", f"/api/v1/experiments/{w.b_experiment_id}/baseline", None),
         ("GET", f"/api/v1/agents/{w.b_agent_id}/gates", None),
         ("GET", f"/api/v1/agents/{w.b_agent_id}/health/daily", None),
@@ -189,6 +231,7 @@ def _b_ids(w: World) -> list[str]:
         w.b_run_id,
         w.b_review_item_id,
         w.b_comparison_id,
+        w.b_batch_id,
         str(w.b_person.email),
     ]
 
@@ -206,6 +249,7 @@ async def _b_view(w: World) -> dict[str, Any]:
     view["agents"] = (await w.b_person.get("/api/v1/agents")).json()
     view["review"] = (await w.b_person.get("/api/v1/review-queue")).json()
     view["gates"] = (await w.b_person.get(f"/api/v1/agents/{w.b_agent_id}/gates")).json()
+    view["batch"] = (await w.b_person.get(f"/api/v1/judge-batches/{w.b_batch_id}")).json()
     return view
 
 
@@ -349,6 +393,7 @@ FOREIGN_ID_ROUTES = {
     ("GET", "/api/v1/agents/{agent_id}/calibration"),
     ("POST", "/api/v1/review-items/{item_id}/label"),
     ("GET", "/api/v1/comparisons/{comparison_id}"),
+    ("GET", "/api/v1/judge-batches/{batch_id}"),
     ("GET", "/api/v1/experiments/{experiment_id}/baseline"),
     ("GET", "/api/v1/agents/{agent_id}/gates"),
     ("GET", "/api/v1/agents/{agent_id}/health/daily"),
@@ -370,6 +415,7 @@ BODY_ROUTES = {
     ("POST", "/api/v1/feedback"),
     ("POST", "/api/v1/review-items"),
     ("POST", "/api/v1/comparisons"),
+    ("POST", "/api/v1/judge-batches"),
     ("POST", "/api/v1/datasets"),
     ("POST", "/api/v1/experiments"),
     ("POST", "/api/v1/api-tokens"),
@@ -413,6 +459,7 @@ def test_every_foreign_id_route_is_really_attacked() -> None:
         b_run_id="x",
         b_review_item_id="x",
         b_comparison_id="x",
+        b_batch_id="x",
     )
     sent = {(method, path) for method, path, _ in _foreign_id_attacks(fake)}
     templates = {(method, re.sub(r"\{[a-z_]+\}", "x", path)) for method, path in FOREIGN_ID_ROUTES}

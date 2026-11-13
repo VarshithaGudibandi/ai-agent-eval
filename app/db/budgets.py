@@ -24,12 +24,17 @@ class LimitBelowUsageError(ValueError):
 
 
 async def create_budget(
-    scope: WorkspaceScope, experiment_id: str, limits: BudgetLimits
+    scope: WorkspaceScope,
+    experiment_id: str | None,
+    limits: BudgetLimits,
+    judge_batch_id: str | None = None,
 ) -> models.Budget:
+    """A budget for an experiment, or for a judge batch."""
     budget = models.Budget(
         id=new_id("bud"),
         workspace_id=scope.workspace_id,
         experiment_id=experiment_id,
+        judge_batch_id=judge_batch_id,
         currency=limits.currency,
         money_limit_micros=limits.money_micros,
         tokens_limit=limits.tokens,
@@ -182,3 +187,12 @@ def has_headroom(budget: models.Budget) -> bool:
         (budget.requests_used, budget.requests_limit),
     ]
     return all(limit is None or used < limit for used, limit in pairs)
+
+
+async def budget_for_batch(scope: WorkspaceScope, batch_id: str) -> models.Budget:
+    budget = await scope.first(
+        scope.query(models.Budget).where(models.Budget.judge_batch_id == batch_id)
+    )
+    if budget is None:
+        raise LookupError(batch_id)
+    return budget

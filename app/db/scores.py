@@ -92,7 +92,11 @@ async def save_verdict(
             failed=failed,
             errored=errored,
         )
-        .on_conflict_do_nothing(index_elements=["run_id", "eval_spec_id"])
+        # A live run's verdict from its rules is replaced when a judge batch adds judges.
+        .on_conflict_do_update(
+            index_elements=["run_id", "eval_spec_id"],
+            set_={"status": status, "quality": quality, "failed": failed, "errored": errored},
+        )
     )
 
 

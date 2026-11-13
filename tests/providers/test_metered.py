@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.budget.pricing import Price
-from app.budget.reservations import BudgetExhaustedError, BudgetGuard
+from app.budget.reservations import BudgetExhaustedError, BudgetGuard, BudgetOwner
 from app.db import models
 from app.db.budgets import BudgetLimits, budget_for_experiment
 from app.db.scope import WorkspaceScope
@@ -62,7 +62,12 @@ async def _model(
         provider,
         "scripted",
         price=PRICE,
-        guard=BudgetGuard(sessionmaker, experiment.workspace_id, experiment.id, budget.id),
+        guard=BudgetGuard(
+            sessionmaker,
+            experiment.workspace_id,
+            BudgetOwner("experiment", experiment.id),
+            budget.id,
+        ),
         limiter=None,
         sessionmaker=sessionmaker,
         workspace_id=experiment.workspace_id,

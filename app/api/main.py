@@ -13,6 +13,7 @@ from app.api import (
     experiments,
     feedback,
     health,
+    judge_batches,
     prices,
     provider_credentials,
     reviews,
@@ -58,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         runs,
         reviews,
         comparisons,
+        judge_batches,
     ):
         app.include_router(module.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
