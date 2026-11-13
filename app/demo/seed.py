@@ -45,6 +45,8 @@ REPORT_MODEL = "gemini-3.5-flash"
 LIVE_DAYS = 14
 LIVE_PER_DAY = 12
 V2_SHIPPED_DAYS_AGO = 3
+# Shares no factor with the 40 recorded runs per version, so every run gets picked.
+STRIDE = 7
 
 
 def _recorded() -> dict[str, list[dict[str, Any]]]:
@@ -74,7 +76,9 @@ def live_traffic(recorded: dict[str, list[dict[str, Any]]], now: datetime) -> li
         source = recorded["v2" if days_ago <= V2_SHIPPED_DAYS_AGO else "v1"]
         for n in range(LIVE_PER_DAY):
             start = now - timedelta(days=days_ago, hours=n)
-            picked = source[(days_ago * LIVE_PER_DAY + n) % len(source)]
+            # Recorded runs are in case order; a stride spreads each day across every case,
+            # so each day fails about as often as the version did in its experiment.
+            picked = source[(days_ago * LIVE_PER_DAY + n) * STRIDE % len(source)]
             traces.append(_moved(picked, f"live-{days_ago}-{n}", start))
     return traces
 
