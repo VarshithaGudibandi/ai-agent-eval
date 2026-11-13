@@ -129,6 +129,18 @@ async def test_rate_limit_is_retried_free_and_recorded(
     assert len(provider.calls) == 2
 
 
+async def test_a_rate_limit_asking_for_a_long_wait_fails_at_once(
+    sessionmaker: async_sessionmaker[AsyncSession], make_experiment: MakeExperiment
+) -> None:
+    experiment = await make_experiment(BudgetLimits())
+    model, provider, slept = await _model(
+        sessionmaker, experiment, [RateLimited("daily quota", 3600), REPLY]
+    )
+    with pytest.raises(RateLimited):
+        await model.generate(MESSAGES, [], SETTINGS)
+    assert slept == [] and len(provider.calls) == 1
+
+
 async def test_errors_without_usage_keep_the_reserved_estimate(
     sessionmaker: async_sessionmaker[AsyncSession], make_experiment: MakeExperiment
 ) -> None:

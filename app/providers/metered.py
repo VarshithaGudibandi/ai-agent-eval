@@ -27,6 +27,10 @@ from app.providers.rate_limiter import RateLimiter, Sleep
 
 logger = logging.getLogger(__name__)
 
+# A provider that asks for a longer pause is out of quota for the day, not briefly busy.
+# Waiting it out would hold the job's lease, and a worker slot, for hours.
+MAX_WAIT_SECONDS = 60.0
+
 _STATUS: dict[type[ProviderError], models.ModelCallStatus] = {
     RateLimited: models.ModelCallStatus.RATE_LIMITED,
     Retryable: models.ModelCallStatus.RETRYABLE_ERROR,
@@ -82,9 +86,14 @@ class MeteredModel:
                 response = await self._provider.generate(messages, tools, settings, self._timeout)
             except ProviderError as exc:
                 await self._record_failure(reservation, settings, retry, started, exc)
-                if not isinstance(exc, RateLimited | Retryable) or retry == self._max_retries:
+                wait = _backoff(retry, exc)
+                if (
+                    not isinstance(exc, RateLimited | Retryable)
+                    or retry == self._max_retries
+                    or wait > MAX_WAIT_SECONDS
+                ):
                     raise
-                await self._sleep(_backoff(retry, exc))
+                await self._sleep(wait)
                 continue
             await self._record_success(reservation, settings, retry, started, response)
             return response
