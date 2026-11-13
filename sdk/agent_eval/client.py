@@ -3,6 +3,7 @@ import os
 import time
 from collections.abc import Callable, Iterator
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
@@ -145,6 +146,16 @@ class PlatformClient:
 
     def compare(self, body: dict[str, Any]) -> dict[str, Any]:
         result: dict[str, Any] = self._call("POST", "/api/v1/comparisons", body)
+        return result
+
+    def comparisons(self, candidate_experiment_id: str, limit: int) -> list[dict[str, Any]]:
+        query = urlencode({"candidate_experiment_id": candidate_experiment_id, "limit": limit})
+        result: list[dict[str, Any]] = self._call("GET", f"/api/v1/comparisons?{query}")
+        return result
+
+    def reports(self, comparison_id: str, limit: int) -> list[dict[str, Any]]:
+        query = urlencode({"comparison_id": comparison_id, "limit": limit})
+        result: list[dict[str, Any]] = self._call("GET", f"/api/v1/reports?{query}")
         return result
 
     def request_report(self, comparison_id: str) -> dict[str, Any]:

@@ -66,6 +66,27 @@ async def show_failing_runs(agent: str) -> answers.FailuresAnswer:
     return await _ask(lambda c: answers.show_failing_runs(c, agent, answers.now_utc()))
 
 
+@server.tool()
+async def compare_versions(agent: str) -> answers.CompareAnswer:
+    """Did the newest change break anything? Compares the agent's newest experiment with its
+    baseline (the shipped version, or else the newest other one) and gives the ship or hold
+    call from the team's gates, why, the six metrics with whether each change is real or noise,
+    the cases that got worse, and the regression report if one was asked for. With only live
+    traffic, compares the last 7 days with the 7 before. Says which experiments it compares and
+    how old they are: if the agent changed since, run `evalctl run <eval file>` first."""
+    return await _ask(lambda c: answers.compare_versions(c, agent, answers.now_utc()))
+
+
+@server.tool()
+async def explain_regression(agent: str) -> answers.ExplainAnswer:
+    """Why the agent's newest version got worse: asks for the regression report on the same
+    comparison compare_versions uses, and waits up to a minute for it. The report names what
+    changed in the config and, for each new kind of failure, a likely cause with the steps that
+    show it. It uses the workspace's Gemini key, at most ten model calls, and asks only once:
+    a report already asked for is returned instead. Needs a member token."""
+    return await _ask(lambda c: answers.explain_regression(c, agent, answers.now_utc()))
+
+
 def main() -> None:
     # stdout carries the protocol, so anything else goes to stderr.
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING)

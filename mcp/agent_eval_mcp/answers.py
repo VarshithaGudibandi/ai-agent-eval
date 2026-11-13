@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+import time
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel
@@ -290,6 +291,213 @@ def show_failing_runs(client: PlatformClient, agent_name: str, now: datetime) ->
         runs=found["runs"],
         failed=found["failed"],
         reasons=reasons,
+        note=DATA_NOTE,
+    )
+
+
+class Case(BaseModel):
+    case: str
+    passed_before: str
+    passed_now: str
+
+
+class Cause(BaseModel):
+    scorer: str
+    question: str | None
+    runs_now: int
+    runs_before: int
+    cause: str | None
+    confidence: str | None
+    next_step: str | None
+    # Why there is no cause, such as no Gemini key in the workspace.
+    no_cause: str | None
+    steps: list[str]
+
+
+class ReportLine(BaseModel):
+    id: str
+    # queued, done or failed.
+    status: str
+    headline: str | None
+    causes: list[Cause]
+    limits: list[str]
+    error: str | None
+
+
+def report_line(report: dict[str, Any], url: str) -> ReportLine:
+    body = report["report"] or {}
+    return ReportLine(
+        id=report["id"],
+        status=report["status"],
+        headline=quote(body.get("headline")),
+        causes=[
+            Cause(
+                scorer=g["scorer_key"],
+                question=g["question_id"],
+                runs_now=g["count"],
+                runs_before=g["baseline_count"],
+                cause=quote(g["cause"]),
+                confidence=g["confidence"],
+                next_step=quote(g["next_step"]),
+                no_cause=g["error"],
+                steps=[
+                    f"{url}/runs/{s['run_id']}?span={s['span_id']}"
+                    for c in g["claims"]
+                    for s in c["spans"]
+                ],
+            )
+            for g in body.get("groups", [])
+        ],
+        limits=body.get("limits", []),
+        error=report["error"],
+    )
+
+
+class CompareAnswer(BaseModel):
+    summary: str
+    agent: str
+    baseline: str
+    candidate: str
+    # ship, hold or insufficient_data, from the agent's gates.
+    decision: str
+    reasons: list[str]
+    metrics: list[Metric]
+    worse_cases: list[Case]
+    report: ReportLine | None
+    page: str
+    notes: list[str]
+    note: str
+
+
+def _window(start: datetime, end: datetime, agent_id: str) -> dict[str, str]:
+    return {"agent_id": agent_id, "start": start.isoformat(), "end": end.isoformat()}
+
+
+def _comparison(
+    client: PlatformClient, agent: dict[str, Any], now: datetime
+) -> tuple[dict[str, Any], str, str, list[str]]:
+    """The comparison that answers "did the newest change break anything": the one stored for
+    the newest experiment, else a new one against its baseline, else for an agent with only
+    live runs, the last week against the week before. Returns it, what each side is, and
+    notes."""
+    found = client.experiments(agent["id"], limit=1)
+    if not found:
+        health = client.agent_health(agent["id"])
+        if health["mode"] != "live":
+            raise AnswerError(
+                f"{agent['name']} has no experiments and not two weeks of live runs, so there "
+                "is nothing to compare. Run `evalctl run <eval file>` to measure it."
+            )
+        week = timedelta(days=7)
+        comparison = client.compare(
+            {
+                "baseline": _window(now - 2 * week, now - week, agent["id"]),
+                "candidate": _window(now - week, now, agent["id"]),
+            }
+        )
+        return comparison, "live runs of the week before", "live runs of the last 7 days", []
+    newest = found[0]
+    stored = client.comparisons(newest["id"], limit=1)
+    usable = stored and not any("not finished" in n for n in stored[0]["result"]["fairness"])
+    if usable:
+        comparison = stored[0]
+    else:
+        baseline = client.baseline(newest["id"])["experiment_id"]
+        if baseline is None:
+            raise AnswerError(
+                f"Only one version of {agent['name']} has run on this dataset "
+                f"({about_experiment(newest, agent, now)}), so there is nothing to compare "
+                "with. agent_health shows its numbers."
+            )
+        comparison = client.compare(
+            {"baseline": {"experiment_id": baseline}, "candidate": {"experiment_id": newest["id"]}}
+        )
+    base = client.experiment(comparison["baseline"]["experiment_id"])
+    return (
+        comparison,
+        about_experiment(base, agent, now),
+        about_experiment(newest, agent, now),
+        [STALE_HINT],
+    )
+
+
+def compare_versions(client: PlatformClient, agent_name: str, now: datetime) -> CompareAnswer:
+    agent = find_agent(client, agent_name)
+    comparison, baseline, candidate, notes = _comparison(client, agent, now)
+    result = comparison["result"]
+    reports = client.reports(comparison["id"], limit=1)
+    report = report_line(reports[0], client.url) if reports else None
+    worse = [
+        Case(
+            case=c["case_key"],
+            passed_before=f"{c['baseline_pass_rate'] * 100:.0f}%",
+            passed_now=f"{c['candidate_pass_rate'] * 100:.0f}%",
+        )
+        for c in result["cases"]
+        if c["outcome"] == "worse"
+    ]
+    decision = result["decision"]
+    summary = f"{decision.replace('_', ' ').upper()}: " + "; ".join(result["reasons"])
+    if worse:
+        summary += f". {len(worse)} cases got worse."
+    if report and report.headline:
+        summary += f" Report: {report.headline}"
+    elif decision == "hold" and report is None:
+        notes.append("Ask explain_regression for why it got worse.")
+    return CompareAnswer(
+        summary=summary,
+        agent=agent["name"],
+        baseline=baseline,
+        candidate=candidate,
+        decision=decision,
+        reasons=result["reasons"],
+        metrics=metrics(result["metrics"]),
+        worse_cases=worse[:20],
+        report=report,
+        page=f"{client.url}/comparisons/{comparison['id']}",
+        notes=[*result["fairness"], *notes],
+        note=DATA_NOTE,
+    )
+
+
+class ExplainAnswer(BaseModel):
+    summary: str
+    agent: str
+    candidate: str
+    report: ReportLine
+    page: str
+    note: str
+
+
+def explain_regression(
+    client: PlatformClient, agent_name: str, now: datetime, wait: float = 60.0
+) -> ExplainAnswer:
+    agent = find_agent(client, agent_name)
+    comparison, _, candidate, _ = _comparison(client, agent, now)
+    existing = client.reports(comparison["id"], limit=1)
+    # A report already asked for is never asked for again, so a retrying assistant cannot
+    # spend the workspace's key twice. Only a failed one is asked for afresh.
+    if existing and existing[0]["status"] != "failed":
+        report = existing[0]
+    else:
+        report = client.request_report(comparison["id"])
+    deadline = time.monotonic() + wait
+    while report["status"] == "queued" and time.monotonic() < deadline:
+        time.sleep(2)
+        report = client.report(report["id"])
+    line = report_line(report, client.url)
+    if line.status == "queued":
+        summary = "The report is still being written. Ask again in a minute."
+    elif line.status == "failed":
+        summary = f"The report could not be written: {line.error}"
+    else:
+        summary = line.headline or "The report found nothing to explain."
+    return ExplainAnswer(
+        summary=summary,
+        agent=agent["name"],
+        candidate=candidate,
+        report=line,
+        page=f"{client.url}/comparisons/{comparison['id']}",
         note=DATA_NOTE,
     )
 

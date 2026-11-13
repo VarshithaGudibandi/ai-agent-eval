@@ -227,8 +227,10 @@ claude mcp add --env AGENT_EVAL_URL=http://127.0.0.1:8000 --env AGENT_EVAL_TOKEN
 | `list_agents` | Your agents, their newest and shipped versions | viewer |
 | `agent_health` | The six metrics for an agent's newest experiment against its baseline, or the last 7 days of live runs against the 7 before | viewer |
 | `show_failing_runs` | How the newest experiment's runs failed, by reason, with links to example runs | viewer |
+| `compare_versions` | "Did my last change break anything?": the newest experiment against its baseline, with the ship or hold call, why, the six metrics, the cases that got worse, and the regression report if one was asked for. It reuses the comparison `evalctl run` stored | viewer to read a stored one, member to make one |
+| `explain_regression` | Asks for the regression report on that comparison and waits up to a minute. It uses the workspace's Gemini key, at most ten calls, and asks only once: a report already asked for is returned | member |
 
-It reads results that already exist and runs nothing: to measure a change, the assistant runs `evalctl run eval.py` in its terminal first, where you approve the command. Every answer names the experiment it is about and how old it is. Answers carry numbers, scorer reasons and links, never what a run received or replied, so text from your agent's users cannot become instructions to your assistant.
+It reads results that already exist and runs nothing: to measure a change, the assistant runs `evalctl run eval.py` in its terminal first, where you approve the command, then asks `compare_versions`. A line in your agent repo's assistant instructions, such as "after changing the agent, run `evalctl run eval.py` before saying it works", makes that a habit. Every answer names the experiment it is about and how old it is. Answers carry numbers, scorer reasons and links, never what a run received or replied, so text from your agent's users cannot become instructions to your assistant.
 
 ## Make commands
 
