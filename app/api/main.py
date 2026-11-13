@@ -16,6 +16,7 @@ from app.api import (
     judge_batches,
     prices,
     provider_credentials,
+    reports,
     reviews,
     runs,
     traces,
@@ -60,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         reviews,
         comparisons,
         judge_batches,
+        reports,
     ):
         app.include_router(module.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

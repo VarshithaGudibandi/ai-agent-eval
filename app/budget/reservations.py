@@ -25,7 +25,7 @@ class BudgetExhaustedError(Exception):
 class BudgetOwner:
     """What a budget belongs to, and what pauses when it runs out."""
 
-    kind: Literal["experiment", "judge_batch"]
+    kind: Literal["experiment", "judge_batch", "regression_report"]
     id: str
 
 
@@ -106,11 +106,13 @@ class BudgetGuard:
 
 
 async def _pause_in(scope: WorkspaceScope, owner: BudgetOwner, reason: str) -> None:
-    paused = (
-        await pause_for_budget(scope, owner.id)
-        if owner.kind == "experiment"
-        else await pause_batch_for_budget(scope, owner.id)
-    )
+    if owner.kind == "experiment":
+        paused = await pause_for_budget(scope, owner.id)
+    elif owner.kind == "judge_batch":
+        paused = await pause_batch_for_budget(scope, owner.id)
+    else:
+        # A report has nothing to pause: its groups without a cause say why.
+        paused = False
     if paused:
         record_audit(
             scope,

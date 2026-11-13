@@ -37,6 +37,7 @@ class World:
     b_review_item_id: str
     b_comparison_id: str
     b_batch_id: str
+    b_report_id: str
 
 
 PRICE = {
@@ -107,6 +108,9 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
             "candidate": {"experiment_id": experiment.json()["id"]},
         },
     )
+    b_report = await b_person.post(
+        "/api/v1/reports", json={"comparison_id": b_comparison.json()["id"]}
+    )
     return World(
         a_person,
         a_token,
@@ -123,6 +127,7 @@ async def world(new_owner: SignIn, app: FastAPI, clients: Callable[[], httpx.Asy
         b_review["id"],
         b_comparison.json()["id"],
         b_batch.json()["id"],
+        b_report.json()["id"],
     )
 
 
@@ -149,6 +154,9 @@ def _foreign_id_attacks(w: Any) -> list[tuple[str, str, Any]]:
         ),
         ("GET", f"/api/v1/comparisons/{w.b_comparison_id}", None),
         ("GET", f"/api/v1/judge-batches/{w.b_batch_id}", None),
+        ("GET", f"/api/v1/reports/{w.b_report_id}", None),
+        # A body naming B's comparison must not explain it.
+        ("POST", "/api/v1/reports", {"comparison_id": w.b_comparison_id}),
         ("GET", f"/api/v1/agents/{w.b_agent_id}/judge-schedule", None),
         ("PUT", f"/api/v1/agents/{w.b_agent_id}/judge-schedule", {"hour": 3}),
         # A body naming B's agent must not judge B's runs.
@@ -234,6 +242,7 @@ def _b_ids(w: World) -> list[str]:
         w.b_review_item_id,
         w.b_comparison_id,
         w.b_batch_id,
+        w.b_report_id,
         str(w.b_person.email),
     ]
 
@@ -399,6 +408,7 @@ FOREIGN_ID_ROUTES = {
     ("POST", "/api/v1/review-items/{item_id}/label"),
     ("GET", "/api/v1/comparisons/{comparison_id}"),
     ("GET", "/api/v1/judge-batches/{batch_id}"),
+    ("GET", "/api/v1/reports/{report_id}"),
     ("GET", "/api/v1/agents/{agent_id}/judge-schedule"),
     ("PUT", "/api/v1/agents/{agent_id}/judge-schedule"),
     ("GET", "/api/v1/experiments/{experiment_id}/baseline"),
@@ -423,6 +433,7 @@ BODY_ROUTES = {
     ("POST", "/api/v1/review-items"),
     ("POST", "/api/v1/comparisons"),
     ("POST", "/api/v1/judge-batches"),
+    ("POST", "/api/v1/reports"),
     ("POST", "/api/v1/datasets"),
     ("POST", "/api/v1/experiments"),
     ("POST", "/api/v1/api-tokens"),
@@ -467,6 +478,7 @@ def test_every_foreign_id_route_is_really_attacked() -> None:
         b_review_item_id="x",
         b_comparison_id="x",
         b_batch_id="x",
+        b_report_id="x",
     )
     sent = {(method, path) for method, path, _ in _foreign_id_attacks(fake)}
     templates = {(method, re.sub(r"\{[a-z_]+\}", "x", path)) for method, path in FOREIGN_ID_ROUTES}

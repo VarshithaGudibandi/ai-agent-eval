@@ -21,6 +21,7 @@ from app.db.jobs import (
     renew_lease,
 )
 from app.db.schema_status import schema_status
+from app.explain.job import EXPLAIN, explain_job
 from app.jobs.leases import LeaseOutcome, hold_lease
 from app.metrics.aggregate_job import AGGREGATE_DAY, aggregate_day_job
 from app.scoring.job import SCORE_RUN, score_run_job
@@ -70,6 +71,7 @@ HANDLERS: dict[str, Handler] = {
     SCORE_RUN: score_run_job,
     JUDGE_RUN: judge_run_job,
     AGGREGATE_DAY: aggregate_day_job,
+    EXPLAIN: explain_job,
 }
 
 

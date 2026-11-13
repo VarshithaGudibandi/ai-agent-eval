@@ -151,6 +151,12 @@ class JudgeBatchTrigger(StrEnum):
     NEW_VERSION = "new_version"
 
 
+class ReportStatus(StrEnum):
+    QUEUED = "queued"
+    DONE = "done"
+    FAILED = "failed"
+
+
 class KeyedProvider(StrEnum):
     GEMINI = "gemini"
 
@@ -444,8 +450,8 @@ class PriceVersion(WorkspaceScoped, Base):
 
 
 class Budget(WorkspaceScoped, Base):
-    """Limits and running totals for one experiment or one judge batch. A null limit means
-    no cap.
+    """Limits and running totals for one experiment, judge batch or regression report. A
+    null limit means no cap.
 
     The used totals include amounts reserved for calls still in flight.
     """
@@ -455,9 +461,14 @@ class Budget(WorkspaceScoped, Base):
         UniqueConstraint("workspace_id", "id"),
         UniqueConstraint("experiment_id"),
         UniqueConstraint("judge_batch_id"),
+        UniqueConstraint("regression_report_id"),
         workspace_fk("experiment_id", "experiments"),
         workspace_fk("judge_batch_id", "judge_batches"),
-        CheckConstraint("(experiment_id IS NULL) <> (judge_batch_id IS NULL)", name="one_owner"),
+        workspace_fk("regression_report_id", "regression_reports"),
+        CheckConstraint(
+            "num_nonnulls(experiment_id, judge_batch_id, regression_report_id) = 1",
+            name="one_owner",
+        ),
         CheckConstraint(
             "money_used_micros >= 0 AND tokens_used >= 0 AND requests_used >= 0",
             name="used_not_negative",
@@ -467,6 +478,7 @@ class Budget(WorkspaceScoped, Base):
     id: Mapped[str] = mapped_column(primary_key=True)
     experiment_id: Mapped[str | None]
     judge_batch_id: Mapped[str | None]
+    regression_report_id: Mapped[str | None]
     currency: Mapped[str]
     money_limit_micros: Mapped[int | None] = mapped_column(BigInteger)
     tokens_limit: Mapped[int | None] = mapped_column(BigInteger)
@@ -971,3 +983,24 @@ class JudgeSchedule(WorkspaceScoped, Base):
     next_run_at: Mapped[datetime | None]
     last_error: Mapped[str | None]
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class RegressionReport(WorkspaceScoped, Base):
+    """Why the candidate side of a comparison got worse, made on request."""
+
+    __tablename__ = "regression_reports"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        workspace_fk("comparison_id", "comparisons"),
+        one_of("status", ReportStatus),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    comparison_id: Mapped[str]
+    status: Mapped[str]
+    # The auditor model, kept so a report always says what wrote it.
+    model: Mapped[str]
+    report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    error: Mapped[str | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    finished_at: Mapped[datetime | None]

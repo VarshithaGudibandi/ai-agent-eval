@@ -17,6 +17,7 @@ from app.db import models
 from app.db.ids import new_id
 from app.db.jobs import Claim, finish
 from app.db.scope import WorkspaceScope
+from app.explain.job import EXPLAIN, explain_job
 from app.jobs.worker import JobContext
 from app.metrics.aggregate_job import AGGREGATE_DAY, aggregate_day_job
 from app.scoring.job import SCORE_RUN, score_run_job
@@ -149,6 +150,7 @@ async def score_now(app: FastAPI, workspace_id: str) -> int:
         SCORE_RUN: score_run_job,
         JUDGE_RUN: judge_run_job,
         AGGREGATE_DAY: aggregate_day_job,
+        EXPLAIN: explain_job,
     }
     done = 0
     while True:

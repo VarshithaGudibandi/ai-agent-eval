@@ -28,13 +28,15 @@ async def create_budget(
     experiment_id: str | None,
     limits: BudgetLimits,
     judge_batch_id: str | None = None,
+    regression_report_id: str | None = None,
 ) -> models.Budget:
-    """A budget for an experiment, or for a judge batch."""
+    """A budget for an experiment, a judge batch or a regression report."""
     budget = models.Budget(
         id=new_id("bud"),
         workspace_id=scope.workspace_id,
         experiment_id=experiment_id,
         judge_batch_id=judge_batch_id,
+        regression_report_id=regression_report_id,
         currency=limits.currency,
         money_limit_micros=limits.money_micros,
         tokens_limit=limits.tokens,
@@ -195,4 +197,13 @@ async def budget_for_batch(scope: WorkspaceScope, batch_id: str) -> models.Budge
     )
     if budget is None:
         raise LookupError(batch_id)
+    return budget
+
+
+async def budget_for_report(scope: WorkspaceScope, report_id: str) -> models.Budget:
+    budget = await scope.first(
+        scope.query(models.Budget).where(models.Budget.regression_report_id == report_id)
+    )
+    if budget is None:
+        raise LookupError(report_id)
     return budget

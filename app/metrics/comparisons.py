@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import AwareDatetime, BaseModel, ConfigDict, model_validator
 
 from app.db import models
@@ -121,3 +123,14 @@ async def run_comparison(
     scope.add(row)
     await scope.flush()
     return row, result
+
+
+async def load_side(
+    scope: WorkspaceScope, descriptor: dict[str, Any], label: str
+) -> tuple[Loaded, SideFacts, str]:
+    """One side of a stored comparison, loaded again from what the comparison recorded."""
+    if "experiment_id" in descriptor:
+        return await _experiment_side(scope, ExperimentSide.model_validate(descriptor), label)
+    if "judge_batch_id" in descriptor:
+        return await _batch_side(scope, BatchSide.model_validate(descriptor), label)
+    return await _window_side(scope, WindowSide.model_validate(descriptor), label)

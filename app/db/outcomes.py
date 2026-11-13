@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import distinct_on, insert
 from app.db import models
 from app.db.ids import new_id
 from app.db.scope import WorkspaceScope
+from app.explain.groups import RunFailures
 from app.metrics.health import RunOutcome
 
 
@@ -186,3 +187,72 @@ async def batch_outcomes(scope: WorkspaceScope, batch_id: str) -> Loaded:
         models.JudgeBatchRun.judge_batch_id == batch_id,
     )
     return await _load(scope, scope.query(models.Run).where(models.Run.id.in_(members)))
+
+
+async def run_failures(scope: WorkspaceScope, run_ids: list[str]) -> list[RunFailures]:
+    """What each failing run failed, by its newest verdict: scorer keys, their reasons, and
+    the trusted judge questions answered no."""
+    loaded = await _load(scope, scope.query(models.Run).where(models.Run.id.in_(run_ids)))
+    failing = {o.run_id: o for o in loaded.outcomes if o.status == "failed"}
+    if not failing:
+        return []
+    newest = (
+        await scope.session.execute(
+            select(models.Verdict)
+            .where(
+                models.Verdict.workspace_id == scope.workspace_id,
+                models.Verdict.run_id.in_(list(failing)),
+            )
+            .ext(distinct_on(models.Verdict.run_id))
+            .order_by(models.Verdict.run_id, models.Verdict.created_at.desc())
+        )
+    ).scalars()
+    failed = {v.run_id: tuple(v.failed) for v in newest}
+    scores = await scope.session.execute(
+        select(models.Score.run_id, models.Scorer.key, models.Score.reason)
+        .join(models.Scorer, models.Scorer.id == models.Score.scorer_id)
+        .where(
+            models.Score.workspace_id == scope.workspace_id,
+            models.Score.run_id.in_(list(failing)),
+            models.Score.passed.is_(False),
+        )
+    )
+    reasons: dict[str, dict[str, str]] = {}
+    for run_id, key, reason in scores:
+        reasons.setdefault(run_id, {}).setdefault(key, reason)
+    answers = await scope.session.execute(
+        select(models.JudgeAnswer.run_id, models.Scorer.key, models.JudgeAnswer.question_id)
+        .join(models.Scorer, models.Scorer.id == models.JudgeAnswer.scorer_id)
+        .where(
+            models.JudgeAnswer.workspace_id == scope.workspace_id,
+            models.JudgeAnswer.run_id.in_(list(failing)),
+            models.JudgeAnswer.answer == models.JudgeAnswerValue.NO,
+            models.JudgeAnswer.trusted.is_(True),
+        )
+    )
+    questions: dict[str, dict[str, list[str]]] = {}
+    for run_id, key, question in answers:
+        questions.setdefault(run_id, {}).setdefault(key, []).append(question)
+    return [
+        RunFailures(
+            run_id=run_id,
+            case_key=outcome.case_key,
+            failed=failed.get(run_id, ()),
+            reasons=reasons.get(run_id, {}),
+            failed_questions={k: tuple(v) for k, v in questions.get(run_id, {}).items()},
+        )
+        for run_id, outcome in failing.items()
+    ]
+
+
+async def main_version(scope: WorkspaceScope, run_ids: list[str]) -> models.AgentVersion | None:
+    """The agent version most of these runs ran on."""
+    rows = await scope.session.execute(
+        select(models.Run.agent_version_id, func.count())
+        .where(models.Run.workspace_id == scope.workspace_id, models.Run.id.in_(run_ids))
+        .group_by(models.Run.agent_version_id)
+        .order_by(func.count().desc(), models.Run.agent_version_id)
+        .limit(1)
+    )
+    found = rows.first()
+    return None if found is None else await scope.require(models.AgentVersion, found[0])
