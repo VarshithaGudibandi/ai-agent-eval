@@ -8,6 +8,7 @@ from app.api.dependencies import Db, Member, Viewer, scope_for
 from app.db import models
 from app.db.audit import record_audit
 from app.db.eval_specs import current_spec, require_current_spec, scorers_of, spec_version
+from app.db.judge_batches import schedule_of
 from app.db.outcomes import daily_aggregates
 from app.db.scope import NotFoundError, WorkspaceScope
 from app.db.scores import run_ids
@@ -17,6 +18,7 @@ from app.metrics.comparisons import stored_gates
 from app.metrics.health import Health
 from app.scoring.definitions import EvalSpecDefinition
 from app.scoring.job import queue_scoring
+from app.scoring.judge_schedules import ScheduleIn, save_schedule
 from app.scoring.specs import save_definitions
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
@@ -269,3 +271,49 @@ async def daily_health(
         )
         for a in await daily_aggregates(scope, agent_id, since)
     ]
+
+
+class ScheduleOut(ScheduleIn):
+    next_run_at: datetime | None
+    # Why the last scheduled batch did not start, such as no paid key.
+    last_error: str | None
+
+
+@router.get("/{agent_id}/judge-schedule")
+async def judge_schedule(agent_id: str, principal: Viewer, session: Db) -> ScheduleOut:
+    """When the agent's live runs are judged without being asked. Off until it is set."""
+    scope = scope_for(session, principal)
+    await scope.require(models.Agent, agent_id)
+    row = await schedule_of(scope, agent_id)
+    if row is None:
+        return ScheduleOut(enabled=False, next_run_at=None, last_error=None)
+    return ScheduleOut(
+        enabled=row.enabled,
+        weekday=row.weekday,
+        hour=row.hour,
+        window_days=row.window_days,
+        limit=row.run_limit,
+        tags=row.tags,
+        new_version_runs=row.new_version_runs,
+        next_run_at=row.next_run_at,
+        last_error=row.last_error,
+    )
+
+
+@router.put("/{agent_id}/judge-schedule")
+async def save_judge_schedule(
+    agent_id: str, body: ScheduleIn, principal: Member, session: Db
+) -> ScheduleOut:
+    """Judge the agent's live runs on a clock, and once for each new version."""
+    scope = scope_for(session, principal)
+    row = await save_schedule(scope, agent_id, body)
+    record_audit(
+        scope,
+        principal.actor_type,
+        principal.actor_id,
+        "judge_schedule.saved",
+        "agent",
+        agent_id,
+        body.model_dump(mode="json"),
+    )
+    return ScheduleOut(**body.model_dump(), next_run_at=row.next_run_at, last_error=None)

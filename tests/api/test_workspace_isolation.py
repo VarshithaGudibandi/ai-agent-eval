@@ -149,6 +149,8 @@ def _foreign_id_attacks(w: Any) -> list[tuple[str, str, Any]]:
         ),
         ("GET", f"/api/v1/comparisons/{w.b_comparison_id}", None),
         ("GET", f"/api/v1/judge-batches/{w.b_batch_id}", None),
+        ("GET", f"/api/v1/agents/{w.b_agent_id}/judge-schedule", None),
+        ("PUT", f"/api/v1/agents/{w.b_agent_id}/judge-schedule", {"hour": 3}),
         # A body naming B's agent must not judge B's runs.
         (
             "POST",
@@ -250,6 +252,9 @@ async def _b_view(w: World) -> dict[str, Any]:
     view["review"] = (await w.b_person.get("/api/v1/review-queue")).json()
     view["gates"] = (await w.b_person.get(f"/api/v1/agents/{w.b_agent_id}/gates")).json()
     view["batch"] = (await w.b_person.get(f"/api/v1/judge-batches/{w.b_batch_id}")).json()
+    view["schedule"] = (
+        await w.b_person.get(f"/api/v1/agents/{w.b_agent_id}/judge-schedule")
+    ).json()
     return view
 
 
@@ -394,6 +399,8 @@ FOREIGN_ID_ROUTES = {
     ("POST", "/api/v1/review-items/{item_id}/label"),
     ("GET", "/api/v1/comparisons/{comparison_id}"),
     ("GET", "/api/v1/judge-batches/{batch_id}"),
+    ("GET", "/api/v1/agents/{agent_id}/judge-schedule"),
+    ("PUT", "/api/v1/agents/{agent_id}/judge-schedule"),
     ("GET", "/api/v1/experiments/{experiment_id}/baseline"),
     ("GET", "/api/v1/agents/{agent_id}/gates"),
     ("GET", "/api/v1/agents/{agent_id}/health/daily"),

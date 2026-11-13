@@ -25,6 +25,7 @@ from app.jobs.leases import LeaseOutcome, hold_lease
 from app.metrics.aggregate_job import AGGREGATE_DAY, aggregate_day_job
 from app.scoring.job import SCORE_RUN, score_run_job
 from app.scoring.judge_job import JUDGE_RUN, judge_run_job
+from app.scoring.judge_schedules import start_due_batches
 from app.settings import Settings, get_settings
 from app.structured_logging import configure_logging
 
@@ -99,6 +100,7 @@ class Worker:
         while not stop.is_set():
             if time.monotonic() >= next_reconcile:
                 await self._reconcile()
+                await self._start_scheduled()
                 next_reconcile = time.monotonic() + self.settings.reconcile_seconds
             if self._slots.locked() or not await self._start_one():
                 await self._idle(stop)
@@ -123,6 +125,15 @@ class Worker:
             return
         if expired:
             logger.warning("requeued jobs whose lease expired", extra={"jobs": expired})
+
+    async def _start_scheduled(self) -> None:
+        try:
+            started = await start_due_batches(self.sessionmaker)
+        except Exception:
+            logger.exception("starting scheduled judge batches failed")
+            return
+        if started:
+            logger.info("started scheduled judge batches", extra={"count": started})
 
     async def _start_one(self) -> bool:
         if not self.handlers:

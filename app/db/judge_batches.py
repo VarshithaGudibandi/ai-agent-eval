@@ -3,6 +3,7 @@ from typing import Any
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import models
 from app.db.scope import WorkspaceScope
@@ -131,3 +132,48 @@ async def batch_run_ids(scope: WorkspaceScope, batch_id: str) -> tuple[list[str]
         )
     ).all()
     return [r for r, _ in rows], sum(judged is not None for _, judged in rows)
+
+
+async def due_schedules(session: AsyncSession, limit: int) -> list[models.JudgeSchedule]:
+    """Schedules whose time has come, in any workspace, locked so that two workers never
+    start the same one. The worker then scopes everything by each one's workspace."""
+    return list(
+        await session.scalars(
+            select(models.JudgeSchedule)
+            .where(
+                models.JudgeSchedule.enabled.is_(True),
+                models.JudgeSchedule.next_run_at <= func.now(),
+            )
+            .order_by(models.JudgeSchedule.next_run_at)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+    )
+
+
+async def schedule_of(scope: WorkspaceScope, agent_id: str) -> models.JudgeSchedule | None:
+    return await scope.first(
+        scope.query(models.JudgeSchedule).where(models.JudgeSchedule.agent_id == agent_id)
+    )
+
+
+async def live_runs_of_version(scope: WorkspaceScope, version_id: str) -> int:
+    count = await scope.session.scalar(
+        select(func.count())
+        .select_from(models.Run)
+        .where(
+            models.Run.workspace_id == scope.workspace_id,
+            models.Run.agent_version_id == version_id,
+            models.Run.experiment_id.is_(None),
+        )
+    )
+    return int(count or 0)
+
+
+async def new_version_batch(scope: WorkspaceScope, version_id: str) -> models.JudgeBatch | None:
+    return await scope.first(
+        scope.query(models.JudgeBatch).where(
+            models.JudgeBatch.agent_version_id == version_id,
+            models.JudgeBatch.trigger == models.JudgeBatchTrigger.NEW_VERSION,
+        )
+    )

@@ -942,3 +942,32 @@ class JudgeBatchRun(WorkspaceScoped, Base):
     judge_batch_id: Mapped[str]
     run_id: Mapped[str]
     judged_at: Mapped[datetime | None]
+
+
+class JudgeSchedule(WorkspaceScoped, Base):
+    """When to judge an agent's live runs without being asked: on a weekly or daily clock,
+    and once for each new version after its first runs arrive."""
+
+    __tablename__ = "judge_schedules"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id"),
+        UniqueConstraint("agent_id"),
+        workspace_fk("agent_id", "agents"),
+        CheckConstraint("weekday BETWEEN 0 AND 6", name="weekday_range"),
+        CheckConstraint("hour BETWEEN 0 AND 23", name="hour_range"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    agent_id: Mapped[str]
+    enabled: Mapped[bool]
+    # Monday is 0. None runs every day. Times are UTC.
+    weekday: Mapped[int | None]
+    hour: Mapped[int]
+    window_days: Mapped[int]
+    run_limit: Mapped[int]
+    tags: Mapped[dict[str, Any]]
+    # Judge each new version once it has this many live runs; None turns it off.
+    new_version_runs: Mapped[int | None]
+    next_run_at: Mapped[datetime | None]
+    last_error: Mapped[str | None]
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())

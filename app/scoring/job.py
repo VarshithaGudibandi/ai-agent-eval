@@ -7,6 +7,7 @@ from app.db.scores import NewScore, save_scores, save_verdict, scoring_input
 from app.metrics.aggregate_job import queue_aggregate
 from app.scoring.engine import score, verdict
 from app.scoring.judge_job import queue_judging
+from app.scoring.judge_schedules import judge_new_version
 from app.scoring.run_view import RunView
 from app.scoring.specs import scorers_for
 
@@ -68,3 +69,4 @@ async def score_run_job(ctx: "JobContext") -> None:
             list(result.errored),
         )
         await queue_aggregate(scope, data.run)
+        await judge_new_version(scope, data.run, data.agent_id)

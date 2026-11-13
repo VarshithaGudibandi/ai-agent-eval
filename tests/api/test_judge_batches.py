@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import FastAPI
@@ -7,6 +8,7 @@ from sqlalchemy import select
 
 from app.db import models
 from app.scoring import judge_job
+from app.scoring.judge_schedules import start_due_batches
 from app.settings import Settings
 from tests.api.conftest import Caller, SignIn, score_now
 from tests.ingest.sample_traces import support_trace
@@ -125,3 +127,75 @@ async def test_two_batches_can_be_compared(
     body = {"baseline": {"judge_batch_id": ids[0]}, "candidate": {"judge_batch_id": ids[1]}}
     result = (await owner.post("/api/v1/comparisons", json=body)).json()["result"]
     assert result["paired"] is False and result["candidate"]["runs"] == 3
+
+
+async def test_a_schedule_starts_batches_when_due_and_says_why_it_could_not(
+    new_owner: SignIn, app: FastAPI, judge: AnsweringJudge
+) -> None:
+    owner = await new_owner()
+    agent_id = await _live(owner, app, paid=True)
+    path = f"/api/v1/agents/{agent_id}/judge-schedule"
+    assert (await owner.get(path)).json()["enabled"] is False
+    saved = (await owner.put(path, json={"weekday": 0, "hour": 9, "window_days": 30})).json()
+    assert saved["next_run_at"] is not None
+    async with app.state.sessionmaker.begin() as session:
+        schedule = await session.scalar(
+            select(models.JudgeSchedule).where(models.JudgeSchedule.agent_id == agent_id)
+        )
+        assert schedule is not None
+        schedule.next_run_at = datetime(2026, 1, 1, tzinfo=UTC)
+    assert await start_due_batches(app.state.sessionmaker) >= 1
+    async with app.state.sessionmaker() as session:
+        batches = list(
+            await session.scalars(
+                select(models.JudgeBatch).where(models.JudgeBatch.agent_id == agent_id)
+            )
+        )
+    assert [b.trigger for b in batches] == ["schedule"]
+    after = (await owner.get(path)).json()
+    assert after["next_run_at"] > "2026-11-13" and after["last_error"] is None
+
+
+async def test_a_schedule_without_a_paid_key_records_why(
+    new_owner: SignIn, app: FastAPI, judge: AnsweringJudge
+) -> None:
+    owner = await new_owner()
+    agent_id = await _live(owner, app, paid=False)
+    path = f"/api/v1/agents/{agent_id}/judge-schedule"
+    await owner.put(path, json={"hour": 9})
+    async with app.state.sessionmaker.begin() as session:
+        schedule = await session.scalar(
+            select(models.JudgeSchedule).where(models.JudgeSchedule.agent_id == agent_id)
+        )
+        assert schedule is not None
+        schedule.next_run_at = datetime(2026, 1, 1, tzinfo=UTC)
+    await start_due_batches(app.state.sessionmaker)
+    assert "marked paid" in (await owner.get(path)).json()["last_error"]
+
+
+async def test_a_new_version_is_judged_once_after_its_first_runs(
+    new_owner: SignIn, app: FastAPI, judge: AnsweringJudge
+) -> None:
+    owner = await new_owner()
+    agent_id = await _live(owner, app, paid=True)
+    await owner.put(
+        f"/api/v1/agents/{agent_id}/judge-schedule",
+        json={"hour": 9, "new_version_runs": 2},
+    )
+    new_config = {**support_trace()["config"], "prompt": "A new prompt."}
+    for name in ("n-1", "n-2", "n-3"):
+        trace = support_trace(name, config=new_config)
+        await owner.post("/api/v1/traces", json={"traces": [trace]})
+        await score_now(app, owner.workspace_id)
+    async with app.state.sessionmaker() as session:
+        batches = list(
+            await session.scalars(
+                select(models.JudgeBatch).where(
+                    models.JudgeBatch.agent_id == agent_id,
+                    models.JudgeBatch.trigger == "new_version",
+                )
+            )
+        )
+    [batch] = batches
+    done = (await owner.get(f"/api/v1/judge-batches/{batch.id}")).json()
+    assert (done["runs"], done["judged"], done["status"]) == (2, 2, "finished")
