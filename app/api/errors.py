@@ -1,7 +1,8 @@
 import math
+from collections.abc import Callable
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.auth.errors import (
     InvalidCredentialsError,
@@ -50,13 +51,19 @@ def error_body(code: str, message: str | None = None) -> dict[str, str]:
     return {"error": code, **({"message": message} if message else {})}
 
 
-def register_error_handlers(app: FastAPI) -> None:
+PageError = Callable[[Request, int, str, str | None], Response]
+
+
+def register_error_handlers(app: FastAPI, page_error: PageError) -> None:
+    """Map domain errors to answers: JSON for the API, a page for everything else."""
     for error_type, (status, code) in _ERRORS.items():
 
         async def handler(
             request: Request, exc: Exception, status: int = status, code: str = code
-        ) -> JSONResponse:
+        ) -> Response:
             message = str(exc) if isinstance(exc, _SHOW_MESSAGE) else None
+            if not request.url.path.startswith("/api/"):
+                return page_error(request, status, code, message)
             return JSONResponse(status_code=status, content=error_body(code, message))
 
         app.add_exception_handler(error_type, handler)

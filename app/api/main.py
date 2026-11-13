@@ -28,7 +28,8 @@ from app.api.errors import register_error_handlers
 from app.db.engine import create_engine, create_sessionmaker
 from app.settings import Settings, get_settings
 from app.structured_logging import configure_logging
-from app.web.pages import STATIC_DIR, register_pages
+from app.web.pages import register_pages
+from app.web.rendering import STATIC_DIR, render_error
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -46,7 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="AI Agent Eval", lifespan=lifespan)
     app.state.settings = settings
-    register_error_handlers(app)
+    register_error_handlers(app, render_error)
     for module in (
         health,
         auth,

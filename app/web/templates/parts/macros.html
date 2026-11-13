@@ -1,0 +1,45 @@
+{# Pieces every page uses, so a section, a tile and an empty state look the same everywhere. #}
+
+{% macro heading(number, id, title, subtitle="") -%}
+<div class="section-head">
+  <span class="number" aria-hidden="true">{{ number }}</span>
+  <h2 id="{{ id }}">{{ title }}</h2>
+  {% if subtitle %}<span class="subtitle">{{ subtitle }}</span>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro empty(title, text="") -%}
+<div class="card empty">
+  <p class="empty-title">{{ title }}</p>
+  {% if text %}<p class="muted">{{ text }}</p>{% endif %}
+  {{ caller() if caller }}
+</div>
+{%- endmacro %}
+
+{% macro tile_grid(tiles) -%}
+<div class="tiles">
+  {% for t in tiles %}
+  <div class="card tile">
+    <div class="tile-label">{{ t.label }}</div>
+    <div class="tile-value">{{ t.value }}</div>
+    {% if t.change %}
+    <div class="tile-change tone-{{ t.tone }}">{{ t.change }}{% if t.verdict %} · {{ t.verdict }}{% endif %}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{% macro status_badge(status) -%}
+{% if status == "passed" %}<span class="badge good">Pass</span>
+{% elif status == "failed" %}<span class="badge bad">Fail</span>
+{% elif status == "incomplete" %}<span class="badge warn">Incomplete</span>
+{% elif status == "not_scored" %}<span class="badge">Not scored</span>
+{% else %}<span class="badge">Waiting to be scored</span>{% endif %}
+{%- endmacro %}
+
+{% macro untrusted_note(health) -%}
+{% if health and health.pending_calibration %}
+<p class="note">Includes judge questions that are not trusted yet: they need 10 labels and 80% agreement with people before they count.</p>
+{% endif %}
+{%- endmacro %}

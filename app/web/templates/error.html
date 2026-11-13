@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · AI Agent Eval{% endblock %}
+{% block main %}
+<section class="narrow">
+  <h1>{{ title }}</h1>
+  {% if code == "not_found" %}
+  <p class="muted">There is nothing here, or it belongs to another workspace.</p>
+  {% elif message %}
+  <p>{{ message }}</p>
+  {% else %}
+  <p class="muted">The request could not be completed ({{ code | replace("_", " ") }}).</p>
+  {% endif %}
+  <p><a href="/agents">Back to agents</a></p>
+</section>
+{% endblock %}

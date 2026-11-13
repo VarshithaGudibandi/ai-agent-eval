@@ -1,15 +1,13 @@
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import Depends, Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from app.api import api_tokens, provider_credentials, workspaces
 from app.api.dependencies import SESSION_COOKIE, Db
 from app.auth.principal import Principal
 from app.auth.sessions import resolve_session
-from app.db import models
 from app.web import formatting
 
 # Server-rendered pages. Each page reads through the same handlers as the JSON API, so a page
@@ -31,7 +29,13 @@ SECURITY_HEADERS = {
     "referrer-policy": "same-origin",
 }
 
-router = APIRouter(include_in_schema=False)
+ERROR_TITLES = {
+    400: "That request did not work",
+    403: "You cannot do that here",
+    404: "Not found",
+    409: "That cannot be done right now",
+    422: "That request did not work",
+}
 
 
 class SignInRequiredError(Exception):
@@ -55,33 +59,14 @@ def render(request: Request, template: str, status_code: int = 200, **context: A
     )
 
 
-@router.get("/login")
-async def login(request: Request) -> HTMLResponse:
-    return render(request, "login.html")
-
-
-@router.get("/")
-async def home() -> RedirectResponse:
-    return RedirectResponse("/settings", status_code=303)
-
-
-@router.get("/settings")
-async def settings(request: Request, principal: Person, session: Db) -> Response:
-    is_owner = principal.role == models.Role.OWNER
+def render_error(request: Request, status: int, code: str, message: str | None) -> HTMLResponse:
+    """An API error raised while building a page, shown as a page. A missing row and another
+    workspace's row look the same here too."""
     return render(
         request,
-        "settings.html",
-        principal=principal,
-        is_owner=is_owner,
-        members=await workspaces.members(principal, session),
-        tokens=await api_tokens.list_tokens(principal, session) if is_owner else [],
-        keys=await provider_credentials.credentials(principal, session) if is_owner else [],
+        "error.html",
+        status_code=status,
+        title=ERROR_TITLES.get(status, "Something went wrong"),
+        code=code,
+        message=message,
     )
-
-
-def register_pages(app: Any) -> None:
-    async def sign_in_first(request: Request, exc: Exception) -> Response:
-        return RedirectResponse(f"/login?next={request.url.path}", status_code=303)
-
-    app.add_exception_handler(SignInRequiredError, sign_in_first)
-    app.include_router(router)

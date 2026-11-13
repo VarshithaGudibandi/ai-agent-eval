@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% from "parts/macros.html" import heading, empty, tile_grid, untrusted_note %}
+{% block title %}{{ agent.name }} · AI Agent Eval{% endblock %}
+{% block main %}
+<div class="page-head">
+  <h1>{{ agent.name }}</h1>
+  <details class="actions">
+    <summary class="button">Run an eval</summary>
+    <div class="card popover">
+      <p class="small">Evals run your agent on your machine or in CI, so start one from there:</p>
+      <pre><code>evalctl run eval.py</code></pre>
+      <p class="muted small">It exits 1 when the new version should be held back.</p>
+    </div>
+  </details>
+</div>
+
+<section aria-labelledby="s1">
+  {{ heading(1, "s1", "Agent", "what it is right now") }}
+  <div class="card">
+    <dl class="facts">
+      <div><dt>Version</dt><dd>{{ names[current.id] }}{% if current.id == agent.shipped_version_id %} · shipped{% endif %}</dd></div>
+      <div><dt>Model</dt><dd>{{ current.config.get("model") or "not recorded" }}</dd></div>
+      <div><dt>Graded with</dt><dd>{% if spec %}Eval spec v{{ spec.version }} · {{ spec.scorers | length }} scorers{% else %}no eval spec{% endif %}</dd></div>
+      <div><dt>First seen</dt><dd>{{ current.created_at | when }}</dd></div>
+      <div><dt>Fingerprint</dt><dd><code>{{ current.fingerprint | short(16) }}</code></dd></div>
+    </dl>
+    {% set prompt = current.config.get("prompt") %}
+    {% if prompt %}
+    <details class="prompt">
+      <summary>Prompt · {{ prompt | string | truncate(120) }}</summary>
+      <pre>{{ prompt }}</pre>
+    </details>
+    {% endif %}
+    {% if tools %}
+    <div class="chips"><span class="muted small">Tools ({{ tools | length }})</span>{% for t in tools %}<code class="chip">{{ t }}</code>{% endfor %}</div>
+    {% endif %}
+  </div>
+</section>
+
+<section aria-labelledby="s2">
+  {% if health.mode == "versions" %}
+    {% set subtitle = names.get(health.current.agent_version_id, "") ~ " compared with " ~ names.get(health.baseline.agent_version_id, "") ~ " · " ~ health.current.health.runs ~ " runs" %}
+  {% elif health.mode == "live" %}
+    {% set subtitle = "live runs, last 7 days compared with the 7 before" %}
+  {% elif health.mode == "single" and health.current.experiment_id %}
+    {% set subtitle = names.get(health.current.agent_version_id, "") ~ " · the only version tested so far" %}
+  {% elif health.mode == "single" %}
+    {% set subtitle = "live runs, last 7 days · nothing the week before to compare with" %}
+  {% else %}
+    {% set subtitle = "" %}
+  {% endif %}
+  {{ heading(2, "s2", "Health", subtitle) }}
+  {% if health.mode == "none" %}
+    {{ empty("No runs to measure yet", "Health appears once an experiment runs or live traces arrive. Older live runs are on the agent's daily health.") }}
+  {% else %}
+    {% if experiment and experiment.status != "finished" %}
+    <p class="note" role="status">Still running: {{ experiment.runs_received }} of {{ experiment.expected_runs }} runs received, {{ experiment.runs_scored }} scored. The numbers will move.</p>
+    {% endif %}
+    {% if health.mode == "single" %}
+    <p class="muted small">Only one version so far, so there is nothing to compare with. Run the same eval on a new version to see what changed.</p>
+    {% endif %}
+    {{ tile_grid(tiles) }}
+    {% for note in health.fairness %}<p class="note">Note: {{ note }}.</p>{% endfor %}
+    {{ untrusted_note(health.current.health) }}
+  {% endif %}
+</section>
+
+<section aria-labelledby="s3">
+  {{ heading(3, "s3", "What changed", "and what it did") }}
+  <div class="card list">
+    {% for v in timeline %}
+    <div class="row">
+      <div class="row-key">{{ names[v.id] }}</div>
+      <div class="row-main">
+        {% if v.changes %}
+          {% for c in v.changes %}<div>{{ c.summary }}</div>{% endfor %}
+        {% elif v.previous_version_id %}
+          <div class="muted">No config change found</div>
+        {% else %}
+          <div class="muted">First version</div>
+        {% endif %}
+        {% if report and v.id == health.current.agent_version_id %}
+        <div class="cause">
+          <strong>{{ report.report.headline }}</strong>
+          {% if report.report.groups and report.report.groups[0].next_step %}<div class="small">Next step: {{ report.report.groups[0].next_step }}</div>{% endif %}
+        </div>
+        {% endif %}
+      </div>
+      <div class="row-side muted small">{{ v.created_at | day }}{% if v.id == agent.shipped_version_id %} · shipped{% endif %}</div>
+    </div>
+    {% endfor %}
+    {% if agent.versions | length == 1 %}<p class="muted small">Only one version so far.</p>{% endif %}
+  </div>
+</section>
+
+<section aria-labelledby="s4">
+  {% set where = names.get(health.current.agent_version_id, "") if health.current and health.current.experiment_id else "the last 7 days of live runs" %}
+  {{ heading(4, "s4", "Where it fails", "failed runs in " ~ where ~ ", by reason") }}
+  {% if failures.failed == 0 %}
+    {{ empty("No failed runs", "Every scored run in " ~ where ~ " passed." if failures.runs else "No runs to look at yet.") }}
+  {% else %}
+  <div class="card">
+    {% set top = failures.groups[0].count if failures.groups else 1 %}
+    <div class="bars">
+      {% for g in failures.groups %}
+      <div class="bar-label">
+        <span>{{ g.scorer_key }}{% if g.question_id %} · {{ g.question_id }}{% endif %}</span>
+        {% if g.reasons %}<span class="muted small">{{ g.reasons[0] | truncate(140) }}</span>{% endif %}
+      </div>
+      <svg class="bar" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="10" rx="2"/><rect class="fill" width="{{ (g.count / top * 100) | round(1) }}" height="10" rx="2"/></svg>
+      <div class="bar-count">{{ g.count }}</div>
+      {% endfor %}
+    </div>
+    <p class="small">{{ failures.failed }} of {{ failures.runs }} runs failed. Examples:
+      {% for g in failures.groups[:1] %}{% for run_id in g.example_runs %}<a href="/runs/{{ run_id }}">run {{ loop.index }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% endfor %}
+    </p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

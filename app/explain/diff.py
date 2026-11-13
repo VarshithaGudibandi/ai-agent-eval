@@ -36,6 +36,11 @@ def _tools(config: dict[str, Any]) -> dict[str, str]:
     return named
 
 
+def tool_names(config: dict[str, Any]) -> list[str]:
+    """The names of the tools a config declares, in order."""
+    return list(_tools(config))
+
+
 def _sentences(text: str) -> list[str]:
     return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.replace("\n", " ")) if s.strip()]
 

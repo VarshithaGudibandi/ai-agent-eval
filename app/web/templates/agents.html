@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "parts/macros.html" import empty %}
+{% block title %}Agents · AI Agent Eval{% endblock %}
+{% block main %}
+<h1>Agents</h1>
+{% if not agents %}
+{% call empty("No agents yet", "An agent appears here when its first trace arrives. Send traces with the Python SDK, or run an eval with <code>Eval</code>:") %}
+<pre><code>pip install ./sdk
+export AGENT_EVAL_URL={{ request.base_url }} AGENT_EVAL_TOKEN=aet_...
+
+import agent_eval
+agent_eval.init(agent="support-bot", config={"model": MODEL, "prompt": PROMPT, "tools": TOOLS})</code></pre>
+<p class="muted small">Make a token in <a href="/settings">Settings</a>. The README's "Connect an agent" section has the rest.</p>
+{% endcall %}
+{% else %}
+<div class="card">
+  <table>
+    <thead><tr><th scope="col">Agent</th><th scope="col">Newest version</th><th scope="col">Versions</th><th scope="col">Since</th></tr></thead>
+    <tbody>
+      {% for a in agents %}
+      <tr>
+        <th scope="row"><a href="/agents/{{ a.id }}">{{ a.name }}</a></th>
+        <td>{% if a.versions %}{{ a.versions[-1] | version_name }}{% if a.versions[-1].id == a.shipped_version_id %} · shipped{% endif %}{% endif %}</td>
+        <td>{{ a.versions | length }}</td>
+        <td class="muted">{{ a.created_at | day }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

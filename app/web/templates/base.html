@@ -8,17 +8,22 @@
   <script src="/static/app.js" defer></script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to content</a>
   {% if principal %}
   <header class="top">
-    <a class="brand" href="/">AI Agent Eval</a>
-    <nav>
-      <a href="/settings">Settings</a>
-    </nav>
-    <span class="who">{{ principal.role }}</span>
-    <button class="link" data-api="/api/v1/auth/logout" data-method="POST" data-redirect="/login">Sign out</button>
+    <div class="top-inner">
+      <a class="brand" href="/agents">AI Agent Eval</a>
+      <nav aria-label="Main">
+        {% set here = request.url.path %}
+        <a href="/agents" {% if here.startswith("/agents") or here.startswith("/runs") %}aria-current="page"{% endif %}>Agents</a>
+        <a href="/settings" {% if here.startswith("/settings") %}aria-current="page"{% endif %}>Settings</a>
+      </nav>
+      <span class="who">{{ principal.role }}</span>
+      <button class="link" data-api="/api/v1/auth/logout" data-method="POST" data-redirect="/login">Sign out</button>
+    </div>
   </header>
   {% endif %}
-  <main>
+  <main id="main">
     {% block main %}{% endblock %}
   </main>
 </body>
