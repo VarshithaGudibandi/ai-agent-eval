@@ -18,7 +18,7 @@ from tests.api.test_reports_acceptance import V2
 from tests.examples.brains import careless
 from tests.sdk.fake_gemini import FakeGemini
 
-MODEL = os.environ.get("EXPLAINER_MODEL", "gemini-3.8-flash")
+MODEL = os.environ.get("EXPLAINER_MODEL", "gemini-3.5-flash")
 
 
 def _careless_run(message: str) -> RunView:

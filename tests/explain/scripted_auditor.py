@@ -39,5 +39,5 @@ class ScriptedAuditor:
             text=json.dumps(reply),
             tool_calls=[],
             usage=Usage(input_tokens=3000, output_tokens=200),
-            resolved_model="gemini-3.8-flash-001",
+            resolved_model="gemini-3.5-flash-001",
         )

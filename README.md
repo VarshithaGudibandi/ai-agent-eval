@@ -296,7 +296,7 @@ All settings are in `.env.example`. The main ones:
 | `MAX_JOB_ATTEMPTS` | `3` | Times a job may be interrupted before it is marked failed |
 | `INGEST_MAX_BYTES` | `5000000` | Largest trace batch one request may carry |
 | `INGEST_TRACES_PER_MINUTE` | `1200` | Traces one workspace may send per minute |
-| `EXPLAINER_MODEL` | `gemini-3.8-flash` | Gemini model that writes regression reports |
+| `EXPLAINER_MODEL` | `gemini-3.5-flash` | Gemini model that writes regression reports |
 | `REVIEW_SAMPLE_SHARE` | `0.1` | Share of judged runs put in the review queue for people to label. Borderline runs always go in |
 
 ## License
