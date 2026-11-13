@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Any
 
@@ -54,6 +55,13 @@ def version_name(version: Any) -> str:
     return str(version.label) if version.label else short(version.fingerprint, 8)
 
 
+def as_text(value: Any) -> str:
+    """Recorded content as a person reads it: strings as they are, the rest as JSON."""
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, indent=2, ensure_ascii=False, default=str)
+
+
 def register(env: Environment) -> None:
     env.filters.update(
         when=when,
@@ -65,4 +73,5 @@ def register(env: Environment) -> None:
         count=count,
         short=short,
         version_name=version_name,
+        as_text=as_text,
     )

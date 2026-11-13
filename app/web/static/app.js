@@ -56,6 +56,12 @@ async function send(element) {
     if (errorBox) errorBox.textContent = describeError(response.status, payload);
     return;
   }
+  if (element.dataset.done) {
+    const box = scope.querySelector(".done");
+    box.textContent = element.dataset.done;
+    box.hidden = false;
+    return;
+  }
   if (element.dataset.show) {
     const box = scope.querySelector(".secret");
     box.querySelector("code").textContent = payload[element.dataset.show];

@@ -60,7 +60,7 @@ On a fresh install, create the first account. That person becomes the owner of t
 curl -X POST http://127.0.0.1:8000/api/v1/auth/setup -H 'content-type: application/json' -d '{"email": "you@example.com", "password": "at least twelve characters", "workspace_name": "My team"}'
 ```
 
-Then open http://127.0.0.1:8000 and sign in. The Agents page lists every agent that has sent a trace; each agent's page shows what it is, its health against the last version (or with only live runs, the last week against the week before), what changed between versions with the regression report's cause, and where it fails. Settings manages members, API tokens and provider keys.
+Then open http://127.0.0.1:8000 and sign in. The Agents page lists every agent that has sent a trace; each agent's page shows what it is, its health against the last version (or with only live runs, the last week against the week before), what changed between versions with the regression report's cause, and where it fails. A run's page shows its facts, the task (asked, expected, replied), the span tree with timing and any step opened, and every score with its reason. Settings manages members, API tokens and provider keys.
 
 A demo with seeded data that needs no key is not built yet.
 

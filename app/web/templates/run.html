@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% from "parts/macros.html" import heading, empty, status_badge %}
+{% block title %}{{ run.case.key if run.case else run.trace_id }} · AI Agent Eval{% endblock %}
+{% block main %}
+<div class="page-head">
+  <div>
+    <div class="breadcrumb"><a href="/agents/{{ agent.id }}">{{ agent.name }}</a> / run</div>
+    <div class="title-line">
+      <h1>{{ run.case.key if run.case else run.trace_id }}</h1>
+      {{ status_badge(verdict.status if verdict else None) }}
+    </div>
+  </div>
+</div>
+
+<section aria-labelledby="r1">
+  {{ heading(1, "r1", "Run", "the facts about this one run") }}
+  <div class="card">
+    <dl class="facts">
+      <div><dt>Agent version</dt><dd>{{ version_name }}</dd></div>
+      {% if run.repetitions %}
+      <div><dt>Repetition</dt><dd>{{ run.repetition }} of {{ run.repetitions | length }}{% if run.repetitions | length > 1 %} · {{ others_passed }} of the others passed{% endif %}</dd></div>
+      {% else %}
+      <div><dt>Source</dt><dd>live{% if run.tags.get("environment") %} · {{ run.tags.environment }}{% endif %}</dd></div>
+      {% endif %}
+      <div><dt>Run time</dt><dd>{{ run.duration_ms | duration }}</dd></div>
+      <div><dt>Steps</dt><dd>{{ model_steps }} model · {{ tool_steps }} tool</dd></div>
+      <div><dt>Tokens</dt><dd>{{ run.input_tokens | count }} in · {{ run.output_tokens | count }} out</dd></div>
+      <div><dt>Cost</dt><dd>{% if run.cost_known %}{{ run.cost_micros | money }}{% else %}no price for this model{% endif %}</dd></div>
+      <div><dt>Started</dt><dd>{{ run.started_at | when }}</dd></div>
+      {% if verdict %}<div><dt>Graded with</dt><dd>Eval spec v{{ verdict.eval_spec_version }}</dd></div>{% endif %}
+    </dl>
+    {% if run.repetitions | length > 1 %}
+    <p class="small">Other repetitions:
+      {% for r in run.repetitions if r.run_id != run.id %}<a href="/runs/{{ r.run_id }}">repetition {{ r.repetition }} ({{ r.status or "waiting" }})</a>{% if not loop.last %}, {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+  </div>
+</section>
+
+<section aria-labelledby="r2">
+  {{ heading(2, "r2", "Task", "what was asked, what should happen, what the agent said" if run.case else "what was asked and what the agent said") }}
+  <div class="task">
+    <div class="card"><div class="tile-label">Asked</div><pre>{{ root.input | as_text }}</pre></div>
+    {% if run.case %}
+    <div class="card expected"><div class="tile-label">Expected · hidden from the agent</div>
+      {% if run.case.expected is none %}<p class="muted">No expected outcome for this case.</p>{% else %}<pre>{{ run.case.expected | as_text }}</pre>{% endif %}
+    </div>
+    {% endif %}
+    <div class="card"><div class="tile-label">Agent replied</div>
+      {% if root.error %}<p class="tone-bad">Ended with an error: {{ root.error }}</p>{% endif %}
+      {% if root.output is not none %}<pre>{{ root.output | as_text }}</pre>{% elif not root.error %}<p class="muted">No reply recorded.</p>{% endif %}
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="trace">
+  {{ heading(3, "trace", "Trace", "every step, in order · select one to inspect") }}
+  <div class="trace">
+    <div class="card spans">
+      <ol class="span-list">
+        {% for row in rows %}
+        {% set s = row.span %}
+        <li>
+          <a class="span-row depth-{{ [row.depth, 6] | min }}{% if s.error %} has-error{% endif %}" href="?span={{ s.span_id | urlencode }}#trace" {% if row.span.span_id == selected.span.span_id %}aria-current="true"{% endif %}>
+            <span class="span-name"><span class="kind kind-{{ s.kind }}">{{ s.kind }}</span> {{ s.name }}</span>
+            <svg class="bar" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="10" rx="2"/><rect class="fill {{ 'error' if s.error else s.kind }}" x="{{ row.offset | round(2) }}" width="{{ row.width | round(2) }}" height="10" rx="2"/></svg>
+            <span class="span-time">{{ s.duration_ms | duration }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ol>
+    </div>
+    {% set s = selected.span %}
+    <div class="card span-detail" aria-live="polite">
+      <div class="span-detail-head"><strong>{{ s.name }}</strong><span class="muted small">{{ s.kind }} · at {{ selected.at_ms | duration }} · took {{ s.duration_ms | duration }}</span></div>
+      {% if s.error %}<p class="tone-bad">Error: {{ s.error }}</p>{% endif %}
+      <div class="tile-label">Input</div>
+      {% if s.input is none %}<p class="muted small">None recorded.</p>{% else %}<pre>{{ s.input | as_text }}</pre>{% endif %}
+      <div class="tile-label">Output</div>
+      {% if s.output is none %}<p class="muted small">None recorded.</p>{% else %}<pre>{{ s.output | as_text }}</pre>{% endif %}
+      {% if s.kind == "model" %}
+      <dl class="facts">
+        <div><dt>Model</dt><dd>{{ s.attributes.get("model") or "not recorded" }}</dd></div>
+        <div><dt>First token</dt><dd>{{ s.attributes.get("time_to_first_token_ms") | duration }}</dd></div>
+        <div><dt>Speed</dt><dd>{% if speed %}{{ speed | round(0) | int }} tok/s{% else %}–{% endif %}</dd></div>
+        <div><dt>Tokens in / out</dt><dd>{{ s.attributes.get("input_tokens") | count }} / {{ s.attributes.get("output_tokens") | count }}</dd></div>
+      </dl>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="r4">
+  {{ heading(4, "r4", "Scores", "why it passed or failed") }}
+  {% if not run.scores and not run.judge_answers %}
+    {{ empty("Not scored yet", "Scoring runs on the worker, so it trails a moment behind the trace.") }}
+  {% else %}
+  <div class="card list">
+    {% set builtin = ["run_completed", "tool_errors", "valid_tool_arguments", "turn_limit"] %}
+    {% for score in run.scores %}
+    <div class="row">
+      <div class="row-key wide">
+        <span>{{ score.scorer_key }}</span>
+        <span class="muted small">{% if score.check in ["checklist", "claim_check"] %}LLM judge{% elif score.check in builtin %}Built-in{% else %}Rule{% endif %} · {{ score.severity }}</span>
+      </div>
+      <div class="score-value {% if score.passed is sameas false %}tone-bad{% elif score.passed %}tone-good{% else %}tone-neutral{% endif %}">
+        {% if score.error %}could not grade{% elif score.value is none %}–{% else %}{{ score.value | round(2) }}{% endif %}
+      </div>
+      <div class="row-main">{{ score.error or score.reason }}</div>
+      {% if score.span_id %}<a class="row-side small" href="?span={{ score.span_id | urlencode }}#trace">Show step</a>{% endif %}
+    </div>
+    {% endfor %}
+    {% for answer in run.judge_answers %}
+    <div class="row">
+      <div class="row-key wide"><span>{{ answer.question_text }}</span><span class="muted small">{{ answer.scorer_key }} · LLM judge{% if not answer.trusted %} · not trusted yet{% endif %}</span></div>
+      <div class="score-value">{{ answer.answer | replace("_", " ") }}</div>
+      <div class="row-main">{% if answer.quote %}“{{ answer.quote }}”{% else %}<span class="muted">No quote.</span>{% endif %}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if run.judge_answers and can_edit %}
+  <form class="inline" data-api="/api/v1/review-items" data-method="POST" data-done="Added to the review queue. A person will label it without seeing the judge's answers.">
+    <input type="hidden" name="run_id" value="{{ run.id }}">
+    <button type="submit">Disagree with the judge? Send for review</button>
+    <p class="error" role="alert"></p>
+    <p class="done" role="status" hidden></p>
+  </form>
+  {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

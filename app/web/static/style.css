@@ -202,6 +202,44 @@ input, select, textarea {
 .narrow { max-width: 420px; margin: 48px auto; }
 .narrow form { display: flex; flex-direction: column; gap: 12px; }
 
+.title-line { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.task { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
+.task > .card { flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.task .expected { background: var(--accent-bg); border-style: dashed; }
+
+.trace { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.trace .spans { flex: 1 1 420px; min-width: 0; padding: 10px; }
+.trace .span-detail { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.span-detail-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
+.span-list { list-style: none; margin: 0; padding: 0; }
+.span-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 64px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 6px;
+  color: var(--text);
+}
+.span-row:hover { background: var(--line-soft); text-decoration: none; color: var(--text); }
+.span-row[aria-current="true"] { background: var(--accent-bg); outline: 2px solid var(--accent); }
+.span-row.has-error .span-name { color: var(--bad); font-weight: 600; }
+.span-name { overflow-wrap: anywhere; }
+.span-time { text-align: right; color: var(--muted); font-size: 0.85rem; }
+.depth-1 { padding-left: 24px; }
+.depth-2 { padding-left: 40px; }
+.depth-3 { padding-left: 56px; }
+.depth-4 { padding-left: 72px; }
+.depth-5 { padding-left: 88px; }
+.depth-6 { padding-left: 104px; }
+.kind { font-size: 0.7rem; padding: 1px 6px; border-radius: 4px; background: var(--code-bg); color: var(--text); }
+.kind-model { background: var(--accent-bg); color: var(--accent-strong); }
+.kind-tool { background: var(--good-bg); color: var(--good); }
+
+.row-key.wide { flex: 0 0 220px; display: flex; flex-direction: column; gap: 2px; font-weight: 600; }
+.score-value { flex: 0 0 90px; font-weight: 600; }
+.done { width: 100%; color: var(--good); margin: 4px 0; }
+
 @media (max-width: 640px) {
   main { padding: 20px 16px 48px; }
   .top nav { order: 3; width: 100%; }
