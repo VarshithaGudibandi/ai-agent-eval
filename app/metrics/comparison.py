@@ -1,279 +1,302 @@
 import hashlib
 import random
-from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.metrics.metrics import RunFacts, Scorecard, is_scorable, scorecard
+from app.metrics.health import (
+    Health,
+    RunOutcome,
+    consistency,
+    cost_per_success,
+    health,
+    percentile,
+)
 
-# A paired comparison of two agent configs on the same tasks. Each side is one config in one
-# experiment; both may be in the same experiment, which is the cleanest comparison because
-# they ran on the same queue, with the same faults, at the same time.
+# Compares two sets of runs: two experiments, paired case by case, or two windows of live
+# traffic, unpaired. Every change comes with an interval, so noise is not read as a
+# regression, and the gates turn the result into ship or hold.
 
 RESAMPLES = 2000
 CONFIDENCE = 0.95
-# Below this many paired tasks a difference in success rate is easily chance.
-MIN_TASKS = 30
-FINISHED = ("completed", "closed_partial", "cancelled")
+MIN_CASES = 5
+MIN_RUNS = 30
 
-Outcome = Literal["loss", "win", "tie", "unscored"]
-# Regressions first: they are what a reviewer has to look at.
-_ORDER: dict[str, int] = {"loss": 0, "win": 1, "tie": 2, "unscored": 3}
+CaseOutcome = Literal["worse", "better", "same"]
+Decision = Literal["ship", "hold", "insufficient_data"]
+
+
+class Gates(BaseModel):
+    """When a candidate is worse enough to hold back. Stored per agent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Success rate may fall by at most this much, as a share (0.05 is 5 points).
+    max_success_drop: float = Field(default=0.05, ge=0, le=1)
+    # Cost per successful run may rise by at most this share; None means no limit.
+    max_cost_increase: float | None = Field(default=0.2, ge=0)
+    # Hold when a hard rule fails that never failed in the baseline.
+    hold_on_new_hard_failure: bool = True
 
 
 @dataclass(frozen=True)
-class Side:
-    experiment_id: str
-    agent_config_id: str
-    config_name: str
-    mode: str
-    status: str
-    dataset_version_id: str
-    split: str
-    environments: list[str]
-    evaluators: list[dict[str, Any]]
-    limits: dict[str, Any]
+class SideFacts:
+    """What the fairness check needs to know about one side."""
+
+    label: str
+    dataset_version_id: str | None
+    eval_spec_ids: frozenset[str]
+    finished: bool
+    repetitions: int | None
 
 
-class IncompatibleError(ValueError):
-    """The two sides differ in something that would make the comparison meaningless."""
-
-    def __init__(self, field: str, baseline: Any, candidate: Any) -> None:
-        super().__init__(f"{field} differs: baseline {baseline}, candidate {candidate}")
-        self.field = field
-
-
-class NotFinishedError(ValueError):
-    pass
-
-
-def check_compatible(baseline: Side, candidate: Side) -> None:
-    """Refuse a comparison unless only the agent config differs. Names the first difference."""
-    if (baseline.experiment_id, baseline.agent_config_id) == (
-        candidate.experiment_id,
-        candidate.agent_config_id,
-    ):
-        raise IncompatibleError("agent_config", "the same config", "the same config")
-    for side in (baseline, candidate):
-        if side.status not in FINISHED:
-            raise NotFinishedError(f"experiment {side.experiment_id} is still {side.status}")
-    for field in ("mode", "dataset_version_id", "split", "environments", "evaluators", "limits"):
-        mine, theirs = getattr(baseline, field), getattr(candidate, field)
-        if mine != theirs:
-            raise IncompatibleError(field, mine, theirs)
-
-
-class TaskSide(BaseModel):
-    planned: int
-    scorable: int
-    passed: int
-    pass_rate: float | None
-    run_ids: list[str]
-    # Why the scorable runs that did not pass failed, most common first.
-    reason_codes: list[str]
-
-
-class TaskResult(BaseModel):
-    task_key: str
-    category: str
-    outcome: Outcome
-    baseline: TaskSide
-    candidate: TaskSide
-    delta: float | None
-
-
-class Interval(BaseModel):
-    """Candidate minus baseline in mean per-task pass rate, with a bootstrap interval."""
-
+class MetricChange(BaseModel):
+    name: str
     baseline: float | None
     candidate: float | None
     delta: float | None
     low: float | None
     high: float | None
-    confidence: float
-    resamples: int
-    seed: int
+    # The interval excludes zero. None when there is not enough data to say.
+    real: bool | None
+    # The change goes the bad way for this metric.
+    worse: bool
 
 
-class SideSummary(BaseModel):
-    experiment_id: str
-    agent_config_id: str
-    config_name: str
-    scorecard: Scorecard
+class CaseResult(BaseModel):
+    case_key: str
+    baseline_pass_rate: float
+    candidate_pass_rate: float
+    outcome: CaseOutcome
 
 
 class ComparisonResult(BaseModel):
-    baseline: SideSummary
-    candidate: SideSummary
-    paired_tasks: int
-    wins: int
-    losses: int
-    ties: int
-    unscored: int
-    success: Interval
-    # Say so plainly whenever the difference may be chance.
-    may_be_noise: bool
-    notes: list[str]
-    tasks: list[TaskResult]
-
-
-def _task_side(runs: Sequence[RunFacts]) -> TaskSide:
-    scorable = [r for r in runs if is_scorable(r)]
-    passed = sum(1 for r in scorable if r.evaluation_status == "pass")
-    reasons: defaultdict[str, int] = defaultdict(int)
-    for run in scorable:
-        if run.evaluation_status == "pass":
-            continue
-        for code in {s.reason_code for s in run.scores if s.status == "fail" and s.reason_code}:
-            reasons[code] += 1
-    return TaskSide(
-        planned=len(runs),
-        scorable=len(scorable),
-        passed=passed,
-        pass_rate=passed / len(scorable) if scorable else None,
-        run_ids=[r.run_id for r in runs],
-        reason_codes=[c for c, _ in sorted(reasons.items(), key=lambda i: (-i[1], i[0]))],
-    )
-
-
-def pair_tasks(baseline: Sequence[RunFacts], candidate: Sequence[RunFacts]) -> list[TaskResult]:
-    """One row per task, with each task's repetitions kept together on each side."""
-    sides: dict[str, tuple[list[RunFacts], list[RunFacts]]] = {}
-    categories: dict[str, str] = {}
-    for index, runs in enumerate((baseline, candidate)):
-        for run in runs:
-            sides.setdefault(run.task_key, ([], []))[index].append(run)
-            categories[run.task_key] = run.category
-    results = []
-    for task_key, (base_runs, cand_runs) in sides.items():
-        base, cand = _task_side(base_runs), _task_side(cand_runs)
-        if base.pass_rate is None or cand.pass_rate is None:
-            outcome: Outcome = "unscored"
-            delta = None
-        else:
-            delta = cand.pass_rate - base.pass_rate
-            outcome = "win" if delta > 0 else "loss" if delta < 0 else "tie"
-        results.append(
-            TaskResult(
-                task_key=task_key,
-                category=categories[task_key],
-                outcome=outcome,
-                baseline=base,
-                candidate=cand,
-                delta=delta,
-            )
-        )
-    # Worst regressions and biggest wins first.
-    return sorted(results, key=lambda t: (_ORDER[t.outcome], -abs(t.delta or 0.0), t.task_key))
+    paired: bool
+    # Problems that make the comparison unfair. Blocking ones mean no decision.
+    fairness: list[str]
+    baseline: Health
+    candidate: Health
+    metrics: list[MetricChange]
+    cases: list[CaseResult]
+    new_hard_failures: list[str]
+    decision: Decision
+    reasons: list[str]
 
 
 def seed_for(*parts: str) -> int:
-    """The same inputs always give the same interval, so a stored report can be re-derived."""
+    """The same inputs always give the same intervals, so a result can be checked again."""
     return int.from_bytes(hashlib.sha256("|".join(parts).encode()).digest()[:4], "big")
 
 
-def bootstrap(pairs: Sequence[tuple[float, float]], seed: int) -> Interval:
-    """Resample tasks with replacement. A task's repetitions stay together as its pass rate."""
-    if not pairs:
-        return Interval(
-            baseline=None,
-            candidate=None,
-            delta=None,
-            low=None,
-            high=None,
-            confidence=CONFIDENCE,
-            resamples=0,
-            seed=seed,
+def fairness(baseline: SideFacts, candidate: SideFacts) -> tuple[list[str], bool]:
+    """What makes the comparison unfair, and whether any of it blocks a decision."""
+    notes, blocking = [], False
+    if baseline.dataset_version_id != candidate.dataset_version_id:
+        notes.append("the two sides ran on different dataset versions")
+        blocking = True
+    if baseline.eval_spec_ids != candidate.eval_spec_ids:
+        notes.append("the two sides were graded by different eval spec versions; rescore one")
+        blocking = True
+    for side in (baseline, candidate):
+        if not side.finished:
+            notes.append(f"the {side.label} is not finished, so runs may be missing")
+    if baseline.repetitions != candidate.repetitions:
+        notes.append(
+            f"repetitions differ ({baseline.repetitions} and {candidate.repetitions}), "
+            "so consistency is not like for like"
         )
-    n = len(pairs)
-    differences = [c - b for b, c in pairs]
+    return notes, blocking
+
+
+Statistic = Callable[[Sequence[RunOutcome]], float | None]
+
+
+def _success(runs: Sequence[RunOutcome]) -> float | None:
+    decided = [r for r in runs if r.decided]
+    return sum(r.passed for r in decided) / len(decided) if decided else None
+
+
+def _violations(runs: Sequence[RunOutcome]) -> float | None:
+    decided = [r for r in runs if r.decided]
+    return sum(bool(r.hard_failures) for r in decided) / len(decided) if decided else None
+
+
+def _p50(runs: Sequence[RunOutcome]) -> float | None:
+    value = percentile([r.duration_ms for r in runs], 50)
+    return None if value is None else float(value)
+
+
+def _cost(runs: Sequence[RunOutcome]) -> float | None:
+    value = cost_per_success(runs)
+    return None if value is None else float(value)
+
+
+# Name, statistic, and whether a higher value is better.
+METRICS: list[tuple[str, Statistic, bool]] = [
+    ("success_rate", _success, True),
+    ("rule_violation_rate", _violations, False),
+    ("consistency", consistency, True),
+    ("duration_p50_ms", _p50, False),
+    ("cost_per_success_micros", _cost, False),
+]
+
+
+def _interval(
+    stat: Statistic,
+    groups: list[tuple[list[RunOutcome], list[RunOutcome]]] | None,
+    baseline: Sequence[RunOutcome],
+    candidate: Sequence[RunOutcome],
+    seed: int,
+) -> tuple[float | None, float | None]:
+    """A bootstrap interval for candidate minus baseline. Paired: whole cases are resampled,
+    each with both sides' runs, so case difficulty cancels out. Unpaired: each side's runs
+    are resampled on their own."""
     rng = random.Random(seed)  # noqa: S311 - statistics, not security
-    means = sorted(sum(rng.choices(differences, k=n)) / n for _ in range(RESAMPLES))
+    deltas = []
+    for _ in range(RESAMPLES):
+        if groups is not None:
+            picked = rng.choices(groups, k=len(groups))
+            base = [r for b, _ in picked for r in b]
+            cand = [r for _, c in picked for r in c]
+        else:
+            base = rng.choices(list(baseline), k=len(baseline))
+            cand = rng.choices(list(candidate), k=len(candidate))
+        b, c = stat(base), stat(cand)
+        if b is not None and c is not None:
+            deltas.append(c - b)
+    if len(deltas) < RESAMPLES // 2:
+        return None, None
+    deltas.sort()
     tail = (1 - CONFIDENCE) / 2
-    return Interval(
-        baseline=sum(b for b, _ in pairs) / n,
-        candidate=sum(c for _, c in pairs) / n,
-        delta=sum(differences) / n,
-        low=means[int(tail * RESAMPLES)],
-        high=means[min(RESAMPLES - 1, int((1 - tail) * RESAMPLES))],
-        confidence=CONFIDENCE,
-        resamples=RESAMPLES,
-        seed=seed,
+    return deltas[int(tail * len(deltas))], deltas[
+        min(len(deltas) - 1, int((1 - tail) * len(deltas)))
+    ]
+
+
+def _cases(
+    baseline: Sequence[RunOutcome], candidate: Sequence[RunOutcome]
+) -> tuple[list[CaseResult], list[tuple[list[RunOutcome], list[RunOutcome]]]]:
+    by_case: dict[str, tuple[list[RunOutcome], list[RunOutcome]]] = {}
+    for side, runs in ((0, baseline), (1, candidate)):
+        for run in runs:
+            if run.case_key is not None:
+                by_case.setdefault(run.case_key, ([], []))[side].append(run)
+    results, groups = [], []
+    for key, (base, cand) in sorted(by_case.items()):
+        b = [r for r in base if r.decided]
+        c = [r for r in cand if r.decided]
+        if not b or not c:
+            continue
+        groups.append((base, cand))
+        b_rate = sum(r.passed for r in b) / len(b)
+        c_rate = sum(r.passed for r in c) / len(c)
+        outcome: CaseOutcome = (
+            "worse" if c_rate < b_rate else "better" if c_rate > b_rate else "same"
+        )
+        results.append(
+            CaseResult(
+                case_key=key, baseline_pass_rate=b_rate, candidate_pass_rate=c_rate, outcome=outcome
+            )
+        )
+    order = {"worse": 0, "better": 1, "same": 2}
+    results.sort(
+        key=lambda r: (order[r.outcome], r.candidate_pass_rate - r.baseline_pass_rate, r.case_key)
     )
+    return results, groups
 
 
 def compare(
-    baseline: Side,
-    candidate: Side,
-    baseline_runs: Sequence[RunFacts],
-    candidate_runs: Sequence[RunFacts],
+    baseline: Sequence[RunOutcome],
+    candidate: Sequence[RunOutcome],
+    baseline_facts: SideFacts,
+    candidate_facts: SideFacts,
+    gates: Gates,
+    paired: bool,
+    seed: int,
 ) -> ComparisonResult:
-    check_compatible(baseline, candidate)
-    tasks = pair_tasks(baseline_runs, candidate_runs)
-    paired = [t for t in tasks if t.outcome != "unscored"]
-    success = bootstrap(
-        [(t.baseline.pass_rate or 0.0, t.candidate.pass_rate or 0.0) for t in paired],
-        seed_for(
-            baseline.experiment_id,
-            baseline.agent_config_id,
-            candidate.experiment_id,
-            candidate.agent_config_id,
-        ),
-    )
-    base_card = scorecard(baseline.agent_config_id, baseline_runs)
-    cand_card = scorecard(candidate.agent_config_id, candidate_runs)
-    notes = []
-    if len(paired) < MIN_TASKS:
-        notes.append(
-            f"Only {len(paired)} paired tasks. With fewer than {MIN_TASKS}, "
-            "the difference may be noise."
-        )
-    if success.low is not None and success.high is not None and success.low <= 0 <= success.high:
-        notes.append("The interval includes zero, so this difference may be chance.")
-    for card, name in ((base_card, "baseline"), (cand_card, "candidate")):
-        if len(card.resolved_models) > 1:
-            notes.append(
-                f"The {name} ran on more than one model version: "
-                f"{', '.join(card.resolved_models)}. A model alias may have moved mid-run."
+    notes, blocking = fairness(baseline_facts, candidate_facts)
+    cases, groups = _cases(baseline, candidate) if paired else ([], [])
+    metrics = []
+    for name, stat, higher_is_better in METRICS:
+        b, c = stat(baseline), stat(candidate)
+        low, high = _interval(stat, groups if paired else None, baseline, candidate, seed)
+        delta = None if b is None or c is None else c - b
+        metrics.append(
+            MetricChange(
+                name=name,
+                baseline=b,
+                candidate=c,
+                delta=delta,
+                low=low,
+                high=high,
+                real=None if low is None or high is None else not (low <= 0 <= high),
+                worse=delta is not None and (delta < 0 if higher_is_better else delta > 0),
             )
-    if (
-        base_card.resolved_models
-        and cand_card.resolved_models
-        and base_card.resolved_models != cand_card.resolved_models
-    ):
-        notes.append(
-            f"The sides ran on different model versions: baseline "
-            f"{', '.join(base_card.resolved_models)}, candidate "
-            f"{', '.join(cand_card.resolved_models)}."
         )
-    unscored = len(tasks) - len(paired)
-    if unscored:
-        notes.append(f"{unscored} tasks had no scorable run on one side and are not paired.")
+    base_failures = {k for r in baseline for k in r.hard_failures}
+    new_failures = sorted({k for r in candidate for k in r.hard_failures} - base_failures)
+    enough = len(groups) >= MIN_CASES if paired else min(len(baseline), len(candidate)) >= MIN_RUNS
+    if not enough:
+        notes.append(
+            f"too little data: fewer than {MIN_CASES} paired cases"
+            if paired
+            else f"too little data: fewer than {MIN_RUNS} runs on a side"
+        )
+    decision, reasons = decide(metrics, new_failures, gates, blocking, enough)
     return ComparisonResult(
-        baseline=SideSummary(
-            experiment_id=baseline.experiment_id,
-            agent_config_id=baseline.agent_config_id,
-            config_name=baseline.config_name,
-            scorecard=base_card,
-        ),
-        candidate=SideSummary(
-            experiment_id=candidate.experiment_id,
-            agent_config_id=candidate.agent_config_id,
-            config_name=candidate.config_name,
-            scorecard=cand_card,
-        ),
-        paired_tasks=len(paired),
-        wins=sum(1 for t in tasks if t.outcome == "win"),
-        losses=sum(1 for t in tasks if t.outcome == "loss"),
-        ties=sum(1 for t in tasks if t.outcome == "tie"),
-        unscored=unscored,
-        success=success,
-        may_be_noise=len(paired) < MIN_TASKS
-        or success.low is None
-        or (success.high is not None and success.low <= 0 <= success.high),
-        notes=notes,
-        tasks=tasks,
+        paired=paired,
+        fairness=notes,
+        baseline=health(baseline),
+        candidate=health(candidate),
+        metrics=metrics,
+        cases=cases,
+        new_hard_failures=new_failures,
+        decision=decision,
+        reasons=reasons,
     )
+
+
+def decide(
+    metrics: list[MetricChange],
+    new_failures: list[str],
+    gates: Gates,
+    blocking: bool,
+    enough: bool,
+) -> tuple[Decision, list[str]]:
+    """Hold when a gate trips on a real change, or a new hard failure appears.
+
+    An unfair comparison decides nothing. With too little data only a new hard failure can
+    hold: it is a fact, not an estimate.
+    """
+    if blocking:
+        return "insufficient_data", ["the two sides cannot be compared fairly"]
+    reasons = []
+    if gates.hold_on_new_hard_failure and new_failures:
+        reasons.append(f"new hard failures: {', '.join(new_failures)}")
+    by_name = {m.name: m for m in metrics}
+    success = by_name["success_rate"]
+    if success.real and success.delta is not None and -success.delta > gates.max_success_drop:
+        reasons.append(
+            f"success rate down {-success.delta * 100:.1f} points, more than the "
+            f"{gates.max_success_drop * 100:.1f} allowed"
+        )
+    cost = by_name["cost_per_success_micros"]
+    if (
+        gates.max_cost_increase is not None
+        and cost.real
+        and cost.baseline
+        and cost.candidate is not None
+        and cost.candidate / cost.baseline - 1 > gates.max_cost_increase
+    ):
+        rise = cost.candidate / cost.baseline - 1
+        reasons.append(
+            f"cost per successful run up {rise * 100:.0f}%, more than the "
+            f"{gates.max_cost_increase * 100:.0f}% allowed"
+        )
+    if reasons:
+        return "hold", reasons
+    if not enough:
+        return "insufficient_data", ["too little data to tell a change from noise"]
+    return "ship", ["no gate tripped"]
