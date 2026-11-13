@@ -1,5 +1,6 @@
 import difflib
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -35,6 +36,10 @@ def _tools(config: dict[str, Any]) -> dict[str, str]:
     return named
 
 
+def _sentences(text: str) -> list[str]:
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.replace("\n", " ")) if s.strip()]
+
+
 def config_diff(baseline: dict[str, Any], candidate: dict[str, Any]) -> list[ConfigChange]:
     """What changed between two agent versions, by part, in plain words."""
     changes = []
@@ -45,8 +50,7 @@ def config_diff(baseline: dict[str, Any], candidate: dict[str, Any]) -> list[Con
     old_prompt, new_prompt = str(baseline.get("prompt") or ""), str(candidate.get("prompt") or "")
     if old_prompt != new_prompt:
         # Sentences, not lines: prompts are often one long line.
-        old = [s.strip() for s in old_prompt.replace("\n", " ").split(". ") if s.strip()]
-        new = [s.strip() for s in new_prompt.replace("\n", " ").split(". ") if s.strip()]
+        old, new = _sentences(old_prompt), _sentences(new_prompt)
         lines = tuple(
             line
             for line in difflib.unified_diff(old, new, lineterm="", n=0)

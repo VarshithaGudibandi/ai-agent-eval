@@ -133,6 +133,16 @@ class PlatformClient:
         result: dict[str, Any] = self._call("POST", "/api/v1/comparisons", body)
         return result
 
+    def request_report(self, comparison_id: str) -> dict[str, Any]:
+        result: dict[str, Any] = self._call(
+            "POST", "/api/v1/reports", {"comparison_id": comparison_id}
+        )
+        return result
+
+    def report(self, report_id: str) -> dict[str, Any]:
+        result: dict[str, Any] = self._call("GET", f"/api/v1/reports/{report_id}")
+        return result
+
     def finish_experiment(self, experiment_id: str) -> dict[str, Any]:
         result: dict[str, Any] = self._call("POST", f"/api/v1/experiments/{experiment_id}/finish")
         return result

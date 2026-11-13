@@ -84,3 +84,23 @@ async def test_a_file_without_an_eval_or_a_bad_token_is_an_error(
     assert await asyncio.to_thread(main, ["run", str(empty)]) == ERROR
     assert await asyncio.to_thread(main, ["--token", "aet_wrong", "compare", "a", "b"]) == ERROR
     assert "answered 401" in capsys.readouterr().err
+
+
+async def test_evalctl_explains_a_hold_when_asked(
+    platform_env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    v1 = _file(platform_env, "v1.py", "scripted_gemini", "")
+    v2 = _file(platform_env, "v2.py", "careless", " Be quick.")
+    assert await asyncio.to_thread(main, ["run", v1]) == SHIP
+    capsys.readouterr()
+    assert await asyncio.to_thread(main, ["run", v2, "--explain"]) == HOLD
+    out = capsys.readouterr().out
+    # The worker wrote the report. With no Gemini key in this workspace there is no cause,
+    # and the report says so, but the findings that need no model are all there.
+    assert "Why it got worse:" in out and "refund_after_lookup now fails" in out
+    assert "changed: prompt: 0 sentences removed, 1 added" in out
+    assert "no cause: no Gemini key in this workspace" in out
+    # Asked again for the same comparison, explain alone prints the same report.
+    comparison = out[out.index("/api/v1/comparisons/") + len("/api/v1/comparisons/") :].split()[0]
+    assert await asyncio.to_thread(main, ["explain", comparison]) == SHIP
+    assert "refund_after_lookup now fails" in capsys.readouterr().out

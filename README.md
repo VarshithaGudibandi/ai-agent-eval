@@ -166,9 +166,10 @@ The SDK never raises into your code. Its own problems are logged on the `agent_e
 evalctl run examples/refund_agent/eval.py
 evalctl compare exp_baseline exp_candidate
 evalctl compare --live refund-agent --days 7
+evalctl explain cmp_123
 ```
 
-It prints the decision, why, each metric with its change and whether it is real or noise, and the cases that got worse.
+It prints the decision, why, each metric with its change and whether it is real or noise, and the cases that got worse. Add `--explain` to `run` or `compare`, or use `evalctl explain`, to also get a regression report: what changed in the config, the new failures, and each one's likely cause with the spans it rests on.
 
 Other languages can post traces directly with a member API token:
 
@@ -213,7 +214,7 @@ The response lists which traces were `accepted`, which were `duplicates`, and wh
 | `make migrate` | Run database migrations |
 | `make db` | Start only Postgres, for running tests on the host |
 | `make test` | Start Postgres, migrate a separate test database, run the tests. Needs no network or key, and can run while the stack is up |
-| `make test-paid` | Run the tests that call the real Gemini API: the provider and both judges. Needs `GEMINI_API_KEY` |
+| `make test-paid` | Run the tests that call the real Gemini API: the provider, both judges and the explainer. Needs `GEMINI_API_KEY` |
 | `make lint` | Check lint and formatting |
 | `make format` | Fix formatting and safe lint issues |
 | `make typecheck` | Run mypy in strict mode on `app/`, the SDK and `evalctl` |
