@@ -25,6 +25,9 @@
     </div>
   </header>
   {% endif %}
+  {% if principal and request.app.state.settings.demo_mode and principal.role == "viewer" %}
+  <p class="demo-banner" role="note">Demo data: a real agent's recorded runs, loaded so you can look around. You can view everything and change nothing.</p>
+  {% endif %}
   <main id="main">
     {% block main %}{% endblock %}
   </main>

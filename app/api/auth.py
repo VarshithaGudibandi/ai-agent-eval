@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import (
@@ -12,9 +12,10 @@ from app.api.dependencies import (
     get_settings_dep,
 )
 from app.auth.passwords import MIN_PASSWORD_LENGTH
-from app.auth.sessions import end_session, start_session
+from app.auth.sessions import NewSession, end_session, start_session
 from app.auth.users import authenticate, setup_first_owner
 from app.db.models import Role
+from app.demo.seed import demo_viewer
 from app.settings import Settings
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -55,17 +56,7 @@ async def setup(body: SetupRequest, session: Db) -> SetupResponse:
     return SetupResponse(user_id=user.id, workspace_id=workspace.id)
 
 
-@router.post("/login")
-async def login(
-    body: LoginRequest,
-    response: Response,
-    session: Db,
-    settings: Annotated[Settings, Depends(get_settings_dep)],
-) -> LoginResponse:
-    """Start a session. The cookie carries it; changing requests must echo the CSRF token."""
-    user = await authenticate(session, body.email, body.password)
-    ttl = timedelta(hours=settings.session_ttl_hours)
-    new = await start_session(session, user, body.workspace_id, ttl)
+def _signed_in(response: Response, new: NewSession, ttl: timedelta, settings: Settings) -> None:
     response.set_cookie(
         SESSION_COOKIE,
         new.token,
@@ -84,6 +75,42 @@ async def login(
         secure=settings.session_cookie_secure,
         path="/",
     )
+
+
+@router.post("/login")
+async def login(
+    body: LoginRequest,
+    response: Response,
+    session: Db,
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+) -> LoginResponse:
+    """Start a session. The cookie carries it; changing requests must echo the CSRF token."""
+    user = await authenticate(session, body.email, body.password)
+    ttl = timedelta(hours=settings.session_ttl_hours)
+    new = await start_session(session, user, body.workspace_id, ttl)
+    _signed_in(response, new, ttl, settings)
+    return LoginResponse(
+        user_id=user.id,
+        workspace_id=new.row.workspace_id,
+        role=new.role,
+        csrf_token=new.csrf_token,
+    )
+
+
+@router.post("/demo")
+async def demo(
+    response: Response,
+    session: Db,
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+) -> LoginResponse:
+    """Sign in to the demo workspace as a viewer, with no account. Only when DEMO_MODE is on
+    and the demo is loaded."""
+    user = await demo_viewer(session) if settings.demo_mode else None
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "there is no demo on this server")
+    ttl = timedelta(hours=settings.session_ttl_hours)
+    new = await start_session(session, user, None, ttl)
+    _signed_in(response, new, ttl, settings)
     return LoginResponse(
         user_id=user.id,
         workspace_id=new.row.workspace_id,

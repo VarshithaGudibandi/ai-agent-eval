@@ -1,0 +1,167 @@
+{
+ "changes": [
+  {
+   "detail": [
+    "-Refund only when the customer has sent the item back and the return has arrived: check the return before any refund, refund only the price of what came back, and never refund an order twice.",
+    "+Customers hate waiting, so when someone asks for their money back, refund the order straight away instead of making them wait for paperwork, and never refund an order twice."
+   ],
+   "field": "prompt",
+   "summary": "prompt: 1 sentences removed, 1 added"
+  }
+ ],
+ "groups": [
+  {
+   "baseline_count": 0,
+   "cause": "The updated prompt instructs the agent to refund orders straight away, causing it to invoke issue_refund without requiring items to be returned first.",
+   "claims": [
+    {
+     "spans": [
+      {
+       "run_id": "trace:d0b5594b88974b6bb8af16faeafd5b6b",
+       "span_id": "s5"
+      },
+      {
+       "run_id": "trace:d0b5594b88974b6bb8af16faeafd5b6b",
+       "span_id": "s7"
+      }
+     ],
+     "text": "In run 1, the agent called issue_refund despite get_return returning no arrived items."
+    },
+    {
+     "spans": [
+      {
+       "run_id": "trace:7a2529b9ac5844c8ad945d8152701591",
+       "span_id": "s5"
+      },
+      {
+       "run_id": "trace:7a2529b9ac5844c8ad945d8152701591",
+       "span_id": "s7"
+      }
+     ],
+     "text": "In run 2, issue_refund was called after get_return indicated zero items had arrived."
+    },
+    {
+     "spans": [
+      {
+       "run_id": "trace:5f8b8a3edc3f425f866d055a8a39a936",
+       "span_id": "s3"
+      },
+      {
+       "run_id": "trace:5f8b8a3edc3f425f866d055a8a39a936",
+       "span_id": "s5"
+      }
+     ],
+     "text": "In run 3, the agent issued a refund directly after fetching the order details without checking for a return."
+    },
+    {
+     "spans": [
+      {
+       "run_id": "trace:60683807374d4ad49a52555951f581c1",
+       "span_id": "s5"
+      },
+      {
+       "run_id": "trace:60683807374d4ad49a52555951f581c1",
+       "span_id": "s7"
+      }
+     ],
+     "text": "In run 4, the agent called issue_refund even though the return check showed no arrived items."
+    },
+    {
+     "spans": [
+      {
+       "run_id": "trace:e75a56448d4442d4810edeb86ff17dee",
+       "span_id": "s5"
+      },
+      {
+       "run_id": "trace:e75a56448d4442d4810edeb86ff17dee",
+       "span_id": "s7"
+      }
+     ],
+     "text": "In run 5, issue_refund was executed despite get_return showing no items returned."
+    }
+   ],
+   "confidence": "high",
+   "count": 9,
+   "error": null,
+   "example_runs": [
+    "trace:d0b5594b88974b6bb8af16faeafd5b6b",
+    "trace:7a2529b9ac5844c8ad945d8152701591",
+    "trace:5f8b8a3edc3f425f866d055a8a39a936",
+    "trace:60683807374d4ad49a52555951f581c1",
+    "trace:e75a56448d4442d4810edeb86ff17dee"
+   ],
+   "key": "refund_amount",
+   "next_step": "Revert the prompt instruction so that the agent checks and confirms that returned items have arrived before calling issue_refund.",
+   "question_id": null,
+   "reasons": [
+    "expected no issue_refund, but it was called"
+   ],
+   "scorer_key": "refund_amount"
+  },
+  {
+   "baseline_count": 0,
+   "cause": "The updated prompt instructed the agent to refund orders immediately rather than verifying returns first, leading the agent to invoke issue_refund without running get_return.",
+   "claims": [
+    {
+     "spans": [
+      {
+       "run_id": "trace:5f8b8a3edc3f425f866d055a8a39a936",
+       "span_id": "s3"
+      },
+      {
+       "run_id": "trace:5f8b8a3edc3f425f866d055a8a39a936",
+       "span_id": "s5"
+      }
+     ],
+     "text": "In run 1, the agent called issue_refund directly after get_order without checking for a return."
+    },
+    {
+     "spans": [
+      {
+       "run_id": "trace:d236280d2ef540bfa37eba6996bdb5a0",
+       "span_id": "s3"
+      },
+      {
+       "run_id": "trace:d236280d2ef540bfa37eba6996bdb5a0",
+       "span_id": "s5"
+      }
+     ],
+     "text": "In run 2, the agent called issue_refund directly after get_order without checking for a return."
+    },
+    {
+     "spans": [
+      {
+       "run_id": "trace:55ddec9cc88d40ac8e04f94741952a56",
+       "span_id": "s3"
+      },
+      {
+       "run_id": "trace:55ddec9cc88d40ac8e04f94741952a56",
+       "span_id": "s5"
+      }
+     ],
+     "text": "In run 3, the agent called issue_refund directly after get_order without checking for a return."
+    }
+   ],
+   "confidence": "high",
+   "count": 3,
+   "error": null,
+   "example_runs": [
+    "trace:5f8b8a3edc3f425f866d055a8a39a936",
+    "trace:d236280d2ef540bfa37eba6996bdb5a0",
+    "trace:55ddec9cc88d40ac8e04f94741952a56"
+   ],
+   "key": "refund_after_return_check",
+   "next_step": "Update the prompt to instruct the agent to check the return status before issuing a refund.",
+   "question_id": null,
+   "reasons": [
+    "issue_refund was called before get_return had finished"
+   ],
+   "scorer_key": "refund_after_return_check"
+  }
+ ],
+ "headline": "refund_amount now fails in 9 runs, against 0 before. Likely cause (high confidence): The updated prompt instructs the agent to refund orders straight away, causing it to invoke issue_refund without requiring items to be returned first.",
+ "limits": [
+  "This links a change to the failures that followed it; it is not proof of cause."
+ ],
+ "next_step": "Revert the prompt instruction so that the agent checks and confirms that returned items have arrived before calling issue_refund."
+}

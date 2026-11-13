@@ -6,7 +6,6 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.dependencies import CSRF_HEADER
@@ -15,13 +14,8 @@ from app.auth.users import create_user
 from app.auth.workspaces import create_workspace
 from app.db import models
 from app.db.ids import new_id
-from app.db.jobs import Claim, finish
 from app.db.scope import WorkspaceScope
-from app.explain.job import EXPLAIN, explain_job
-from app.jobs.worker import JobContext
-from app.metrics.aggregate_job import AGGREGATE_DAY, aggregate_day_job
-from app.scoring.job import SCORE_RUN, score_run_job
-from app.scoring.judge_job import JUDGE_RUN, judge_run_job
+from app.jobs.worker import run_queued
 from app.settings import Settings
 
 PASSWORD = "a long enough password"
@@ -156,42 +150,9 @@ async def add_dataset(app: FastAPI, workspace_id: str, name: str) -> tuple[str, 
 
 
 async def score_now(app: FastAPI, workspace_id: str) -> int:
-    """Run this workspace's waiting scoring and judging jobs, as the worker would. Returns
-    how many ran.
+    """Run this workspace's waiting jobs, as the worker would. Returns how many ran.
 
     The worker claims the oldest job of any workspace, and other tests leave theirs queued,
     so tests take their own workspace's jobs directly.
     """
-    sessionmaker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
-    handlers = {
-        SCORE_RUN: score_run_job,
-        JUDGE_RUN: judge_run_job,
-        AGGREGATE_DAY: aggregate_day_job,
-        EXPLAIN: explain_job,
-    }
-    done = 0
-    while True:
-        async with sessionmaker.begin() as session:
-            job = await session.scalar(
-                select(models.Job)
-                .where(
-                    models.Job.workspace_id == workspace_id,
-                    models.Job.kind.in_(list(handlers)),
-                    models.Job.status == models.JobStatus.QUEUED,
-                )
-                .order_by(models.Job.created_at)
-                .limit(1)
-                .with_for_update()
-            )
-            if job is None:
-                return done
-            job.status, job.lease_token = models.JobStatus.RUNNING, new_id("lease")
-            job.lease_expires_at = func.now() + func.make_interval(0, 0, 0, 0, 0, 1)
-            job.attempts += 1
-            claim = Claim(
-                workspace_id, job.id, job.kind, job.subject_id, job.payload, job.lease_token, 1
-            )
-        await handlers[claim.kind](JobContext(claim, sessionmaker, app.state.settings))
-        async with sessionmaker.begin() as session:
-            await finish(session, workspace_id, claim.job_id, claim.lease_token)
-        done += 1
+    return await run_queued(app.state.sessionmaker, app.state.settings, workspace_id)

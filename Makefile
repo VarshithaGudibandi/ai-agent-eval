@@ -1,7 +1,11 @@
-.PHONY: up down logs ps migrate db test-db test test-paid lint format typecheck check
+.PHONY: up demo down logs ps migrate db test-db test test-paid lint format typecheck check
 
 up:
 	docker compose up -d --build --wait
+
+# Loads the demo workspace into the running stack. Set DEMO_MODE=true to show its sign-in button.
+demo:
+	docker compose exec api python -m app.demo.seed
 
 down:
 	docker compose down

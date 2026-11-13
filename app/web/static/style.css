@@ -273,3 +273,6 @@ label.choice { flex-direction: row; align-items: center; gap: 6px; color: var(--
   .span-row .span-time { grid-area: time; }
   details.actions .popover { left: 0; right: auto; }
 }
+
+.demo-banner { margin: 0; padding: 8px 16px; text-align: center; font-size: 0.85rem; color: var(--warn); background: var(--warn-bg); }
+.demo-entry { margin-top: 24px; }

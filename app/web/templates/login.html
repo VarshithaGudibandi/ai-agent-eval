@@ -9,5 +9,13 @@
     <button type="submit">Sign in</button>
     <p class="error" role="alert"></p>
   </form>
+  {% if request.app.state.settings.demo_mode %}
+  <div class="card demo-entry">
+    <h2>No account?</h2>
+    <p>Look around a demo workspace: a support agent whose new prompt broke refunds, and how that was caught.</p>
+    <button data-api="/api/v1/auth/demo" data-method="POST" data-redirect="/agents">Try the demo</button>
+    <p class="error" role="alert"></p>
+  </div>
+  {% endif %}
 </section>
 {% endblock %}

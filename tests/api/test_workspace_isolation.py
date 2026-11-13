@@ -492,6 +492,7 @@ BODY_ROUTES = {
 NO_WORKSPACE_INPUT = {
     ("POST", "/api/v1/auth/setup"),
     ("POST", "/api/v1/auth/login"),
+    ("POST", "/api/v1/auth/demo"),
     ("POST", "/api/v1/auth/logout"),
     ("POST", "/api/v1/workspaces"),
     ("POST", "/api/v1/invites/accept"),

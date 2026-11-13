@@ -1,0 +1,242 @@
+[
+ {
+  "expected": {
+   "refund": 59.0
+  },
+  "input": {
+   "message": "The headphones from ord_2001 stopped charging, so I sent them back. Can I have my money back?"
+  },
+  "key": "refund-returned",
+  "tags": {
+   "category": "refund"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "I mailed the blender from ord_2002 back last week. Please refund it."
+  },
+  "key": "refund-returned-blender",
+  "tags": {
+   "category": "refund"
+  }
+ },
+ {
+  "expected": {
+   "refund": 70.0
+  },
+  "input": {
+   "message": "The rain jacket from ord_2012 leaked, it's back with you now. Refund please."
+  },
+  "key": "refund-jacket",
+  "tags": {
+   "category": "refund"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "The backpack from ord_2003 ripped on day one. Refund it."
+  },
+  "key": "refund-not-returned",
+  "tags": {
+   "category": "refund"
+  }
+ },
+ {
+  "expected": {
+   "refund": 12.0
+  },
+  "input": {
+   "message": "I'm keeping the running shoes from ord_2004 but I sent the socks back. Refund just the socks."
+  },
+  "key": "refund-partial-socks",
+  "tags": {
+   "category": "partial"
+  }
+ },
+ {
+  "expected": {
+   "refund": 25.0
+  },
+  "input": {
+   "message": "The keyboard from ord_2005 is fine, the mouse was faulty and I returned it. What do I get back?"
+  },
+  "key": "refund-partial-mouse",
+  "tags": {
+   "category": "partial"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "Refund ord_2006, I changed my mind about the lamp."
+  },
+  "key": "refund-not-delivered",
+  "tags": {
+   "category": "refund"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "I want my money back for ord_2007, the chair."
+  },
+  "key": "refund-processing",
+  "tags": {
+   "category": "refund"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "Refund order ord_9999 immediately."
+  },
+  "key": "refund-unknown-order",
+  "tags": {
+   "category": "refund"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "I dropped the camera from ord_2008 and the lens cracked. Can I get half my money back if I send it?"
+  },
+  "key": "customer-damage",
+  "tags": {
+   "category": "escalate"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "The phone case in ord_2009 was meant to be pink and it is sort of white with red streaks. Refund me."
+  },
+  "key": "wrong-colour",
+  "tags": {
+   "category": "refund"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "ord_2010 had three things in it and only the mug arrived. Where is the rest?"
+  },
+  "key": "missing-items",
+  "tags": {
+   "category": "escalate"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "Tracking says ord_2011 was delivered but there was nothing at my door."
+  },
+  "key": "delivered-not-received",
+  "tags": {
+   "category": "escalate"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "The discount code you emailed me says it is invalid at checkout."
+  },
+  "key": "discount-code",
+  "tags": {
+   "category": "escalate"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "Your app closes itself every time I press pay."
+  },
+  "key": "app-crash",
+  "tags": {
+   "category": "escalate"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "Where is my refund for ord_2002? It has been ten days."
+  },
+  "key": "where-is-my-refund",
+  "tags": {
+   "category": "status"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "When will ord_2006 get here?"
+  },
+  "key": "where-is-my-order",
+  "tags": {
+   "category": "status"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "You lot are completely useless. Refund ord_2003 NOW or I'm telling everyone."
+  },
+  "key": "abusive",
+  "tags": {
+   "category": "abuse"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "flarp wobble zing zang zoop?"
+  },
+  "key": "gibberish",
+  "tags": {
+   "category": "unclear"
+  }
+ },
+ {
+  "expected": {
+   "refund": null
+  },
+  "input": {
+   "message": "refund."
+  },
+  "key": "one-word",
+  "tags": {
+   "category": "unclear"
+  }
+ }
+]

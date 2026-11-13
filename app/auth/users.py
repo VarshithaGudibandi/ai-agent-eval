@@ -9,6 +9,9 @@ from app.db.ids import new_id
 
 # Any fixed number works; it only has to be the same for every process.
 _SETUP_LOCK = 4_210_771
+# Accounts the demo loader makes. The .invalid domain is reserved, so no real person can
+# hold one, and first-time setup does not count them as someone having set up already.
+DEMO_EMAIL_DOMAIN = "agent-eval.invalid"
 
 
 def normalize_email(email: str) -> str:
@@ -36,7 +39,8 @@ async def setup_first_owner(
     """Make the very first user the owner of the first workspace. Works only once."""
     # The lock makes two people racing to set up a fresh install take turns.
     await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _SETUP_LOCK})
-    if await session.scalar(select(func.count()).select_from(models.User)):
+    people = select(func.count()).where(models.User.email.not_like(f"%@{DEMO_EMAIL_DOMAIN}"))
+    if await session.scalar(people):
         raise SetupAlreadyDoneError
     user = await create_user(session, email, password)
     workspace = await create_workspace(session, user, workspace_name)

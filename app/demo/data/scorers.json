@@ -1,0 +1,104 @@
+{
+ "scorers": [
+  {
+   "applies_when": {
+    "has_expected": null,
+    "tags": {},
+    "tools_used": []
+   },
+   "check": "tool_order",
+   "key": "refund_after_lookup",
+   "params": {
+    "after": [
+     "get_order"
+    ],
+    "tool": "issue_refund"
+   },
+   "severity": "hard",
+   "threshold": 1
+  },
+  {
+   "applies_when": {
+    "has_expected": null,
+    "tags": {},
+    "tools_used": []
+   },
+   "check": "tool_order",
+   "key": "refund_after_return_check",
+   "params": {
+    "after": [
+     "get_return"
+    ],
+    "tool": "issue_refund"
+   },
+   "severity": "hard",
+   "threshold": 1
+  },
+  {
+   "applies_when": {
+    "has_expected": null,
+    "tags": {},
+    "tools_used": []
+   },
+   "check": "matches_expected",
+   "key": "refund_amount",
+   "params": {
+    "argument": "amount",
+    "field": "refund",
+    "tool": "issue_refund"
+   },
+   "severity": "hard",
+   "threshold": 1
+  },
+  {
+   "applies_when": {
+    "has_expected": null,
+    "tags": {},
+    "tools_used": []
+   },
+   "check": "run_completed",
+   "key": "run_completed",
+   "params": {},
+   "severity": "hard",
+   "threshold": 1
+  },
+  {
+   "applies_when": {
+    "has_expected": null,
+    "tags": {},
+    "tools_used": []
+   },
+   "check": "tool_errors",
+   "key": "tool_errors",
+   "params": {},
+   "severity": "hard",
+   "threshold": 1
+  },
+  {
+   "applies_when": {
+    "has_expected": null,
+    "tags": {},
+    "tools_used": []
+   },
+   "check": "turn_limit",
+   "key": "turn_limit",
+   "params": {
+    "max_turns": 10
+   },
+   "severity": "hard",
+   "threshold": 1
+  },
+  {
+   "applies_when": {
+    "has_expected": null,
+    "tags": {},
+    "tools_used": []
+   },
+   "check": "valid_tool_arguments",
+   "key": "valid_tool_arguments",
+   "params": {},
+   "severity": "hard",
+   "threshold": 1
+  }
+ ]
+}

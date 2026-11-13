@@ -79,19 +79,27 @@ async def enqueue(
 
 
 async def claim_next(
-    session: AsyncSession, worker_id: str, lease_seconds: float, kinds: list[str]
+    session: AsyncSession,
+    worker_id: str,
+    lease_seconds: float,
+    kinds: list[str],
+    workspace_id: str | None = None,
 ) -> Claim | None:
     """Take the oldest queued job of a kind this worker handles, holding a fresh lease.
+    Given a workspace, only that workspace's jobs.
 
     SKIP LOCKED lets many workers claim at once without ever taking the same job.
     """
+    conditions = [
+        models.Job.status == models.JobStatus.QUEUED,
+        models.Job.available_at <= func.now(),
+        models.Job.kind.in_(kinds),
+    ]
+    if workspace_id is not None:
+        conditions.append(models.Job.workspace_id == workspace_id)
     job = await session.scalar(
         select(models.Job)
-        .where(
-            models.Job.status == models.JobStatus.QUEUED,
-            models.Job.available_at <= func.now(),
-            models.Job.kind.in_(kinds),
-        )
+        .where(*conditions)
         .order_by(models.Job.available_at, models.Job.created_at, models.Job.id)
         .limit(1)
         .with_for_update(skip_locked=True)

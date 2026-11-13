@@ -72,7 +72,14 @@ Then open http://127.0.0.1:8000 and sign in.
 | Live | Per agent: runs per day, health by day, alerts, and the review queue, where members label each judge question yes or no |
 | Settings | Members, API tokens, provider keys and budgets; per agent the eval spec, gates, judge schedule, version labels and the shipped version |
 
-A demo with seeded data that needs no key is not built yet.
+To look around without an agent or a key, load the demo: a support agent whose new prompt made it refund without checking returns, and the eval that caught it.
+
+```bash
+make up
+make demo
+```
+
+Then set `DEMO_MODE=true` in `.env`, run `make up` again, and press "Try the demo" on the sign-in page. It opens the demo workspace read-only. The runs are the agent's real recorded runs; the regression report was written by `gemini-3.5-flash` when they were recorded, and is loaded as it was.
 
 ## Connect an agent
 
@@ -237,6 +244,7 @@ It reads results that already exist and runs nothing: to measure a change, the a
 | Command | What it does |
 | --- | --- |
 | `make up` | Build and start the stack, wait until healthy |
+| `make demo` | Load the demo workspace into the running stack. Running it again changes nothing |
 | `make down` | Stop the stack |
 | `make logs` | Follow logs from every service |
 | `make ps` | Show service status |
@@ -297,6 +305,7 @@ All settings are in `.env.example`. The main ones:
 | `INGEST_MAX_BYTES` | `5000000` | Largest trace batch one request may carry |
 | `INGEST_TRACES_PER_MINUTE` | `1200` | Traces one workspace may send per minute |
 | `EXPLAINER_MODEL` | `gemini-3.5-flash` | Gemini model that writes regression reports |
+| `DEMO_MODE` | `false` | Show "Try the demo" on the sign-in page, which opens the demo workspace read-only |
 | `REVIEW_SAMPLE_SHARE` | `0.1` | Share of judged runs put in the review queue for people to label. Borderline runs always go in |
 
 ## License

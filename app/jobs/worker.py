@@ -197,6 +197,31 @@ class Worker:
             self._slots.release()
 
 
+async def run_queued(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    workspace_id: str,
+    handlers: Mapping[str, Handler] = HANDLERS,
+) -> int:
+    """Run one workspace's waiting jobs here and now, oldest first, until none are left.
+    Returns how many ran.
+
+    For loading a workspace without a worker running. Jobs a handler adds are run too.
+    """
+    done = 0
+    while True:
+        async with sessionmaker.begin() as session:
+            claim = await claim_next(
+                session, "here", settings.lease_seconds, list(handlers), workspace_id
+            )
+        if claim is None:
+            return done
+        await handlers[claim.kind](JobContext(claim, sessionmaker, settings))
+        async with sessionmaker.begin() as session:
+            await finish(session, workspace_id, claim.job_id, claim.lease_token)
+        done += 1
+
+
 async def run(
     settings: Settings, stop: asyncio.Event, handlers: Mapping[str, Handler] = HANDLERS
 ) -> None:

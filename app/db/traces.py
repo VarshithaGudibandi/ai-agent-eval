@@ -187,3 +187,13 @@ async def agents_with_versions(
         .order_by(models.AgentVersion.created_at)
     )
     return [(a, [v for v in versions if v.agent_id == a.id]) for a in agents]
+
+
+async def run_ids_by_trace(scope: WorkspaceScope) -> dict[str, str]:
+    """Each stored trace's id as the agent sent it, mapped to the run built from it."""
+    rows = await scope.session.execute(
+        select(models.Trace.trace_id, models.Run.id)
+        .join(models.Run, models.Run.trace_row_id == models.Trace.id)
+        .where(models.Trace.workspace_id == scope.workspace_id)
+    )
+    return {trace_id: run_id for trace_id, run_id in rows}
